@@ -1,0 +1,13 @@
+arosics
+cmocean
+dask[array]
+geopandas
+numba
+numpy
+pandas
+pyfftw
+opencv-python
+rasterio
+xarray
+PyYAML
+tqdm

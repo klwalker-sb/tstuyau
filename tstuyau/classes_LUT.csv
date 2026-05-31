@@ -1,0 +1,248 @@
+L1,L2,L3,L4,LC_UNQ,L1-label,L2-label,L3_Label,L4_Label,L5_label,Text,details,L1_name,L2_name,L3_name,L4_name,UNQ_name,,CropNoCrop
+0,0,0,0,0,nodata / unknown,,,,,nodata / unknown, ------ (this is just a placeholder for pixels not yet inspected),noData,noData,noData,noData,noData,,noData
+0,-1,-1,-1,-1,,Mask,,,,       Mask,Individual image mask -- converted to nodata in processing,noData,mask,mask,mask,mask,,noData
+0,-1,-1,-1,-8,,,,,cloud shadow,            cloud shadow,"only needed for ML masking models. Otherwise, use 0 in landcover is never observed",noData,mask,mask,mask,cloud_shadow,,noData
+0,-1,-1,-2,-2,,,,,haze,            haze,"only needed for ML masking models. Otherwise, use 0 in landcover is never observed",noData,mask,mask,haze,haze,,noData
+0,-1,-1,-1,-4,,,,,cloud,            cloud,"only needed for ML masking models. Otherwise, use 0 in landcover is never observed",noData,mask,mask,mask,cloud,,noData
+10,10,10,10,10,NoVeg,,,,,NoVeg,"nonvegetated area (<20% veg) -- unknown if water, bare or built",NoVeg,NoVeg_any,NoVeg_any,NoVeg_any,NoVeg_any,,98
+10,20,20,20,20,,NoVeg_Bare,,,,     NoVeg_Bare,Bare soil/rock/sand throughout the year (NOT part of crop cycle),NoVeg,NoVeg_Bare,bare,bare,bare,,98
+10,20,1,1,1,,,ice / permanent snow,,,          ice / permanent snow,,NoVeg,NoVeg_Bare,ice,ice_perm,ice_perm,,98
+10,40,40,4,4,,,"water body, frozen at observation",,,"          water body, frozen at observation",,NoVeg,NoVeg_Bare,ice,ice_temp,ice_temp,,98
+0,0,0,8,8,,,temporarily covered in snow,,,          temporarily covered in snow,,noData,noData,snow,snow_temp,snow_temp,,noData
+0,0,0,28,28,,,heavily shaded no/low veg,,,          heavily shaded no/low veg,"shaded by landscape / structures on ground, not clouds",noData,noData,noData,shade,shade,,noData
+10,20,2,2,2,,,sand/rock,,,sand/rock,,NoVeg,NoVeg_Bare,sand/rock,sand_rock,sand_rock,,98
+10,20,2,5,5,,,,rock,,          rock,,NoVeg,NoVeg_Bare,sand/rock,rock,rock_any,,98
+10,20,2,5,6,,,,,"rock, slab, natural (e.g. montane)","                rock, slab, natural (e.g. montane)",,NoVeg,NoVeg_Bare,sand/rock,rock,rock_slab,,98
+10,20,2,5,25,,,,,gravel / small rocks,                gravel / small rocks,,NoVeg,NoVeg_Bare,sand/rock,rock,rock_gravel,,98
+10,20,2,5,3,,,,,rock quarry,                rock quarry,,NoVeg,NoVeg_Bare,sand/rock,rock,rock_quarry,,98
+10,20,2,12,12,,,,sand,,          sand,,NoVeg,NoVeg_Bare,sand/rock,sand,sand_any,,98
+10,20,2,12,11,,,,,"dry sand, (no regular flooding)","                dry sand, (no regular flooding)","natural, no regular tidal/seasonal flooding",NoVeg,NoVeg_Bare,sand/rock,sand,sand_dry,,98
+10,20,2,12,19,,,,,desertification,                  desertification,"sandy bare soil, had vegetation in past",NoVeg,NoVeg_Bare,sand/rock,sand,desertification,,98
+10,20,2,14,14,,,,tidal or sandy/rocky littoral zone,,                 tidal or sandy/rocky littoral zone,both water and dry in year - tidal zone or river bed,NoVeg,NoVeg_Bare,sand/rock,wetdry_bare,rockSand_wet,,98
+10,20,2,14,18,,,,,salt bed,                 salt bed,dry at observation or fluctuating wet/dry in a composite,NoVeg,NoVeg_Bare,saltbed_dry,saltbed_dry,saltbed,,98
+10,20,22,22,22,,,bare dirt,,,          bare dirt,,NoVeg,NoVeg_Bare,dirt_any,dirt_any,dirt_any,,98
+10,20,22,13,13,,,,bare dirt - developed (residential / rd / infrastructure,,                bare  developed (residential / rd / infrastructure),,NoVeg,NoVeg_Bare,dirt,dirt_dev,dirt_dev,,98
+10,20,22,13,21,,,,,     dirt road,                        dirt road,,NoVeg,NoVeg_Bare,dirt,dirt_dev,road_dirt,,98
+10,20,22,15,15,,,,"bare dirt, natural, long term",,"                 natural, long term bare area",,NoVeg,NoVeg_Bare,dirt,dirt_nat,dirt_nat,,98
+10,20,22,29,29,,,,"bare dirt, from erosion / landslide",,                 erosion / landslide,,NoVeg,NoVeg_Bare,dirt,bare_erosion,bare_erosion,,98
+10,20,22,29,9,,,,,"deep bare gully / ravine / ""donga""","                       deep bare gully / ravine / ""donga""",,NoVeg,NoVeg_Bare,dirt,bare_erosion,bare_gully,,98
+10,20,22,16,16,,,,"crusted soil, e.g. glacis",,"                 crusted soil, e.g. glacis",,NoVeg,NoVeg_Bare,dirt,glacis,glacis,,98
+10,30,23,23,23,,,developed village area,,,            developed village area ,mostly mud or thatched materials,NoVeg,NoVeg_Built,village,village,village,,98
+10,20,24,24,24,,,mudflat,,,            mudflat,,NoVeg,NoVeg_Bare,mudflat,mudflat,mudflat,,98
+10,20,17,17,17,,,temporary bare - ag rest of year ,,,            temporarily bare - ag rest of year ,"For snapshot classification; for annual classification, use crop class",NoVeg,NoVeg_Bare,ag_bare,ag_bare_any,ag_bare_any,,98
+10,20,17,17,26,,,,      harvested crop - cuttings or crop residue present,,                     harvested crop,cuttings or crop residue present,NoVeg,NoVeg_Bare,ag_bare,ag_harvested,ag_harvested,,98
+10,20,17,17,7,,,,      tilled soil / recently planted crop,,                     tilled soil / recently planted crop,,NoVeg,NoVeg_Bare,ag_bare,ag_tilled,ag_tilled,,98
+10,20,27,27,27,,,cleared - previously med-highveg,,,            cleared - previously med-highveg,"Med/High vegetation has been cleared witin the year, but no other land use is evident. Debris / dead veg usually visible",NoVeg,NoVeg_Bare,cleared,cleared,cleared,,98
+10,30,30,30,30,,NoVeg_Built,,,,     NoVeg_Built,,NoVeg,NoVeg_Built,built,built,built,,98
+10,30,33,33,32,,,concrete / pavement / asphalt,,,           concrete / pavement / asphalt,,NoVeg,NoVeg_Built,concrete,concrete_any,concrete_any,,98
+10,30,31,31,31,,,,paved road,,                 paved road,,NoVeg,NoVeg_Built,concrete,road_paved,road_paved,,98
+10,30,34,34,34,,,bridge / port / dock,,,          bridge / port / dock,both water and built in pixel,NoVeg,NoVeg_Built,concrete,bridge,bridge,,98
+10,30,38,38,38,,,"roofing materials (non-metal, mixed or unknown) ",,,"          roofing materials (non-metal, mixed or unknown) ",,NoVeg,NoVeg_Built,roofing,roof,roof,,98
+10,30,32,35,35,,,,zinc - tin roofing,,                zinc - tin roofing,80-100% built materials,NoVeg,NoVeg_Built,roofing,metal,metal,,98
+10,30,36,36,36,,,"mixed development, medium intsensity",,,"          mixed development, medium intsensity","50-79% built material (typically residential, but depends on resolution)",NoVeg,NoVeg_Built,built_mix_medden,built_mix_medden,built_mix_medden,,98
+10,30,33,33,33,,,mixed industrial,,,"           mixed development,  industrial","80-100% mixed built material (typically commercial / industrial, but depends on resolution)",NoVeg,NoVeg_Built,built_mix_highden,built_mix_highden,built_mix_highden,,98
+10,30,37,37,37,,,irrigation / drainage infrastructure - dry at observation,,,           irrigation / drainage infrastructure,dry at observation,NoVeg,NoVeg_Built,built_aquainfrastruct,aqua_infrastructure,aqua_infrastructure,,98
+10,30,39,39,39,,,"mining / extraction pit, dry",,,"           mining / extraction pit, dry",,NoVeg,NoVeg_Built,built_mining,mine,mine,,98
+10,40,40,40,40,,NoVeg_Water,,,,     NoVeg_Water,,NoVeg,NoVeg_Water,water,water,water,,98
+10,40,42,42,42,,,ocean,,,            ocean,,NoVeg,NoVeg_Water,ocean,ocean,ocean,,98
+10,40,41,41,41,,,river,,,            river,,NoVeg,NoVeg_Water,river,river,river,,98
+10,40,43,43,43,,,swimming pool,,,            swimming pool,,NoVeg,NoVeg_Water,pool,pool_urban,pool_urban,,98
+10,40,44,44,44,,,seasonal pond,,,             seasonal pond,wet at least 4 months of year,NoVeg,NoVeg_Water,water_seasonal,water_seasonal,water_seasonal,,98
+10,40,45,45,45,,,lake or pond,,,             lake or pond,water is present in pixel all year,NoVeg,NoVeg_Water,lake,lake,lake,,98
+10,40,46,46,46,,,estuarie / brackish water,,,             estuarie / brackish water,,NoVeg,NoVeg_Water,estuarie,estuarie,estuarie,,98
+10,40,47,47,47,,,aquaculture,,,             aquaculture,,NoVeg,NoVeg_Water,aquaculture,aquaculture,aquaculture,,98
+10,40,48,48,48,,,unusual flooding,,,             unusual flooding,,NoVeg,NoVeg_Water,flooded,flooded,flooded,,98
+10,40,49,49,49,,,mining / extraction / toxic waste pool (wet),,,           mining / extraction / toxic waste pool (wet),,NoVeg,NoVeg_Built,built_mining,pool_industrial,pool_industrial,,98
+10,50,50,50,50,,Mixed_lowVegNoVeg,,,,       Mixed_lowVegNoVeg,>20% NoVeg_bare/built and >30% LowVeg (and not Built or TreePlant_new) ,NoVeg,Mixed_LowNo,mixed_LowNo,mixed_LowNo,mixed_LowNo,,98
+10,50,58,52,52,,,rock with some vegetation,,,             rock with some vegetation,>=50% rock with >=30% low vegetation or 5-30% high vegetation,NoVeg,Mixed_LowNo,rock_veg,rock_veg,rock_veg,,98
+10,50,53,53,53,,,"developed, low intensity",,,"             developed, low intensity",20-50% impervious surface,NoVeg,Mixed_LowNo,built_mix_lowden,built_mix_lowden,built_mix_lowden,,98
+10,50,57,57,57,,,"developed, open space",,,"             developed, open space","mostly low veg or bare, but up tp 20% built material",NoVeg,Mixed_LowNo,mixed_low_built,mixed_low_built,mixed_low_built,,98
+10,50,70,55,55,,,grass with bare,,,             mixed low veg and bare,>30% NoVeg_bare/built and >30% LowVeg (and not Built or TreePlant_new) ,NoVeg,Mixed_LowNo,grass_any,grass_bare,grass_bare,,98
+10,50,70,55,51,,,,mixed-path,,                   mixed-path,bare patches follow linear pattern -- veg could be other low or even med depending on mapping purpose,NoVeg,Mixed_LowNo,mixed_path,mixed_path,mixed_path,,98
+60,50,70,55,58,,,,grass with patches of bare soil,,                   grass with patches of bare soil,>=50% grass with >=30% bare,LowVeg,Mixed_LowNo,grass_any,grass_bare,grass_bare,,98
+60,50,70,55,72,,,,grass with rocks,,                   grass with rocks,>=50% grass with >=30% rocks,LowVeg,Mixed_LowNo,grass_any,grass_bare,grass_rocks,,98
+60,50,70,55,71,,,,thin grass,,                   thin grass,thin layer of grass or low veg over hard substrate,LowVeg,Mixed_LowNo,grass_any,grass_bare,grass_thin,,98
+60,50,70,55,79,,,,grass with termite / ant mounds,,                   grass with termite / ant mounds,,LowVeg,Mixed_LowNo,grass_any,grass_bare,grass_nests,,98
+60,50,54,54,54,,,seagrass,,,             seagrass,,LowVeg,Mixed_LowNo,seagrass,seagrass,seagrass,,98
+60,50,56,56,56,,,low littoral vegetation,,,             low littoral vegetation,">30% water and >30% low veg, or low, littoral vegetation that is flooded during year",LowVeg,Mixed_LowNo,water_edge,water_edge,water_edge,,98
+60,50,59,59,59,,,tumbleweed,,,             tumbleweed,,LowVeg,Mixed_LowNo,tumbleweed,tumbleweed,tumbleweed,,98
+60,60,60,60,60,LowVeg,,,,,LowVeg,,LowVeg,LowVeg_any,LowVeg_any,LowVeg_any,LowVeg_any,,98
+60,66,66,66,66,,"non-grass herbaceous veg (e.g. ferns,forbs)",,,,"        non-grass herbaceous veg (e.g. ferns, forbs)",upland / not regularly flooded,LowVeg,LowVeg_nongrass,lowVeg_nongrass,lowVeg_nongrass,lowVeg_nongrass,,98
+60,66,62,62,62,,,coastal strand / scrub,,,              coastal strand / scrub,,LowVeg,LowVeg_nongrass,lowVeg_nongrass,lowVeg_coastal,lowVeg_coastal,,98
+60,66,69,69,69,,,invasive herbaceous vegetation,,,              invasive herbaceous vegetation,,LowVeg,LowVeg_nongrass,lowVeg_invasive,lowVeg_invasive,lowVeg_invasive,,98
+60,66,64,64,64,,"herbaceous wetland (fen, bog, marsh)",,,,"        herbaceous wetland (fen, bog, marsh)",,LowVeg,LowVeg_wet,lowVeg_wet,lowVeg_wet,lowVeg_wet,,98
+60,64,64,64,61,,,riparian herbacious vegetation,,,              riparian herbacious vegetation,"not much water present and not regularly flooded, but along stream or runoff channel",LowVeg,LowVeg_wet,LowVeg_wet,rip_low,rip_low,,98
+60,64,64,64,65,,,freshwater grass marsh / wet prairie,,,               freshwater grass marsh / wet prairie,,LowVeg,LowVeg_wet,lowVeg_wet,lowVeg_wet,marsh_fresh,,98
+60,64,64,64,63,,,salt marsh,,,                salt marsh,,LowVeg,LowVeg_wet,lowVeg_wet,lowVeg_wet,marsh_salt,,98
+60,64,64,64,68,,,pond slough (mixed water / floating veg.),,,               pond slough (mixed water / floating veg.)," >50% floating veg (algae, hyacinth, etc.)",LowVeg,LowVeg_wet,LowVeg_wet,water_veg,water_veg,,98
+60,67,67,67,67,,weedy growth / fallowed crop,,,,         weedy growth / fallowed crop,anthropogenic land use (e.g. crop) within last 3 yrs,LowVeg,LowVeg_regrowth,lowVeg_nongrass,fallow_weeds,fallow_weeds,,98
+60,67,67,77,77,,, grass dominated secondary succession,,,                      grass dominated secondary succession,has been cropland or other anthropogenic land use within last 10 years,LowVeg,Grass,grass_mod,fallow_grass,fallow_grass,,98
+60,67,67,77,82,,,,abandoned or wild sugarcane,,                     abandoned or wild sugarcane,(e.g. Saccharum spontaneum),LowVeg,Grass,grass_mod,fallow_grass,abandoned sugarcae,,98
+60,70,70,70,70,,grass,,,,         grass,"grass,  <30% tree cover -- unknown if planted or natural",LowVeg,Grass,grass_any,grass_any,grass_any,,98
+60,70,73,73,73,,,sports field / golf course / irrigated lawn,,,              sports field / golf course / irrigated lawn,,LowVeg,Grass,grass_built,grass_built,grass_built,,98
+60,70,64,74,74,,,seasonally flooded grassland,,,              seasonally flooded grassland,natural grassland that is flooded at some point in year,LowVeg,Grass,grass_flooded,grass_flooded,grass_wet,,98
+60,70,75,75,75,,,natural/ minimally altered grass,,,              natural/ minimally altered grass,,LowVeg,Grass,grass_nat,grass_nat_any,grass_nat_any,,98
+60,70,75,75,76,,,,"natural primary grassland, steppe / prairie, etc.",,"                     natural grassland, steppe","few trees, no/minimal livestock grazing - (may be grazed by wild animals)",LowVeg,Grass,grass_nat,grassland,grassland,,98
+60,70,75,75,78,,,,natural savanna,,                     natural savanna,"up to 30% trees, no/minimal livestock grazing",LowVeg,Grass,grass_nat,savanna,savanna,,98
+60,70,75,80,80,,,managed pasture or commonly used rangeland,,,             managed pasture or commonly used rangeland,pasture with notable grazing or signs of maintenance. <30% tree cover,LowVeg,Grass,grass_any,pasture,pasture_any,,98
+60,70,75,80,81,,,,sustainably grazed natural grassland,,                     sustainably grazed natural grassland,,LowVeg,Grass,grass_nat,pasture,pasture_sustain,,98
+60,70,75,80,88,,,,temporarily rested pasture,,                     temporarily rested pasture,"No active management visible. Signs of active grazing in other years, but not current year. ",LowVeg,Grass,grass_nat,pasture,pasture_resting,,98
+60,70,85,85,85,,,new or heavily modified grassland,,,,,LowVeg,Grass,grass_mod,grass_mod,grass_mod,,98
+60,70,85,80,83,,,,heavily used pasture,,                    heavily used pasture,"very visible signs of grazing, includes enclosures with livestock frequently visible",LowVeg,Grass,grass_mod,pasture,pasture_highuse,,98
+60,70,85,80,84,,,,planted / fertilized pasture,,                     planted / fertilized pasture,grass with infrastructure or structural/phylogenetic patterns that indicate it has been planted,LowVeg,Grass,grass_mod,pasture,pasture_plant,,98
+60,70,85,80,87,,,,pasture with temporary  cover crop / hay,,                     temporary  cover crop / hay,cover crop grown for <3 months of year. Grass rest of year. Grazed within year,LowVeg,Grass,grass_mod,pasture,pasture_cover,,98
+60,70,85,80,108,,,,intensive hay proudction,,                     intensive hay proudction,"may be grazed, but hay/fodder growing most of year",LowVeg,Grass,grass_mod,pasture,pasture_hay,,100
+60,70,85,80,89,,,,invasive grass,,                     invasive grass,obstructing natural processes(e.g. elephant grass(Pennisetum purpureum)),LowVeg,Grass,grass_mod,grass_invasive,grass_invasive,,98
+60,90,90,90,90,,mixed lowVeg,,,,          mixed lowVeg,> 30% each,LowVeg,LowVeg_mix,LowVeg_mix,LowVeg_mix,LowVeg_mix,,98
+60,70,70,86,86,,,grass mixed with other low veg,,,        grass mixed with other low veg,"> 30% grass, >30% other low veg",LowVeg,LowVeg_grass_mix,lowVeg_grass_mix,lowVeg_grass_mix,lowVeg_grass_mix,,98
+60,90,70,86,96,,,,grass edge,,            grass edge,">50% Grass, but mixed with other veg or shaded by trees. Can contain trees if grass-forest border (if grass and trees are intermixed, use Grass-tree mix)",LowVeg,LowVeg_mix,grass_edge,grass_edge,grass_edge,,98
+60,90,100,93,93,,,crop edge,,,       crop edge,">50% LowCrop, but mixed with other veg or bare at edge of field",LowVeg,LowVeg_mix,crop_edge,crop_edge,crop_edge,,100
+60,90,209,97,97,,,new orchard or tree plantation,,,       new orchard or tree plantation,Planted trees (tree plantation or orchard) <1 year,LowVeg,TreePlant,treeplant_new,treeplant_new,treeplant_new,,98
+60,90,92,92,92,,,excessive moribund / fuel load,,,            excessive moribund / fuel load,,LowVeg,LowVeg_mix,fuel_load,fuel_load,fuel_load,,98
+60,90,95,95,95,,,burned herbaceous vegetation,,,            burned herbaceous vegetation,,LowVeg,LowVeg_mix,char_low,char_low,burnt_low,,98
+90,90,95,95,94,,,,wet / low severity burn,,                 wet / low severity burn,burning event occurs after first major rains of wet season,LowVeg,LowVeg_mix,char_low,char_low,burnt_low_min,,98
+60,90,95,95,91,,,,fire break / controlled prescriptive burn,,                 fire break / controlled prescriptive burn,,LowVeg,LowVeg_mix,char_low,char_low,burnt_low_mgmt,,98
+90,90,95,95,99,,,,"high severity, uncontrolled burn",,"                 high severity, uncontrolled burn",,LowVeg,LowVeg_mix,char_low,char_low,burnt_low_max,,98
+98,98,98,98,98,,not crop,,,,         not crop,for simple data checking exercises where only crop/noCrop is needed,NoCrop,NoCrop,NoCrop,NoCrop,NoCrop,,98
+60,100,100,100,100,,crop,,,,          crop,any crop,LowVeg,Crop,crop_any,crop_any,crop_any,,100
+60,100,101,101,101,,annual crop,,,,           annual crop,unknown annual crop,LowVeg,LowCrop,lowveg_crop,lowveg_crop,lowveg_crop,,100
+60,100,101,104,104,,,Irrigated annual crop - general,,,                Irrigated annual crop - general,"if crop known, use crop type",LowVeg,LowCrop,crop_irrigated,crop_irrigated,crop_irrigated,,100
+60,100,101,105,105,,,Cereal - general,,,                cereal - general,,LowVeg,LowCrop,crop_cereal,crop_cereal_any,crop_cereal_any,,100
+60,100,101,107,107,,,,soybean-maize-wheat,,                      soybean-maize-wheat,,LowVeg,LowCrop,crop_cereal,soy_maize_wheat,soy_maize_wheat,,100
+60,100,101,103,103,,,,,soybean,                             soybean,,LowVeg,LowCrop,crop_cereal,soy_maize_wheat,soy_maize_wheat,,100
+60,100,101,102,106,,,,,maize,                             maize,"For annual maps, only use if corn in the main cropping season",LowVeg,LowCrop,crop_cereal,soy_maize_wheat,maize,,100
+60,100,101,102,102,,,,,wheat,                             wheat,"For annual maps, only use if wheat in the main cropping season",LowVeg,LowCrop,crop_cereal,soy_maize_wheat,wheat,,100
+60,100,101,110,110,,,,sorghum / millet,,                      sorghum / millet,,LowVeg,LowCrop,crop_cereal,crop_sorg_mil,sorghum_millet,,100
+60,100,101,110,111,,,,,sorghum,                             sorghum,,LowVeg,LowCrop,crop_cereal,crop_sorg_mil,sorghum,,100
+60,100,101,110,112,,,,,millet,                             millet,,LowVeg,LowCrop,crop_cereal,crop_sorg_mil,millet,,100
+60,100,101,105,113,,,,barley,,                      barley,,LowVeg,LowCrop,crop_cereal,barley,barley,,100
+60,100,101,105,114,,,,rice,,                      rice,,LowVeg,LowCrop,crop_cereal,rice,rice,,100
+60,100,101,105,115,,,,oats,,                      oats,,LowVeg,LowCrop,crop_cereal,oats,oats,,100
+60,100,101,105,116,,,,rye,,                      rye,,LowVeg,LowCrop,crop_cereal,rye,rye,,100
+60,100,101,123,123,,,oilseeds,,,                      oilseeds,,LowVeg,LowCrop,crop_seed,oilseed,oilseed,,100
+60,100,101,123,117,,,,rapeseed / canola,,                            rapeseed / canola,,LowVeg,LowCrop,crop_seed,sunflower,sunflower,,100
+60,100,101,123,118,,,,sesame,,                             sesame,,LowVeg,LowCrop,crop_seed,sesame,sesame,,100
+60,100,101,123,119,,,,poppy,,                             poppy,,LowVeg,LowCrop,crop_seed,poppy,poppy,,100
+60,100,101,123,120,,,,sunflower,,                             sunflower,,LowVeg,LowCrop,crop_seed,sunflower,sunflower,,100
+60,100,101,121,121,,,cucurbits,,,                       cucurbits,,LowVeg,LowCrop,crop_cucurbit,cucurbits,cucurbits,,100
+60,100,101,121,122,,,,squash / pumpkin,,                            squash / pumpkin,,LowVeg,LowCrop,crop_cucurbit,squash,squash,,100
+60,100,101,121,124,,,,melon,,                            melon,,LowVeg,LowCrop,crop_cucurbit,melow,melow,,100
+60,100,101,125,125,,,root / tuber crops,,,                      root / tuber crops,,LowVeg,LowCrop,crops_tubers,crops_tubers,crops_tubers,,100
+60,100,101,125,109,,,,beet,,                            beet,,LowVeg,LowCrop,crops_tubers,crop_beet,beet,,100
+60,100,101,125,126,,,,sweet potato / yam,,                           sweet potato / yam,,LowVeg,LowCrop,crops_tubers,yam,yam,,100
+60,100,101,125,128,,,,potato,,                           potato,,LowVeg,LowCrop,crops_tubers,potato,potato,,100
+60,100,101,125,127,,,,onion,,                            onion,,LowVeg,LowCrop,crops_tubers,onion,onion,,100
+60,100,101,129,129,,,tobacco,,,                      tobacco,,LowVeg,LowCrop,crop_tobacco,tobacco,tobacco,,100
+60,100,101,130,130,,,non-soy legumes,,,                      non-soy legumes,,LowVeg,LowCrop,crop_legume,legume_non_soy,legume_non_soy,,100
+60,100,101,130,131,,,,beans,,                              beans,,LowVeg,LowCrop,crop_legume,beans,beans,,100
+60,100,101,130,132,,,,peanuts,,                             peanuts,,LowVeg,LowCrop,crop_legume,peanuts,peanuts,,100
+60,100,101,133,133,,,horticulture / small vegetables,,,                     horticulture / small vegetables,small beds,LowVeg,LowCrop,crop_hort,horticulture,horticulture,,100
+60,100,101,133,134,,,,greenhouse,,                            greenhouse,greenhouse/tarp structure for at least part of year,LowVeg,LowCrop,crop_hort,crop_greenhouse,crop_greenhouse,,100
+60,100,101,133,135,,,,flowers,,                            flowers,,LowVeg,LowCrop,crop_hort,horticulture,crop_flowers,,100
+60,100,101,133,136,,,,strawberries,,                            strawberries,,LowVeg,LowCrop,crop_hort,horticulture,strawberries,,100
+60,100,101,138,138,,,rainfed annual crops - general - homogenous,,,                    rainfed annual crops - general - homogenous,"single crop. If not, use 135",LowVeg,LowCrop,crop_rainfed_homo,crop_rainfed_homo,crop_rainfed_homo,,100
+60,100,101,137,137,,,mixed - smallholder,,,                    mixed - smallholder,intercropping with each crop <30m across,LowVeg,LowCrop,crop_mixed_small,crop_mixed_small,crop_mixed_small,,100
+60,100,101,138,139,,,burned crop residue,,,                    burned crop residue,,LowVeg,LowCrop,crop_burned,crop_burned,crop_burned,,100
+60,100,140,140,140,,semi-perennial / perennial crop,,,,          semi-perennial / perennial crop,,LowVeg,LowCrop,PerennialCrop,PerennialCrop,PerennialCrop,,100
+60,100,140,141,141,,,cotton,,,                    cotton,,LowVeg,LowCrop,PerennialCrop,cotton,cotton,,100
+60,100,140,142,142,,,alfalfa,,,                    alfalfa,"perennial, grown year round, can be harvested 3-5 times / yr",LowVeg,LowCrop,PerennialCrop,,alfalfa,,100
+60,100,140,143,143,,,sugar,,,                    sugar,,LowVeg,LowCrop,PerennialCrop,sugar,sugar,,100
+60,100,140,144,144,,,,sugar - irrigated,,                         sugar - irrigated,,LowVeg,LowCrop,PerennialCrop,sugar_irrigated,sugar_irrigated,,100
+60,100,140,145,145,,,,sugar - rainfed,,                         sugar - rainfed,,LowVeg,LowCrop,PerennialCrop,sugar_rainfed,sugar_rainfed,,100
+60,100,140,146,146,,,pineapple,,,                    pineapple,,LowVeg,LowCrop,PerennialCrop,pineapple,pineapple,,100
+60,100,140,147,147,,,cassava,,,                    cassava,Mandioca -- Cassava -- Yucca,LowVeg,LowCrop,PerennialCrop,cassava,cassava,,100
+160,100,140,148,148,,,banana / plantain,,,                    banana / plantain,,LowVeg,LowCrop,PerennialCrop,banana,banana,,100
+160,160,160,160,160,MedVeg,,,,,MedVeg,,MedVeg,MedVeg_any,MedVeg_any,medVeg_any,medVeg_any,,100
+160,100,150,150,150,,permanent shrub crops,,,,              permanent shrub crops,unknown or other shrubby perrenial crops,MedVeg,ShrubCrop,shrub_crop,shrub_crop,shrub_crop,,100
+160,100,150,151,151,,,Tea,,,                     tea,,MedVeg,ShrubCrop,crop_tea,tea,tea,,100
+160,100,150,152,152,,,,yerba-mate,,                     yerba-matte,,MedVeg,ShrubCrop,crop_tea,yerba-mate,yerba-mate,,100
+160,100,150,153,153,,,vienyard,,,                     vineyard,,MedVeg,ShrubCrop,crop_grape,vineyard,vineyard,,100
+160,100,150,155,155,,,coffee,,,                    coffee,,MedVeg,ShrubCrop,crop_coffee,coffee,coffee,,100
+160,100,150,156,156,,,cocoa,,,                    cocoa,,MedVeg,ShrubCrop,crop_cocoa,cocoa,cocoa,,100
+160,100,150,157,157,,,hemp / cannabis,,,                    hemp / cannabis,,MedVeg,ShrubCrop,crop_hemp,hemp,hemp,,100
+160,100,150,158,158,,,berries  (shrubs),,,                    berries (shrubs),,MedVeg,ShrubCrop,crop_berries,berries,berries,,100
+160,100,150,159,159,,,illicit shrub crop,,,                    illicit shurb crop,,MedVeg,ShrubCrop,crop_illicit,crop_illicit,crop_illicit,,100
+160,161,161,161,161,,shrub - noncrop,,,,              shrub - noncrop,,MedVeg,ShrubNat,shrub_nat,shrub_nat,shrub_nat,,98
+160,161,162,162,162,,,natural shrubland,,,                    natural shrubland,,MedVeg,ShrubNat,shrub_nat,shrubland,shrubland,,98
+160,161,163,163,163,,,"mixed urban vegetation (not grass, tree or ag)",,,"                    mixed urban vegetation (not grass, tree or ag)",        low urban vegetation (not grass or ag),MedVeg,ShrubNat,shrub_urban,shrub_urban,shrub_urban,,98
+160,161,165,165,165,,,medium growth,,,                    medium growth,,MedVeg,ShrubNat,shrub_growth,shrub_growth,shrub_growth,,98
+160,161,165,165,167,,,,shrub fallow / transitional medium regrowth,,                           shrub fallow / transitional medium regrowth,                area was previously higher veg and/or non-natural low veg,MedVeg,ShrubNat,shrub_growth,shrub_growth,shrub_regrowth,,98
+160,161,164,164,164,,,medium wet veg,,,                    medium wet veg,,MedVeg,ShrubNat,shrub_wet,shrub_wet,shrub_wet,,98
+160,161,166,166,166,,,succulents,,,                   succulents,,MedVeg,ShrubNat,succulent,succulent,succulent,,98
+160,161,169,169,169,,,burnt-woody,,,                    burnt-woody,"shrubs / trees burnt & browned during the year but does not appear cleared (if trees, recover within year, else 239)",MedVeg,ShrubNat,char_woody,char_woody,burnt_woody,,98
+160,170,170,170,170,,Mixed Veg levels,,,,Mixed Veg levels ,,MedVeg,mixed lowHigh,mixed lowHigh,mixed lowHigh,mixed_lowHigh,,98
+160,170,168,168,168,,,heavily shaded med to high vegetation,,,       heavily shaded med to high vegetation,"shaded by landscape / structures on ground, not clouds",MedVeg,mixed lowHigh,shaded_veg,shaded_veg,shaded_veg,,98
+160,170,171,171,171,,,grassland with med / high vegetation,,,       grassland with med / high vegetation,grassland with any perceptible shrub/tree cover outside of normal grass definitions (e.g. savanna has up to 30% grass,,mixed lowHigh,mixed_grassHigh,mixed_grassHigh,mixed_grassHigh,,98
+160,170,171,172,172,,,,dry woodland,,            dry woodland,"grass dominated ecosystem with 10-30% tree cover, in dry climates where this is considered forest",MedVeg,mixed lowHigh,mixed_grassHigh,grass_tree_dry,grass_tree_dry,,98
+160,170,171,175,175,,,,grass with any evience of shrubs / trees,,            grass with any evience of shrubs / trees,"grass dominant, but not pure. doesn't fit into other cats. For purity samples targeting pure grass",MedVeg,mixed lowHigh,mixed_grassHigh,grass_impure,grass_impure,,98
+160,170,171,176,176,,,,tropical / semi-tropical grassland with trees,,            tropical / semi-tropical grassland with trees,">30% trees & >30% grass, (30-70% closed canopy)",MedVeg,mixed lowHigh,mixed_grassHigh,grass_tree_mix,grass_tree_mix,,98
+160,170,177,177,177,,,swidden agricultural system (intermittant forest / crop),,,      swidden agricultural system (intermittant forest / crop),"for maps with long temporal compilations (for short-range maps, use current state)",MedVeg,MedVeg,crop_swidden,crop_swidden,crop_swidden,,98
+160,170,187,187,183,,,intercropping with shrubs,,,      intercropping with shrubs,e.g. for water management in the Sahel,MedVeg,MedVeg,crop_wshrub,crop_wshrub,crop_wshrub,,100
+160,170,173,173,173,,,vines,,,      vines,"dominant cover is vines,growing over >30% med/high veg",MedVeg,mixed lowHigh,vine,vine,vine,,98
+160,170,177,177,178,,,,natural vines,,            natural vines,,MedVeg,mixed lowHigh,vine,vine_natural,vine_natural,,98
+160,170,177,177,179,,,,invasive vines,,            invasive vines, (e.g. Kudzu),MedVeg,mixed lowHigh,vine,vine_invasive,vine_invasive,,98
+160,170,174,174,174,,,mixed riparian vegetation,,,    mix of med/high and low veg along water way,"can contain some water or rocks, but mostly veg",MedVeg,mixed lowHigh,rip_mixed,rip_mixed,rip_mixed,,98
+160,170,181,181,181,,,mixed highVeg and noVeg,,,    mixed highVeg and noVeg,,,mixed lowHigh,mixed_highNo,mixed_highNo,mixed_highNo,,98
+160,170,181,184,184,,,,tree-water mix,,            tree-water mix - upland,"mixed 30-70% tree/highveg canopy, 30-70% water. (if trees are in water, use wetland categories. If >70% tree, use riparian forest. If >70% water, use water)",MedVeg,mixed lowHigh,highNo_mix,tree-water-mix,tree-water-mix,,98
+160,170,181,181,186,,,,"mixed HighVeg, LowVeg and NoVeg",,"            mixed HighVeg, LowVeg and NoVeg",,,mixed lowHigh,mixed_highNoLow,mixed_highNoLow,mixed_highNoLow,,98
+160,170,181,183,187,,,,young tree plantation,,             young tree plantation,1-2 yrs,HighVeg,mixed lowHigh,treeplant_young,treeplant_young,treeplant_young,,98
+160,170,181,183,182,,,,,conifer,                    conifer,,HighVeg,mixed lowHigh,treeplant_young,treeplant_young_conifer,treeplant_young_conifer,,98
+160,170,181,183,185,,,,,broadleaf,                    broadleaf,,HighVeg,mixed lowHigh,treeplant_young,treeplant_young_broad,treeplant_young_broad,,98
+160,170,181,211,211,,,,path through trees,,            path through trees,,Trees,Trees_open,tree_path,tree_path,tree_path,,98
+180,180,180,180,180,HighVeg,,,,,HighVeg,,HighVeg,HighVeg_any,HighVeg_any,HighVeg_any,HighVeg_any,,98
+180,188,188,188,188,,Immature trees - not managed,,,,             immature trees - not managed,3-5 yrs,HighVeg,Trees_young,trees_young,trees_young,trees_young,,98
+180,170,170,189,189,,,shrub/tree encroachment,,,             shrub/tree encroachment,shrubs or tree dominating area that was formerly natural low veg ,MedVeg,ShrubNat,shrub_growth,shrub_growth,shrub_encroach,,98
+200,200,200,200,200,Mature Trees,,,,,Mature Trees,"Trees  5 m tall, >20% total vegetation cover",Trees,Trees_any,Trees_any,Trees_any,Trees_any,,98
+200,190,190,190,190,,Tree crops,,,,              Tree crops,,Trees,TreeCrop,treecrop_any,treecrop_any,treecrop_any,,98
+200,190,191,191,191,,,Orchard,,,                   orchard,,Trees,TreeCrop,orchard,orchard_any,orchard_any,,98
+200,190,191,192,192,,,,citrus,,                         citrus,,Trees,TreeCrop,orchard,orchard_citrus,orchard_citrus,,98
+200,190,191,193,193,,,,pome / drupe,,                         pome / drupe,,Trees,TreeCrop,orchard,orchard_pome,orchard_pome,,98
+200,190,191,194,194,,,,tree nuts,,                         tree nuts,,Trees,TreeCrop,orchard,orchard_nuts,orchard_nuts,,98
+200,190,195,195,195,,,rubber,,,                         rubber,,Trees,TreeCrop,crop_rubber,rubber,rubber,,98
+200,190,196,196,196,,,palm plantation,,,                   palm plantation,,Trees,TreeCrop,crop_palm,palm_plant_any,palm_plant_any,,98
+200,190,199,199,199,,,,oil palm,,                         oil palm,,Trees,TreeCrop,crop_palm,palm_plant_oil,palm_plant_oil,,98
+200,190,196,198,198,,,,coconut,,                         coconut,,Trees,TreeCrop,crop_palm,Palm_plant_coconut,palm_plant_coconut,,98
+200,190,197,197,197,,,Trees-Orchard-closed,,,                   closed-canopy orchard,">80% tree cover, no gaps seen between trees",Trees,TreeCrop,orchard,orchard_closed,orchard_closed,,98
+200,207,207,207,207,,TreePlant,,,,              TreePlant,"for maps with long temporal compilations(for short term maps, should use age cat)",Trees,TreePlant,treeplant,treeplant,treeplant,,98
+200,207,217,217,217,,,TreePlant-mature,,,              tree plantation mature,>=3 years,Trees,TreePlant,treeplant_mature,treeplant_mature,treeplant_mature,,98
+200,207,217,216,216,,,,open/sparse but mature,,                   open/sparse but mature,"unusually sparse for species, but persists more than 5 yrs",Trees,TreePlant,treeplant_mature,treeplant_open,treeplant_open,,98
+200,207,217,202,202,,,,conifer,,                   conifer,,Trees,TreePlant,treeplant_mature,treeplant_conifer,treeplant_conifer,,98
+200,207,217,203,203,,,,bamboo,,                   bamboo,TreePlant_dense,Trees,TreePlant,treeplant_mature,treeplant_bamboo,treeplant_bamboo,,98
+200,207,217,205,205,,,,"broadleaf, contiguous / dense",,"                   broadleaf, contiguous / dense",,Trees,TreePlant,treeplant_mature,treeplant_broad,treeplant_dense,,98
+200,207,217,205,206,,,,,eucalyptus,                             eucalyptus,,Trees,TreePlant,treeplant_mature,treeplant_broad,treeplant_eucalyptus,,98
+200,207,217,205,209,,,,,teak,                             teak,,Trees,TreePlant,treeplant_mature,treeplant_broad,treeplant_teak,,98
+200,207,217,205,208,,,,,paraiso / other local,                             paraiso / other local,,Trees,TreePlant,treeplant_mature,treeplant_broad,treeplant_other,,98
+200,215,215,215,215,,Trees outside forest,,,,                 trees outside forest,,Trees,Trees_open,trees_open,trees_open,trees_open,,98
+200,215,212,212,212,,,forest edge,,,                      forest edge," <10m from edge, but >50% tree cover in pixel (if edge is river, use riparian forest)",Trees,Trees_open,forest_edge,forest_edge,forest_edge,,98
+200,215,213,213,213,,,residential / urban trees,,,                     residential / urban trees,,Trees,Trees_open,trees_dev,trees_dev,trees_dev,,98
+200,214,214,214,214,,,baobab,,,                     baobab,,Trees,Trees_open,baobab,baobab,baobab,,98
+200,215,218,218,218,,,cecropia / musanga,,,                     cecropia / musanga,fast-growing secondary forest trees,Trees,Trees_open,trees_second,trees_second,trees_second,,98
+200,220,219,219,219,,,high-severity forest fire / burnt forest,,,                     high-severity forest fire / burnt forest,burning that reaches canopy and causes long term damage (otherwise 169),Trees,Forest,burnt_woody,forest_burn_high,forest_burn_high,,98
+220,220,220,220,220,,Forest,,,,                 forest,,Trees,Forest,forest_any,forest_any,forest_any,,98
+200,220,225,225,225,,,lower-density forest,,,                    lower-density forest,,Trees,Forest,forest_lowden,forest_lowden_any,forest_lowden_any,,98
+200,220,225,221,221,,,,palm forest,,                            palm forest,>70% canopy closure of homogenous palm trees or other forest with prominent palms,Trees,Forest,forest_lowden,forest_palm,forest_palm,,98
+200,220,225,222,222,,,,montane conifer forest,,                           montane conifer forest,,Trees,Forest,forest_lowden,forest_conifer_mt,forest_conifer_mt,,98
+200,220,225,224,224,,,,montane broadleaf forest / cloud forest,,                            montane broadleaf forest / cloud forest,,Trees,Forest,forest_lowden,forest_cloud,forest_cloud,,98
+200,220,225,228,228,,,,young broadleaf forest,,                            young broadleaf forest,> 5 and < 15 yrs,Trees,Forest,forest_lowden,forest_young,forest_young,,98
+200,220,225,226,226,,,,shrub forest / thorn woodland,,                           shrub forest / thorn woodland,">70% crown cover when green, but has deciduous period (~sept)",Trees,Forest,forest_lowden,forest_shrub,forest_shrub,,98
+200,220,225,227,227,,,,other open forest,,                           other open forest,Mature trees with gaps (>70% closed canopy) or,Trees,Forest,forest_lowden,forest_open,forest_open,,98
+200,220,225,229,223,,,,degraded forest,,                           degraded forest,"still forest, but canopy has lost > 30% productive cover ",Trees,Forest,forest_lowden,forest_disturbed,forest_degraded,,98
+200,220,225,229,229,,,,disturbed forest,,                           disturbed forest,"canopy of pixel intact, but direct neighbor recently lost canopy",Trees,Forest,forest_lowden,forest_disturbed,forest_disturbed,,98
+200,220,225,230,230,,,forest with altered understory,,,                    forest with altered understory,>70% closed canopy,Trees,Forest,forest_under,forest_under,forest_under,,98
+200,220,225,230,234,,,,low severity / understory burn in forest,,                           low severity / understory burn in forest,burning of ground & shrub layer only,Trees,Forest,forest_under,forest_burn_low,forest_burn_low,,98
+220,220,225,230,233,,,,forest with understory fuel removed,,                           forest with understory fuel removed,,Trees,Forest,forest_under,forest_rmunder,forest_rmunder,,98
+200,220,225,230,237,,,,agroforestry - crop understory,,                           agroforestry - crop understory,,Trees,Forest,forest_under,trees_agro,trees_agro,,100
+200,220,235,235,235,,,mature natural deciduous forest,,,                    mature natural deciduous forest,,Trees,Forest,forest_decid,forest_decid,forest_decid,,98
+200,220,232,232,232,,,mature natural coniferous forest,,,                    mature natural coniferous forest,,Trees,Forest,forest_conifer,forest_conifer,forest_conifer,,98
+200,220,236,236,236,,,mature natural bamboo forest,,,                    mature  natural bamboo forest,,Trees,Forest,forest_bamboo,forest_bamboo,forest_bamboo,,98
+200,220,238,238,238,,,semi-deciduous forest,,,                    semi-deciduous forest,,Trees,Forest,forest_semidecid,forest_semidecid,forest_semidecid,,98
+200,220,240,240,240,,,swamp (tree/shrub-dominated wetland),,,                    swamp (tree/shrub-dominated wetland),,Trees,Forest,forest_wet,forest_wet,forest_wet,,98
+200,220,240,241,241,,,,freshwater swamp,,                          freshwater swamp,,Trees,Forest,forest_wet,swamp,swamp,,98
+200,220,240,244,244,,,,mangrove,,                          mangrove,"coastal, salt or brackish water",Trees,Forest,forest_wet,mangrove,mangrove,,98
+160,169,169,249,249,,,,burned/dead mangrove,,                          burned/dead mangrove,,MedVeg,ShrubNat,burned_woody,burned_mangrove,burned_mangrove,,98
+200,220,250,250,250,,,"mature evergreen boradleaf forest, high density",,,"                     mature evergreen boradleaf forest, high density",">70% canopy closure of trees with large, heterogenous crowns",Trees,Forest,forest_highden,forest_highden_any,forest_highden_any,,98
+200,220,250,251,251,,,,secondary evergreen broadleaf forest,,                               secondary evergreen broadleaf forest,15-30 yrs,Trees,Forest,forest_highden,forest_evergreen_broadleaf,forest_growing,,98
+200,220,250,252,252,,,,mature evergreen broadleaf forest,,                               mature evergreen broadleaf forest,> 30 yrs,Trees,Forest,forest_highden,forest_evergreen_broadleaf,forest_mature,,98
+200,220,250,254,254,,,,broadleaf riparian forest,,                               broadleaf riparian forest,"within 50 m of river, pixel is < 20% water (otherwise use tree-water mix (if water <80%) or water (if water >=80%) & > 70% forest (otherwise use forest_edge)",Trees,Forest,forest_highden,forest_evergreen_broadleaf,forest_riparian,,98
+999,255,255,255,255,no_event,,,,,,For event/short-term condition mapping -- indicates that event/condition did not occur,unknown,unknown,unknown,unknown,unknown,,noData
+999,999,999,999,999,unknown,,,,,unknown,no idea -- this is a placeholder for data checking and should be removed for all classification,unknown,unknown,unknown,unknown,unknown,,noData

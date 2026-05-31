@@ -1,0 +1,9 @@
+image_vis:
+- kndvi
+- ndmi
+predict_year: 2025
+region_id_file: /home/scratch-cel/cnet/cnet_training_regions.txt
+regions: '!!null'
+start_year: 2024
+years:
+- 2025

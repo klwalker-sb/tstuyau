@@ -1,0 +1,604 @@
+###############################################################################################################################
+## Items in this top block should remain the same throughout a project because they set the path and file names
+
+### Set <compare_X> to True if more than one version of the processing will be run for sensntivity / comparative analysis
+## if <compare_imgtype> is true, ts folders will be within a directory named <imgtype>-<res> or <imgtype>-<res>-<procseq>
+compare_imgtype: False
+## if <compare_res> is True, all processing folders after brdf will be in a folder named <procseq>-<res>m or brdf-<res>m
+##  and ts folders will be in a folder named <imgtype>-<res> or <imgtype>-<res>-<procseq>
+compare_res: False
+## if <compare_procseq> is True, all processing folders after brdf will be in a folder named <procseq> (or <procseq>-<res>m)
+## and ts folders will be in a folder named <procseq> or <imgtype>-<res>-<procseq>
+compare_procseq: False
+
+project_name: 'paraguay_lc'
+## <main_path> is the path where the individual folders are found for each cell. The format is usually X/<project_name>/stac/grid
+main_path: '/home/sandbox-cel/paraguay_lc/stac/grid'
+## <backup_path> is the same as the main path but in a more permanant / secure location if available.
+backup_path: '/home/downspout-cel/paraguay_lc/stac/grids'
+## <scratch_dir> is the base path to a scratch space for files that can be deleted after use
+scratch_dir: '/home/scratch-cel'
+## srtm_path is path to srtm files for masks/topo. If None or '', srtm path is <main_path>.parents[1] /'data'/'srtm'
+srtm_path: ''
+# <project_ver> is for setting different LUTs and lookup values used in past.  'Py_0' is original (legacy) CELPy maps. 'CEL1' is first release
+project_ver: 'CEL1'
+# <dlmethod> is download method used: 'GEE' | 'STAC'
+dlMethod: 'STAC'
+# <grid_file> is a gpkg file defining the gridding structure
+grid_file: "/home/sandbox-cel/LUCinLA_grid_8858.gpkg"
+# <grid_size> is the width of a single grid cell, in meters
+grid_size: 20000
+# <buffer> is extra distance (in m) added to each cell edge to avoid edge effects
+buffer: 100
+# <nodata> is the image 'no data' value
+nodata: 65535
+################################################################################################################################
+
+## <log_level> sets logging options for output message detail: DEBUG | INFO | WARNING
+log_level: 'INFO'
+# <grids> is a list of the grid cells to process
+grids:
+  - 126
+# <res> is the input images. when res is passed to geowombat, the precision will determine the output datatype. 
+#      If rasters with 0-1 values are being processed, res needs a decimal or the output will be 0/1.
+res: 10.0
+# <image_type> (currently 'LS2' for all Landsat & Sentinel-2, 'S2' for all Sentinel-2 only, 'L' for all Landsat only,
+#              or 'LT05', 'LE07', 'LC08', 'LC09' for specific Landsats -- adding 'PS' for PlanetScopee, 'S1' for Sentinel-1...)
+image_type: 'LS2'
+## <procseq> is the processing sequence for the individual imagery (prior to time series handling)
+##    cg=coregistration, br=brdf, mu= user qa to remove bad images (vs mml for machine-learning based masks & mf1 for...), tp=topo
+procseq: 'mu.br.cga'
+# <num_workers> is the number of parallel workers
+num_workers: 6
+
+#
+# Calendar variables: 
+#    <calendar:first_mo> is the first month of a mapping year (to not split critical seasons)
+#    <calendar:start_wet>, etc. is doy (1-365) and sets the seasons for calculation of seasonal variables
+calendar:
+    first_mo: 6
+    start_wet: 306 
+    end_wet: 61
+    start_dry: 183
+    end_dry: 259
+
+# I/O
+io:
+  n_chunks: 512
+  gdal_cachemax: 512
+  file_format: 'netcdf'
+  to_netcdf_kwargs:
+     zlib: True
+     complevel: 5
+
+## Removing images with 'no data'
+move_no_data:
+  ## <move_no_data:id_method> is 'pixel_check' | 'filesize' | 'quarters'
+  id_method: "pixel_check"
+  ## <move_no_data:filesize> (if <move_no_data:id_method>=filesize)
+  filesize: 4000000
+  ## <move_no_data:offset> (if <move_no_data:id_method>='quarters')
+  offset: 100
+  ## <move_no_data:exclude_below> (if <move_no_data:id_method>='pixel_check') percentatge (int 0-100) of valid data below which to exclude image
+  exclude_below: 10
+  ## <move_no_data:move_method>: 'nodata_folder' | 'flag_?' ? can be anything, but should probably end in X
+  move_method: "flag_ndX"
+
+coreg:
+  ## <coreg:overwrite_ref> is whether to overwrite an existing reference image for coregistration -- if processing a small number of images, better to not.
+  overwrite_ref: False
+  ## <coreg:max_shift> is the maximum shift allowed before the coregistration task fails for an image
+  max_shift: 5
+  
+clean:
+  ## <clean:delete_record> deletes recode from database. = True if want to rerun steps, False if want to keep record as processed but delete raw files
+  delete_record: False
+  ## <clean:date_range> = [0] if all dates to be run. Else [YYYYMMDD, YYYYMMDD], or [YYYYMMDD] for a single image
+  date_range: [0]
+  ## <clean:sat_sensors>: 'All' or "LS2' for all Sentinel-2 & Landsat, 'L' for all Landsat only, 'S2' for all Sentinel-2 only, or S2A,S2B,LT05,LE07,LC08,LC09
+  sat_sensors: 'All'
+  ## <clean:xlist> is path to .csv file containing list of basenames to remove, or '' if removing all
+  xlist: ''
+  prep_rerun: False
+  ## <clean:treat_brdf> sets how to treat brdfs for files not allowed to be reprocessed. 
+  ##     'delete' or 'flag_?' with ? being any flag to be appended to the end of the file name (should probably end with X) 
+  treat_brdf: 'flag_X'
+  ## <clean:remove_items> sets file sets to remove. Currently can include any of: 'downloads','nocoreg','gee','brdf'
+  remove_items: ['downloads','nocoreg']
+
+plot:
+  start_yr: '1999'
+  end_yr: '2020'
+  ## <plot:wet_dry> if True, shows wet and dry season bands
+  wet_dry: False
+  ## <plot:ylim> is [Y0,Y1] to set the Y-axis (Y0 = lowest value, Y1=highest value)
+  ylim: [0,10000]
+  ## <plot:legend> : if None, no legend, Otherwise, placement in accordance with matplotlib (e.g. upper center)
+  ##      if each subplot should have a legend, begin name with sub- (e.g. sub-upper center)
+  legend: 'upper center'
+  dpi: 300
+  ## <plot:color> defines the scheme for the color map (using maps available in matplotlib) or 'mono' for single color 
+  color: 'viridis'
+  ## <plot:esitsing_ts> : 
+  existing_ts: False
+  ## <plot:coords>: List of [lon1, lat1, lon2, lat2,...]
+  coords: []
+  out_path: ''
+  ## <plot:multi_coords> == True if all indices are to be plotted on same plot
+  multi_idx: False
+  ## <plot:multi_coords> == False if want a separate plot for each coordinate in list, else 'median' or 'individual' or 'individual_w_med' 
+  multi_coords: False
+  ## <plot:num_coords>: # of points to graph (on one plot if <plot:multi_coords> == True or each on its own plot if not
+  ##       options are 'all', 'ran_x' (x = number of random pts to pick) or list of point ids (column headers) 
+  limit_coords: 'ran_6'
+  gamma: 2
+  reduct_factor: 10
+
+status:
+  ## <status:ts_type> = 'smooth' (for smoothed ts) |'raw' (for unsmoothed images processed through brdf) | 'unprocessed' (for direct downloads)
+  ##            if smooth, can add detail for smoothing method with 'sm-wh'|'sm-dts'|'sm-csp'|'sm-sg'|'sm-dbl'|'sm-gpr'|'sm-harm'|'sm']
+  ts_type: 'raw'
+  check_downloads: False
+  period: [2024001,2025200]
+  out_path: ''
+  zoom: 'completed'
+  ## <status:filter> can be used if grid_file is large and has a filter column (<status:filter_column>) that pertains to specific project 
+  filter: None
+  filter_column: None
+  other_layers: !!null
+  use_existing: True
+  ## <status:dldb_path> is path to .csv file tracking database for download progress for all cells. 
+  ##     if None or '', = <backup_path>.parents[1]/'cell_processing_dl.csv'  If file does not exist, new file is created with 'check_dl_logs'
+  download_db_path: ''
+  ## <status:archive_path> is a path to send logfiles to for archiving (currently only used for download logs) 
+  ##    if None or '', <status:archive_path> = <backup_path>.parents[1]/'archived_logfiles'
+  archive_path: '~/archive/eostac_logs'
+  ## <status:log_path> is folder within archive path with desired log files. should remain '.' (= archive path) unless log processing has ocurred outside scripts
+  log_path: '.'
+  ignore_dates: None
+  ## status:log_prefix is the prefix of log files to process (=the logfile identifier from the downloading script)
+  log_prefix: 'stacdll_py'
+  ## <status:reset_db> Resets steps in the global step tracking database for each cell (not file tracking) -- keeps all existing files
+  reset_db: False
+
+#################################################################################
+#### Settings for optional steps to prepare input imagery 
+
+# Image masks
+masking:
+## <masking:maxval> is the maximum valid data value (inverse of scale_factor)
+  maxval: 10000
+  ## <masking:method> can be 'ancillary' | 'CRF' | 's2cloudless' | 'native'   (if 'native', nothing is done with mask but note is added in db). 
+  method: 's2cloudless'
+  # <masking:sat_sensors> is 'All' or "LS2' for all Sentinel-2 & Landsat, 'L' for all Landsat only, 'S2' for all Sentinel-2 only, or S2A,S2B,LT05,LE07,LC08,LC09
+  sat_sensors: ['LS2']
+  ## <masking:date range> can be [0] for all relevant images or [date,date] for limited range.
+  ##      note: dates for GEE are written YYYY-MM-DD or YYYY-M-D -- no leading zeros
+  date_range: [0]
+  # <masking:overwrite> sets Whether to overwrite existing mask files
+  overwrite: False
+  ## <masking:reclass_LUT> used if method is 'ancillary'. sets dictionary with from:to value as key:value pair. 
+  ##     OR csv with <from_vals> column and <to_vals> column
+  ancillary_ras:
+  reclass_LUT: 
+  from_vals:
+  to_vals:
+  mask_path: None
+  ## <masking:gee_key> is needed only if <masking:method> is 'gee': need google-earth-engine account and info below 
+  gee_key: '/home/<username>/.tstuyau/gee_key.json'
+  # <masking:gee_index_dir> is needed only if <masking:method> is 'gee'. Sets root directory for the GCP index files
+  gee_index_dir: '/home/sandbox-cel/paraguay_lc/raster'
+  ## if method=='CRF', need the following:
+  # <masking:min_mask> (for method = CRF) is the minimum clear value (all values greater than `min_mask` are non-clear)
+  min_mask: 1
+  deep_crf: False
+  crf_cloud_model_name: 'clouds_l7-like_crf_log'
+  crf_shadow_model_name: 'shadows_l7-like_crf_log'
+  lgb_model_name: 'clouds_l7-like_lgb_log'
+  lstm_model_name: 'clouds_l7-like_lstm_log'
+  # <masking:batch_size> (for method = CRF) Number of images to predict on
+  batch_size: 7
+  # Resampling cell size
+  sensor: 'l7'
+  ref_res: 40.0
+  chunks: 512
+  # <masking:resampling (for method = CRF) Resampling method. e.g. 'average'
+  resampling: 'average'
+  # <masking:cloud_proba_thresh (for method = CRF) sets probability threshold for clouds (e.g. .25) -- Any value lower is set as 0
+  cloud_proba_thresh: 0.25
+  # <masking:shadow_proba_thresh (for method = CRF) sets probability threshold for shadows (e.g. .25) -- Any value lower is set as 0
+  #        Shadows tend to be overestimated, so we use a conservative threshold
+  shadow_proba_thresh: 0.75
+  # clouds: b,c,d,v
+  cloud_labels: ['b','c','d','v']
+  # shadows: b,d,s,v,wv
+  shadow_labels: ['b','d','s','v','wv']
+  predict_labels: ['b','c','d','s','v','w','wv']
+  band_names: ['blue','bsi','evi2','green','hot','kndvi','log_bg','log_bn','log_br','log_bs1','log_bs2','nbr','ndmi','ndsi','ndvi','ndwi','nir','red','shi','shi2','swir1','swir2']
+
+# Topographical correction
+topo:
+  # <topo:si> is the index to base topographical correction on.
+  si: 'evi2'
+  # <topo:username> is the The NASA Earthdata username to download HGT SRTM files
+  #      can make account at https://urs.earthdata.nasa.gov/
+  #      <topo:key file> and <topo:code file> are paths to these items from the NASA Earthdata account associated with <topo:username>
+  username: '<username>'
+  key_file: '/media/<username>/data/projects/global_fields/nasaearth.key'
+  code_file: '/media/<username>/data/projects/global_fields/nasaearth.code'
+  srtm_nodata: -32768
+  # <topo:slope_thresh> Any value less than this threshold is not adjusted
+  slope_thresh: 2
+  # <topo:method options> are 'c' | 'empirical-rotation'
+  method: 'empirical-rotation'
+
+# Increasing resolution through fusion
+fusion:
+  # <fusion:si> is the index to base fusion on
+  si: 'evi2'
+  res: 10.0
+  overwrite: False
+  start_year: 2019
+  min_pct_thresh: 50
+  max_cloud_dist: 100
+  fill_max_days: 10
+  fill_max_years: 1
+  window_size: 15
+  param_a: 0.05
+  param_n: 2
+  hres_uncert: 0.05
+  mres_uncert: 0.05
+  # <fusion:wavelengths> The wavelengths to sharpen  TODO: check how this differes from si
+  wavelengths:
+    - 'evi2'
+
+###############################################################################
+## Reconstructing time series (smoothing)
+reconstruct:
+  # <reconstruct:start_win> is window to start processing (usualy 1 unless an error occured previously)
+  start_win: 1
+  # <reconstruct:rewrite_win>: whether to rewrite existing windows
+  rewrite_win: False
+  win_batchsize: 1
+  # <reconstruct:use_masks>: Whether to use user-generated cloud/shadow masks
+  use_masks: False
+  nodata: 0
+  # Whether a new time-series will be created in sub folder so it can be merged with existing ts
+  merge_ts: False
+  # <reconstruct:include> and <reconstruct:exclude> are strings in input image paths that indicate images to include in ts calcs
+  #      if include = '', include all images not in exclude
+  #      exclude is a single character at the end of the base path name (before the extension)
+  include: ''
+  exclude: 'X'
+  res: 10.0
+  # <reconstruct:si> = index to calculate. See options in SI_DICT in lookup.py
+  si: 'evi2'
+  # <reconstruct:start> and <reconstruct:end> set the smoothing timeframe. format= 'yyyy-mm-dd'
+  start: '1999-07-01'
+  end: '2024-07-01'
+    # <reconstruct:start_pad> provide earlier dates and <reconstruct:end_pad> provides later dates to buffer ts. format= 'yyyy-mm-dd'
+  start_pad: '1999-03-01'
+  end_pad: '2024-11-01'
+  
+  skip_years: 1
+  # <reconstruct:load_on_cluster> :Whether to use dask and ray to load data
+  load_on_cluster: False
+  chunks: 256
+  # <reconstruc:overwrite>: wether to overwrite time series if it alreary exists
+  overwrite: False
+
+  smooth_kwargs:
+  ## <reconstruct:smooth_kwargs:smooth_method> 'dts' | 'wh' | 'sg' | 'gpr' | 'harm' | 'lw' | 'dbl'
+    smooth_method: 'dts'
+    max_window: 31
+    min_window: 7
+    interp_step: True
+    mid_g: 0.5
+    r_g: -10.0
+    mid_k: 0.5
+    r_k: -10.0
+    mid_t: 0.5
+    r_t: 15.0
+    remove_outliers: True
+    max_outlier_days1: 120
+    max_outlier_days2: 120
+    min_outlier_values: 7
+    min_gap_length: -999
+    outlier_iters: 1
+    dev_thresh1: 0.2
+    dev_thresh2: 0.2
+    t_smoothing: True
+    spt_smoothing: True
+    rule: 'D2'
+    skip: 'N'
+    write_skip: 10
+    k: 3
+    t: 5
+    sigma_time: 0.1
+    sigma_color: 0.1
+    sigma_space: 0.1
+    n_iters: 2
+    n_iters_spt: 1
+    chunksize: 10
+    extreme_rel_thresh: 0.0
+    prefill_gaps: True
+    prefill_iters: 5
+    prefill_wmax: 11
+    prefill_wmin: 5
+    prefill_min_count: 25
+    prefill_dev_thresh: 0.05
+    prefill_max_days: 21
+    prefill_max_years: 5
+    
+#############################################################################################
+## Feature model and feature generation from smoothed or raw input imagery
+feature_model:
+  ## <feature_model:feature_mod_dict> is the dictionary that keeps track of the feature composition of each feature model
+  ##      if None or '', <feature_model:feature_mod_dict> = <backup_path>.parents[1]/'Feature_Models.json'
+  feature_mod_dict: ''
+  start_yr: 2019
+  name: "base4"
+  spec_indices: ['kndvi','gcvi','ndmi','nbr']
+  si_vars: ['maxv-yr','minv-yr','amp-yr','avg-yr','sd-yr','Jan-20','Jun-20','maxv-wet','maxv-dry']
+  spec_indices_pheno: ['kndvi']
+  ## <feature_model:use_pheno> is only important for making composite images. For modeling,this will be reset as needed for regular and pheno variables 
+  use_pheno: False
+  pheno_vars: ['posv-wet']
+  ## <feature_model:pheno_pad_days> is a list [l,r] with l as padding (in days) into left side and r as padding into right side of the normal calendar dates
+  pheno_pad_days: [30,0]
+  pheno_sigdif: 500
+  ## <feature_model:pheno_basethresh> is value above which a pixel is very unlikely to have recently experienced an event (e.g. burning) 
+  ##    if the index decreases with the event (or below which if the index increases with the event). If 0, will skip this step. (typical values around 5000) 
+  pheno_basethresh: 0
+  pheno_imgbuf: 2
+  ancillary_vars: []
+  ## <feature_model:singelton_mod_dict is the dictionary with ancillary feature data... 
+  ##      if None or '', <feature_model:singelton_mod_dict> = <backup_path>.parents[1]/'ancillary_var_dict.json'
+  ancillary_var_dict: ''
+  combo_bands: []
+  ## <feature_model:diff_feats> is subset of si_vars to calculate difference for from previous year(s)
+  diff_feats: []  
+  # <feature_model:treat_out> = 'archive' | 'tmp'
+  treat_out: 'archive'
+  overwrite: False
+  update_mod_dict: True
+  subset_features: False
+  full_feature_mod: None
+  ## <feature_model:premade composite> is path to composite image if already exists (most useful for mosaicked polygon calcs), else None
+  premade_composite: None
+
+  ### segmentation-related variables if separate segmentation step was run
+  ## <feature_model:poly_vars> are polygon level vatriables represented at a pixel level to be compatible with other rasters used in a pixel-based model 
+  poly_vars: ['poly_ext','poly_dst','poly_cropbnds','poly_area','poly_APrEf','poly_NovDecStd']
+  ##<feature_model:poly_var_path> is path to raster products representing polygon-level variables (for pixel-level modeling)
+  poly_var_path: '/home/downspout-cel/paraguay_lc/Segmentations/cnet24_4VIk/feats_EO_8pt5'
+  ##<feature_model:poly_vector_path> is path to vector objects to rasterize or use in object-based analysis
+  poly_vector_path: '/home/downspout-cel/paraguay_lc/Segmentations/cnet24_4VIk/infer_polys_EO_8pt5'
+  ## <feature_model:unit_of_analysis>: 'pixel' | 'polygon' (default = 'pixel')
+  unit_of_analysis: 'pixel'
+  ## <feature_model:polyfeat_dict> is path to a dictionary of aggregated feature calculations for each polygon, to use if only modelling polygons (not pixels)  
+  polyfeat_dict: None
+  ## <feature_model:aggstats> are the aggregate stats to calculate for polygons. ['All'] or any of ['avg', 'med', 'std', 'q75', 'q90', 'q10', 'q25']
+  aggstats: ['All']  
+  ## poly_premask is path to binary mask (0/1) to filter out pixels prior to calculating aggregate stats for polygons
+  
+
+sample_model:
+  ## <sample_model:focus_area> indicates a geographical limit on the sample set and is used for file naming purposes only
+  focus_area: None
+  ## <sample_model:train_yrs> are the years from which the training sample is taken. 
+  ##   Can be single year YYYY, or range [YYYY,YYYY], or multiple years[YYYY,YYYY,YYYY] (if two years but not range, the most recent year needs to be first)
+  train_yrs: [2022,2024]
+  ## <sample_model:point_file> is the full file with all possible sample points to draw from for the sample
+  point_file: "/home/downspout-cel/paraguay_lc/vector/sampleData/SamplePts_Mar2024_ALL.csv"
+  ## <sample_model:num_subsamples> is the number of times to generate a fixed holdout (fixed for downstream tests) from the main sample
+  num_subsamples: 0
+  ## <sample_model:subsample> is the subsample number (to be passed via other methods). None if <num_subsamples> ==0
+  subsample: None
+  ## <sample_model:subsamp_seed> is a seed for <sample_model:num_subsamples> for exact reproducibility
+  subsamp_seed: 76
+  ## <sample_model:fixed_ho_dir> is location of fixed holdout sets for calibration and model optimization
+  ##    if None or '', <sample_modelfixed_ho_dir> = <backup_path>.parents[1]/vector/pts_calval/fixedHOs
+  fixed_ho_dir: ''
+  ## <sample_model:fixed_ho> = True if using sample in fixed holdout for testing, otherwise a test set will be heldout
+  fixed_ho: True
+  ## <sample_model:overwrite_ho> = False unless intentionally trying to create a new holdout set
+  overwrite_ho: False
+    ## <sample_model:test_thresh> is the %(int, 1-100) held out for fixed hold (or random if using jgrss multi-year classification model). If 0, no fixed ho.
+  ## <sample_model:point_samp_dir> contains generated subsets of the global point file for a model optimization
+  ##    if None or '', <sample_model:point_samp_dir> = <backup_path>.parents[1]/vector/pts_training/pt_subsets
+  point_samp_dir: '' 
+  ## <sample_model:test_thresh> is the %(int, 1-100) held out randomly for each model on top of any fixed holdout
+  test_thresh: 20
+  ## <sample_model:ran_hold_seed> is a seed for the scipy test-train-split. 
+  ran_hold_seed: 88
+   #<sample_model:name> is the name of the sample model to use
+  ##   <sample_model:name> should follow the format red<reduce>min<minsamp>upsamp<minbal> and is often constructed from these params
+  name: 'min100'
+  ## <sample_model:minsamp> is the minimum number of samples allowed for each class 
+  #    (regardless of the actual proportion of this class, this number of samples is included in the training set if available) 
+  minsamp: 200
+  ## <sample_model:minbal> is the representation of the minority class of interest (e.g. mixed) 
+  #    (0=no representation, 1=proportional representation, 2=2x normal proportion, etc.)
+  minbal: 1
+  # <sample_model:reduce> (0-1) is the percentage reduction of training dataset (for robustness checks) - 0 = no reduction
+  reduce: 0 
+  ## <sample_model:balance_col> is the column in the LUT with the class proportions for sample balancing
+  balance_col: 'perLC32E'
+  ## <sample_model:lcall> is the column in the LUT that has the full set of classes considered in the model
+  lcall: per32
+  ## <sample_model:use_balanced_ho> whether to balance the holdout data (just balances the negative category (e.g. noCrop))
+  use_balanced_ho: True
+
+  ## <sample_model:load_samp> is whether to load an existing point sample (usually from <sample_model:point_file>)
+  load_samp: True
+  ## the following are only needed if sample points are to be drawn from existing polygons (<sample_model:load_samp> == False)
+  poly_file: None
+  npts: 5
+  oldest: 2017
+  newest: 2022
+  obs_col: "obsYr"
+  poly_samp_seed: 88
+  ## pre-model exploration
+  ## sample_model:filter_col> and <filter_class> subset a point file by a specific <class> in the designated <column>
+  filter_col: None
+  filter_class: None
+  obs_col:  None
+  preobs_col: None
+  
+schematic_model:
+  lc_mod: 'all'
+  lut: "/home/downspout-cel/paraguay_lc/Class_LUT.csv"
+
+iter_models:
+  ## <iter_models:temp_vardfs> sends pt and feature sets to a temp space (<scratch_dir>/optimization/vardfs) rather than the backup <vardf_dir>
+  optimize_on: 'smCrop'
+  feat_models: ['base4Poly','base4NoPoly']
+  class_models: []
+  ## <iter_models:trainyr_sets> is a list of lists, with each item comprising an entry from <sample_model:train_yrs>
+  trainyr_sets: [[2017,2023],[2020,2023],2023]
+  ## <iter_models:iter> is the iteration number (usually to be passed by other methods). If None, this is the main model with no iteration number.
+  iter: None
+  iterations: 10
+  model_score_dict: '/home/downspout-cel/paraguay_lc/classification/RF/model_stats/CELPy_model_iterations_2021.json'
+  ## <iter_models:opt_dir> is location for diagnostics and optimiztion outputs.  If None, defaults to <backup_path>.parents[1]/optimization
+  opt_dir: ''
+  #################################
+  ## For sample model optimization:
+  ##   range_X is the range for testing and inc_X is the amout to increment the range by for each optimization step
+  ##      <iter_models:range_minsamp> and iter_models:inc_minsamp> controls parameter sample_model:minsamp
+  ##      <iter_models:range_minbal> and <iter_models:inc_minbal> controls parameter sample_model:minbal
+  ##      <iter_models:range_est> and <iter_models:inc_est> controls parameter classify:n_est
+  ##      <iter_models:range_reduce> and <iter_models:inc_reduce> controls  parameter sample_model:reduce
+  range_minsamp: [100,300]
+  inc_minsamp: 100
+  range_minbal: [0,7]
+  inc_minbal: 1
+  range_est: [100,200]
+  inc_est: 100
+  range_reduce: [0,.7]
+  inc_reduce: .1
+  ########################################
+  ## For feature model optimization: 
+  ##     <iter_models:dropf_indices> lists full indices to drop, e.g. ['evi2','wi']. All variables with these indices will be dropped.
+  ##     <iter_models:dropf_vars> lists full variables to drop. e.g. ['cv_yr','posd_wet']. These variables will be dropped for all indices  
+  ##     <iter_models:dropf_combo> allows specific index-variable combinations to be dropped e.g. ['wi_Jan-20', 'gcvi_maxv-wet'] 
+  dropf_indices: []
+  dropf_vars: []
+  dropf_combo: []
+  ## <iter_models:dropf_list> is a .csv list with a list of dropf_combo variables to drop. Can be variable importance output file.
+  dropf_list:
+  ## <iter_models:dropf_method> = 'top' | 'thresh' | 'top_w_thresh' | 'all'
+  dropf_method: 'top'
+  ## <iter_models:dropf_thresh> sets variable importance threshold below which variable is dropped (0 if importance method is Permutation)  
+  dropf_thresh: 0
+  ## <iter_models:keepnum> sets number of variables to keep if dropf_method is 'top' or max number to keep if 'top_w_thresh'
+  dropf_keepnum: 75
+  ## <iter_models:newfmod_preface> 
+  newfmod_preface: 'top75'
+   ## <iter_models:fmodel_score_dict> is path to dictionary used for feature optimization
+  fmodel_score_dict: '/home/downspout-cel/paraguay_lc/optimization/feature_model_scores.json'
+  ##<iter_models:new_fmodname> is new name for a newly generated feature model
+  new_fmodname: ''
+
+explore:
+ ## <explore:spectsdf_dir> is 'vector/sample_ts_signatures' directory by default
+ spectsdf_dir: ''
+ ## <explore:sig_prefix> is prefix for signature files and graphs to give context. e.g. 'burn-prepost' 
+ sig_prefix: ''
+ ##<explore:maxobsgap_pre> is the maximum number of days between an event observation and the closest pre-even observation for it to be used
+ maxobsgap_pre: 30
+##<explore:maxobsgap_pre> is the maximum number of days between an event observation and the closest post-even observation for it to be used
+ maxobsgap_post: 10
+ 
+########## Classification ###########################################################################################
+classify:
+  ## <classify:ptsfeat_dir> is path to directory containing full feature dataframes (all possible sample points)
+  ##    if None or '', <classify:ptsfeat_dir> = <backup_path>.parents[1]/vector/pts_training/features
+  ptsfeat_dir: ''
+  ## <classify:vardf_dir> is directory containing full training sets (sample sets with features appended) ready for classification
+  ##    if None or '', <classify:vardf_dir> = <backup_path>.parents[1]/classification/inputs
+  ##    unless <iter_models:temp_vardfs> is True, in which case it is <scratch_dir>/'optimization'/'vardfs'
+  vardf_dir: ''
+  vardf_base: "pixdf_base4Poly_min100_all_2021.csv"
+  ## <classify:mod_type>  options are currently 'RF' for random forest or 'GB' for gradient boosting. "CRF" in development
+  mod_type: 'RF'
+  # <classify:temp_mod> saves model to scratch_dir if =True
+  temp_mod: False 
+  ## <classify:mod_dir> is directory with files for classification models
+  ##    if None or '', <classify:mod_dir> = <backup_path>.parents[1]/classification
+  mod_dir: ''
+  out_yrs: [2022]
+  # <classify:comp_dir> = 'backup' | 'input_dir' | 'tmp'
+  comp_dir: 'backup'
+  local_dir: 'comp'
+  # <classify:overwrite_model> sets whether to overwrite the classifier (model) if it exists
+  overwrite_model: False
+  # <classify:overwrite_image> sets whether to overwrite the classified image if it exists
+  overwrite_image: False
+  # <classify:n_est> is the number of estimators in the model. Number of trees for random forest or estimators for 
+  n_est: 100
+  # <classify:importance_method>: Permutation' | 'Impurity' | None
+  importance_method: None
+# <classify:perm_seed>: Needed only if importance method is 'Permutation'
+  perm_seed: 0
+  # <classify:existing_mod> is path to existing model name if different than default
+  existing_mod: None
+  # <classify:test> sends product to scratch directory if =True
+  test: False
+  # <classify:name> is the common string for the final classified mosaic. This should be the model name, but can be reset here for flexibility. 
+  name: None
+  save_mosaic: True
+
+vectorize:
+    ## <vectorize:instance_method> is 'EO' | 'threshold' | 'water'
+    instance_method: 'EO'
+    ## <vectorize:eo_thresh> is single threshold needed for 'EO' method.  = 1 + extent - boundary
+    eo_thresh: 8.5
+    ## <vectorize:bound_thresh> boundary threshold required for watershed and threshold instance methods
+    bound_thresh: 0.4
+    ## <vectorize:ext_thresh> extent threshold required for watershed and threshold instance methods
+    ext_thresh: 0.6
+    ## <vectorize:seed_size> required for watershed instance method
+    seed_size: 15
+    eo_thresh: 7
+    single_band: True 
+    mmu: 900.0 
+    ## <vectorize:overwrite_merged> overwrite the final merged polygon set if it already exists
+    overwrite_final_polys: True
+    ## <vectorize:overwrite_int_polys> overwrite any intermediate polygons that already exist
+    #overwrite_int_polys: False
+
+segment:
+    ## <segment:step>: 'train' | 'predict'
+    step: 'train'  
+    ##<segment:seg_dir_main> is the overarching directory for segmentation model and outputs
+    seg_dir_main: '/home/downspout-cel/paraguay_lc/Segmentations'
+    ##<segment:seg_dir_mod> is the directory within seg_dir_main for segmentation products for a particular year / model
+        ## should start with 'cnetYY_' then can contain anything after
+    seg_dir_mod: 'cnet4VIk'
+    seg_train_polys: '/home/downspout-cel/paraguay_lc/Segmentations/00_digitizations/PyCropSeg_Polys_8858.shp'
+    ##<segment:seg_dir_products> is the directory with the final raster products from segmentation 
+    ##       (vector products are in <feature_model:poly_var_path>)
+    seg_dir_products: '/home/downspout-cel/paraguay_lc/Segmentations/cnet4VIk/feats_EO_8pt5_2025'
+    ## <segment:preface> is a preface inserted before normal file names to distinguish them from other projects.
+    prefix: 'PY'
+    ## <segment:update_cihps> True if wanting to write new training chips to user_train. (If geom needs adjusting or new regions ready)
+    update_polys: False
+    ##<segment>clip_imagery> True if wanting to clip the ts imagery to a sub-cell geometry (e.g. training chips). False if predicting (need full cell)
+    clip_imagery: True
+    ## <segment:train_chip_size> is width of training chips in number of pixels 
+    train_chip_size: 100
+    ##<segment:spec_indices> is list of spectral indices or bands used for segmenation only
+    spec_indices: ['kndvi','gcvi','wi','ndmi'] 
+    ## <segment:temp_inputs>: If True, will look for input products for segmentation process in scratch dir
+    temp_inputs: True
+    ##  <segment:clean_temp_data>: If true, will clean data/predict folder (can get huge) from temp drive at the end of 'vectorize_seg_results'
+    clean_temp_data: True
+    make_blank_vars: True
+    ## <segment:acc_id_col> is .txt file with first column called 'id' identifying random holdout chips to use for accuracy assessment
+    region_id_file: "/home/scratch-cel/cnet/cnet_training_regions.txt"
+    acc_id_file: "cnet_training_regions_holdout.txt"
+    ##<segment:pos_classes> is a list of positive classes for vectorization (e.g. crops in crop model) 
+    pos_classes: [1]
+    target: 'crop'
