@@ -352,7 +352,7 @@ def make_ts_composite(params):
     for cell in params['grids']:
         ppaths = ProjectPaths(params, grid=cell)
         if params['feature_model']['treat_out'] == 'archive':
-            out_dir = ppaths.comp / si_full
+            out_dir = ppaths.comp
         elif params['feature_model']['treat_out'] == 'tmp':
             out_dir = ppaths.scratch / 'comp'
 
