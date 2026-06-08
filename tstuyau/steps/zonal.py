@@ -9,6 +9,7 @@ import rasterio as rio
 #from rasterio.merge import merge
 from rasterio.windows import Window
 from rasterio import features
+from rasterio.mask import mask
 #from rasterio.features import shapes
 import pandas as pd
 import numpy as np
@@ -291,13 +292,15 @@ def summarize_zones_cont(params, ras_in=None):
     return dict_in
 
 
-def get_ts_stats_within_polys(params):
+def get_ts_stats_within_polys(params, in_path=None, out_path=None):
     from rasterstats import zonal_stats
-    
-    out_path = params['feature_model']['poly_var_path']
+
+    poly_buf = params['refine']['buffer']
+    if not out_path:
+        out_dir = params['feature_model']['poly_var_path']
     tmp_out_dir= Path(params['scratch_dir']) /'tmp_poly_rasts'
     tmp_out_dir.mkdir(parents=True, exist_ok=True)
-        
+
     ## saving raster grids with polygon features, using standard gridded procedures
     cells = []
     if isinstance(params['grids'], list):
@@ -308,11 +311,38 @@ def get_ts_stats_within_polys(params):
                 cells.append(row[0])
     elif isinstance(params['grids'], int) or isinstance(params['grids'], str): # if runing individual cells as array via bash script
         cells.append(params['grids']) 
+        
+    if params['feature_model']['ancillary_vars']:
+        if in_path:
+            var_path = in_path
+            var_col = 'Value'
+        else:
+            var_dict = params['feature_model']['ancillary_var_dict']
+            with open(var_dict, 'r+') as sfd:
+                dic = json.load(sfd)
+            if avar0 in dic: 
+                var_path = dic[avar0]['path']
+                var_col = dic[avar0]['col']
+            else: logger.warning(f'no entry for {avar0} in dict at: {var_dict}')
+        avar = params['feature_model']['ancillary_vars'][0]
+        stat = avar.split('-')[1].split('_')[0]
+        avar0 = avar.split('-')[0]
+        logger.info(f'working on {avar0}...')
+        
+    elif params['feature_model']['spec_indices']:
+        si = params['feature_model']['spec_indices'][0]
+        if '-' in si:
+            si = si.split('-')[0]
+        logger.info(f'working on {si}...')
+        siv = params['feature_model']['si_vars'][0]
+        season = siv.split('-')[1]
+        stat = siv.split('-')[2]
+        year = int(params['sample_model']['train_yrs']) ## should be single year here
+        use_dates = get_date_range(year,season,params,return_type='doy',padded=False)
     
     for cell in cells:
-        logger.info(f'working on cell {cell}...')
+        logger.info(f'working on cell {cell}...\n')
         ppaths = ProjectPaths(params, grid=cell)
-        logger.debug(f'working on cell {cell}... \n')
         grid_file = gpd.read_file(params['grid_file'])
         gridcell = grid_file[grid_file['UNQ'] == int(cell)]
         #buffer_geom = gridcell.buffer(params['buffer']+int(params['res']), cap_style='square',join_style='mitre')
@@ -323,108 +353,163 @@ def get_ts_stats_within_polys(params):
 
         poly_path = params['feature_model']['poly_vector_path']
         if Path(poly_path).is_file(): 
-            #polys_all = gpd.read_file(polys)
-            polys = get_polygons_in_grid(grid_file, cell, polys, oldest=None, newest=None, obs_col=None)
+            #polys_all = gpd.read_file(poly_path)
+            polys = get_polygons_in_grid(grid_file, cell, poly_path, oldest=None, newest=None, obs_col=None)
+        elif Path(poly_path).is_dir():
+            polys = gpd.read_file([Path(poly_path)/i for i in list(Path(poly_path).glob(f'*{cell:04d}*.gpkg'))][0])              
         else:
-            polys = gpd.read_file([Path(poly_path)/i for i in list(Path(poly_path).glob(f'*{cell:04d}*.gpkg'))][0])
+            logger.warning(f'not sure how to parse polys {polys}')
+            return
 
-        sis = params['feature_model']['spec_indices']   ## eg. ['kndvi', 'wi', 'ndmi']
-        if isinstance(sis,str):
-            sis = [sis]
-        for si in sis:
-            if '-' in si:
-                si = si.split('-')[0]
-            logger.info(f'working on {si}...')
+        if params['feature_model']['ancillary_vars']:
+            if poly_buf > 0:
+                suffix = f'buf{buf}'
+            else:
+                suffix = ''
+            if out_path:
+                out_file = out_path
+            else:
+                out_file = Path(out_dir)/f'{cell:06d}/{cell:06d}_{avar}_{suffix}.tif'
+            out_file.parent.mkdir(parents=True, exist_ok=True)
+            
+            if (var_path.startswith('relative')) or (Path(var_path).stem.startswith(f'cell:04d')):
+                ## if using classified outputs in the comp directory as ancillary inputs, the path in the dictionary should be:
+                ##      "relative_<global_file_name> with relative in the place of the cell number at the beginning of the file name
+                if var_path.is_file():
+                    var_path = var_path
+                elif 'relative' in var_path:
+                    prepath = ppaths.ms.parent/'comp'/f'{cell:06d}'
+                    #prepath = ppaths.comp/f'{cell:06d}'
+                    var_path = var_path.replace('relative',str(prepath))
+                
+                logger.info(f'getting {avar0} at: {var_path} \n')
+                with rio.open(var_path) as src0:
+                    gt = src0.transform
+                    out_shape=src0.shape
+                    logger.info(f'out_shape = {out_shape}')
+                    offset = img_to_bbox_offsets(gt, boundary)
+                    new_gt = rio.Affine(gt[0], gt[1], (gt[2] + (offset[0] * gt[0])), 0.0, gt[4], (gt[5] + (offset[1] * gt[4])))
+                    out_meta = src0.meta.copy()
+                    out_meta.update({"count": 1, "dtype":np.int16})
+            
+            else:  ## clip large raster to grid cell to parse more easily
+                minx = bounds[0]
+                maxx = bounds[2]
+                miny = bounds[1]
+                maxy = bounds[3]
+                geometry = [[maxx,miny], [maxx,maxy], [minx,maxy], [minx,miny]]
+                roi = [Polygon(geometry)]
+                with rio.open(var_path) as src0:
+                    out_image, transformed = mask(src0, roi, crop = True)
+                small_ras = next(ppaths.comp.glob("*.tif"),None)
+                if not small_ras:
+                    small_ras = next(ppaths.ms.glob("*.nc"),None)
+                with rio.open(small_ras) as src_ref:
+                    gt = src_ref.transform
+                    out_shape=src_ref.shape
+                    logger.debug(f'out_shape = {out_shape}')
+                    offset = img_to_bbox_offsets(gt, boundary)
+                    new_gt = rio.Affine(gt[0], gt[1], (gt[2] + (offset[0] * gt[0])), 0.0, gt[4], (gt[5] + (offset[1] * gt[4])))
+                    out_meta = src_ref.meta.copy()
+                    out_meta.update({"count": 1, "dtype":np.int16})
+                out_tmp = Path(tmp_out_dir)/f'{cell:06d}/{avar0}_clipped'
+                out_tmp.parent.mkdir(parents=True, exist_ok=True)
+                with rio.open(out_tmp, 'w', **out_meta) as dst:
+                    dst.write(out_image)
+                var_path = out_tmp
+                
+        elif params['feature_model']['spec_indices']:   ## calculating stats from time-series variables
             ## the following is only for smoothed indices. TODO: add in raw
             ts_dir = ppaths.ts / si
             logger.debug(f'looking in {ts_dir}')
             all_imgs = sorted(list(ts_dir.glob('*.tif')))
-            
-            si_vars = params['feature_model']['si_vars']
-            for siv in si_vars:
-                season = siv.split('-')[1]
-                stat = siv.split('-')[2]
-                year = int(params['sample_model']['train_yrs']) ## should be single year here
-                use_dates = get_date_range(year,season,params,return_type='doy',padded=False)
-                rasts = sorted([r for r in all_imgs if int(r.stem) > use_dates[0] and int(r.stem) < use_dates[1]])
-                logger.info(f'there are {len(rasts)} rasts between {use_dates[0]} and {use_dates[1]}')
-                if (params['project_ver'] == 'Py_0') and (siv == 'avg-NovDec-std'):
-                    out_file =  Path(out_path) / f'AvgNovDec_FieldStd_{cell}.tif'
-                else:
-                    out_file =  Path(out_path) / f"Poly{siv.split('-')[2]}-{siv.split('-')[0]}{siv.split('-')[1]}_{cell:04d}.tif"
+            rasts = sorted([r for r in all_imgs if int(r.stem) > use_dates[0] and int(r.stem) < use_dates[1]])
+            logger.info(f'there are {len(rasts)} rasts between {use_dates[0]} and {use_dates[1]}')
+            if (params['project_ver'] == 'Py_0') and (siv == 'avg-NovDec-std'):
+                out_file =  Path(out_dir) / f'AvgNovDec_FieldStd_{cell}.tif'
+            else:
+                out_file =  Path(out_dir) / f"Poly{siv.split('-')[2]}-{siv.split('-')[0]}{siv.split('-')[1]}_{cell:04d}.tif"
                     
-                if polys.shape[0] == 0:
-                    logger.debug('there are no ploygon features in this cell')
-                    with rio.open( ts_dir / rasts[0]) as src:
-                        out_meta = src.meta.copy()
-                        out_meta.update({"count": 1, "dtype":np.int16})
-                        samp_ras = src.read(1)
-                        blank_ras = samp_ras*0
-                    with rio.open(out_file, 'w+', **out_meta) as dst:
-                        dst.write_band(1, blank_ras)
-                    if params['segment']['make_blank_vars']:
-                        ## Make other blank filler files:
-                        out_fn2 = Path(out_path)/f"pred_APR_{cell}.tif"
-                        if not out_fn2.exists:
-                            with rio.open(str(out_fn2), 'w+', **out_meta) as dst:
-                                dst.write_band(1, blank_ras)
-                        out_fn3 = Path(out_path)/f"pred_area_{cell}.tif"
-                        if not out_fn3.exists:   
-                            with rio.open(str(out_fn3), 'w+', **out_meta) as dst:
-                                dst.write_band(1, blank_ras)
-                        out_fn4 = Path(out_path)/f"pred_APrEf_{cell}.tif"
-                        if not out_fn4.exists:
-                            with rio.open(str(out_fn4), 'w+', **out_meta) as dst:
-                                dst.write_band(1, blank_ras)
+            if polys.shape[0] == 0:
+                logger.debug('there are no ploygon features in this cell')
+                with rio.open( ts_dir / rasts[0]) as src:
+                    out_meta = src.meta.copy()
+                    out_meta.update({"count": 1, "dtype":np.int16})
+                    samp_ras = src.read(1)
+                    blank_ras = samp_ras*0
+                with rio.open(out_file, 'w+', **out_meta) as dst:
+                    dst.write_band(1, blank_ras)
+                if params['segment']['make_blank_vars']:
+                    ## Make other blank filler files  This is a hacky fix for an old issue:
+                    out_fn2 = Path(out_dir)/f"pred_APR_{cell}.tif"
+                    if not out_fn2.exists:
+                        with rio.open(str(out_fn2), 'w+', **out_meta) as dst:
+                            dst.write_band(1, blank_ras)
+                    out_fn3 = Path(out_dir)/f"pred_area_{cell}.tif"
+                    if not out_fn3.exists:   
+                        with rio.open(str(out_fn3), 'w+', **out_meta) as dst:
+                            dst.write_band(1, blank_ras)
+                    out_fn4 = Path(out_dir)/f"pred_APrEf_{cell}.tif"
+                    if not out_fn4.exists:
+                        with rio.open(str(out_fn4), 'w+', **out_meta) as dst:
+                            dst.write_band(1, blank_ras)
                         
+            else:
+                ## First calculate temporal stat for all images in indicated time period
+                stack = []
+                with rio.open(rasts[0]) as src0:
+                    out_meta = src0.meta.copy()
+                    out_meta.update({"count": 1, "dtype":np.int16})
+                for rast in rasts:
+                    with rio.open(rast) as src:
+                        gt = src.transform
+                        offset = img_to_bbox_offsets(gt, boundary)
+                        new_gt = rio.Affine(gt[0], gt[1], (gt[2] + (offset[0] * gt[0])), 0.0, gt[4], (gt[5] + (offset[1] * gt[4])))
+                        arr = src.read(window=Window(offset[0], offset[1], offset[2], offset[3]))      
+                        stack.append(arr)
+                            
+                logger.info(f"getting {siv.split('-')[0]} for all images in period")
+                if siv.split('-')[0] == 'avg':
+                    arr = np.nanmean(stack, axis=0)
+                elif siv.split('-')[0] == 'cv':
+                    arr = np.nanvar(stack, axis=0)
+                elif siv.split('-')[0].startswith('per'):
+                    num = siv.split('-')[0].split('per')[1]
+                    arr = np.nanpercentile(stack, num, axis=0)
                 else:
-                    ## First calculate temporal stat for all images in indicated time period
-                    stack = []
-                    with rio.open(rasts[0]) as src0:
-                        out_meta = src0.meta.copy()
-                        out_meta.update({"count": 1, "dtype":np.int16})
-                    for rast in rasts:
-                        with rio.open(rast) as src:
-                            gt = src.transform
-                            offset = img_to_bbox_offsets(gt, boundary)
-                            new_gt = rio.Affine(gt[0], gt[1], (gt[2] + (offset[0] * gt[0])), 0.0, gt[4], (gt[5] + (offset[1] * gt[4])))
-                            arr = src.read(window=Window(offset[0], offset[1], offset[2], offset[3]))      
-                            stack.append(arr)
-                            
-                    logger.info(f"getting {siv.split('-')[0]} for all images in period")
-                    if siv.split('-')[0] == 'avg':
-                        arr = np.nanmean(stack, axis=0)
-                    elif siv.split('-')[0] == 'cv':
-                        arr = np.nanvar(stack, axis=0)
-                    elif siv.split('-')[0].startswith('per'):
-                        num = siv.split('-')[0].split('per')[1]
-                        arr = np.nanpercentile(stack, num, axis=0)
-                    else:
-                        logger.warning(f"OOPS -- do not have a method for {siv} -- only have 'avg','cv',and 'perX'")
-                    out_shape = arr.shape
-                    ## save intermediate mean raster 
-                    out_tmp = Path(tmp_out_dir) / f"{siv.split('-')[1]}{siv.split('-')[0]}_{cell:04d}.tif"
-                    with rio.open(out_tmp , "w", **out_meta) as dst:
-                        dst.write(arr)
+                    logger.warning(f"OOPS -- do not have a method for {siv} -- only have 'avg','cv',and 'perX'")
+                out_shape = arr.shape
+                ## save intermediate mean raster 
+                out_tmp = Path(tmp_out_dir) / f"{siv.split('-')[1]}{siv.split('-')[0]}_{cell:04d}.tif"
+                with rio.open(out_tmp , "w", **out_meta) as dst:
+                    dst.write(arr)
+                var_path = out_tmp
 
-                    ## within each polygon, calculate spatial stat for temporal stat ras
-                    logger.info(f'getting {stat} for all pixels in polygon...\n')
-                    gdf = polys.join(pd.DataFrame(zonal_stats(
-                        vectors=polys['geometry'], raster=out_tmp, stats=[stat])), how='left' )
-                    ## save raster 
-                    with rio.open(out_file, 'w+', **out_meta) as dst:
-                        tmp_arr = dst.read(1)
-                        ## rasterize polygon using stat value
-                        shapes = ((geom,value) for geom, value in zip(gdf.geometry, gdf[stat]))
-                        image = features.rasterize( ((g, v) for g, v in shapes), out_shape=out_shape[1:], transform=new_gt)
-                        dst.write_band(1, image)
-                    logger.info(f'wrote final file to: {out_file}')
+        ## within each polygon, calculate spatial stat for temporal stat ras
+        logger.info(f'getting {stat} for all pixels in polygon...\n')
+        if poly_buf > 0:
+            polys["geometry"] = polys.buffer(poly_buf)    
+        gdf = polys.join(pd.DataFrame(zonal_stats(
+            vectors=polys['geometry'], raster=var_path, stats=[stat])), how='left' )
+
+        with rio.open(out_file, 'w+', **out_meta) as dst:
+            tmp_arr = dst.read(1)
+            ## rasterize polygon using stat value
+            shapes = ((geom,value) for geom, value in zip(gdf.geometry, gdf[stat]))
+            if len(out_shape) == 3:
+               out_shape=out_shape[1:] 
+            image = features.rasterize( ((g, v) for g, v in shapes), out_shape=out_shape, transform=new_gt)
+            dst.write_band(1, image)
+        logger.info(f'wrote final file to: {out_file}')
                             
-                    ## delete intermediate mean raster
-                    out_tmp.unlink()
+        ## delete intermediate mean raster
+        try:
+            out_tmp.unlink()
+        except:
+            pass
                             
 
-def make_polygon_features(params):
+def make_polygon_features(params, in_path=None, out_path=None):
     from rasterstats import zonal_stats
     '''
     If <feature_model:unit_of_analysis> == 'polygon', Provides summary output for each polygon, in dictionary <'feature_model':'poly_feat_dict'>
@@ -433,17 +518,10 @@ def make_polygon_features(params):
         using standard gridded procedures
     '''
 
-    sis = params['feature_model']['spec_indices']   ## eg. ['kndvi', 'wi', 'ndmi']
-    if isinstance(sis,str):
-        sis = [sis]
-    si_vars = params['feature_model']['si_vars']  ## eg. ['minv-wet', 'maxv-wet', 'minv-dry'] or ['avg-wet', 'cv-wet', 'cv-dry']
-    yrs = params['sample_model']['train_yrs'] ## eg. [2020,2024]
     polys = params['feature_model']['poly_vector_path'] ## path to polygons
-
     uoa = params['feature_model']['unit_of_analysis']
     
-    if uoa.lower().startswith('poly'):
-        ## making dictionary of polygon features
+    if uoa.lower().startswith('poly'):   ## making dictionary of polygon features
         polyfeat_dict = params['feature_model']['poly_feat_dict']  ## eg. "../data/poly_stats.json"
         premask = params['mask']['mask_path']  ## eg. "/home/downspout-cel/biltong/mosaics/grass_obs_mask.tif"
         diff_feats = params['feature_model']['diff_feats']
@@ -452,81 +530,125 @@ def make_polygon_features(params):
             mask_prefix = Path(premask).stem.split('_')[0]
         else:
             mask_prefix = {}
-    
-        for idx in sis:
-            for yr in range(int(yrs[0]), int(yrs[-1]) + 1):
-                if (params['feature_model']['premade_composite'] is not False) and (params['feature_model']['premade_composite'] != 'False'):
-                    ras_path = Path(params['backup_path'])/'mosaics'
-                    ras_prefix = params['sample_model']['focus_area'] ##eg. 'cells_P1'
-                    ras_in = Path(ras_path) / f"{ras_prefix}_{yr}_{idx}_{si_vars[0]}-{si_vars[1]}-{si_vars[2]}.tif"
-                    bands = [f'{yr}_{idx}_{mask_prefix}_{si_vars[0]}',f'{yr}_{idx}_{mask_prefix}_{si_vars[1]}',f'{yr}_{idx}_{mask_prefix}_{si_vars[2]}']
-                else:
-                    logger.info('finish this to make new composite')
+
+        if params['feature_model']['spec_indices']:  ## using ts data
+            sis = params['feature_model']['spec_indices']   ## eg. ['kndvi', 'wi', 'ndmi']
+            if isinstance(sis,str):
+                sis = [sis]
+            si_vars = params['feature_model']['si_vars']  ## eg. ['minv-wet', 'maxv-wet', 'minv-dry'] or ['avg-wet', 'cv-wet', 'cv-dry']
+            yrs = params['sample_model']['train_yrs'] ## eg. [2020,2024]
+            for idx in sis:
+                for yr in range(int(yrs[0]), int(yrs[-1]) + 1):
+                    if (params['feature_model']['premade_composite'] is not False) and (params['feature_model']['premade_composite'] != 'False'):
+                        ras_path = Path(params['backup_path'])/'mosaics'
+                        ras_prefix = params['sample_model']['focus_area'] ##eg. 'cells_P1'
+                        ras_in = Path(ras_path) / f"{ras_prefix}_{yr}_{idx}_{si_vars[0]}-{si_vars[1]}-{si_vars[2]}.tif"
+                        bands = [f'{yr}_{idx}_{mask_prefix}_{si_vars[0]}',f'{yr}_{idx}_{mask_prefix}_{si_vars[1]}',f'{yr}_{idx}_{mask_prefix}_{si_vars[2]}']
+                    else:
+                        logger.info('finish this to make new composite')
                 
-                summarize_zones_cont(params, ras_in)
+                    summarize_zones_cont(params, ras_in)
 
-                if diff_feats:
-                    if yr > yrs[0] and yr < yrs[-1]:
-                        yr1 = int(yr)
-                        yr0 = int(yr) - 1
-                        yrstr = str(yr0)[2:] +'-'+ str(yr1)[2:]
-                        logger.info(f"working on diff ras for {yrstr}...:")
-                        bands = [f"delta{yrstr}_{idx}_{mask_prefix}_{si_vars[0]}",f"delta{yrstr}_{idx}_{mask_prefix}_{si_vars[1]}",
-                                 f"delta{yrstr}_{idx}_{mask_prefix}_{si_vars[2]}"]
-                        params['feature_model']['si_vars'] = bands
-                        ras0 = Path(ras_path) / f"{ras_prefix}_{yr0}_{idx}_{si_vars[0]}-{si_vars[1]}-{si_vars[2]}.tif"
-                        ras1 = Path(ras_path) / f"{ras_prefix}_{yr1}_{idx}_{si_vars[0]}-{si_vars[1]}-{si_vars[2]}.tif"
-                        deltaras = subtract_rasters(ras0, ras1, bands, printmap=True, out_path=params['scratch_dir'])
-                        summarize_zones_cont(params, deltaras)
-
-    else:
-        ## if polys is a single file, aassumes raster is already full extent. If polys is a directory, uses gridded structure (method below)
-        out_path = params['feature_model']['poly_var_path']
-        if Path(polys).is_file(): 
+                    if diff_feats:
+                        if yr > yrs[0] and yr < yrs[-1]:
+                            yr1 = int(yr)
+                            yr0 = int(yr) - 1
+                            yrstr = str(yr0)[2:] +'-'+ str(yr1)[2:]
+                            logger.info(f"working on diff ras for {yrstr}...:")
+                            bands = [f"delta{yrstr}_{idx}_{mask_prefix}_{si_vars[0]}",f"delta{yrstr}_{idx}_{mask_prefix}_{si_vars[1]}",
+                                     f"delta{yrstr}_{idx}_{mask_prefix}_{si_vars[2]}"]
+                            params['feature_model']['si_vars'] = bands
+                            ras0 = Path(ras_path) / f"{ras_prefix}_{yr0}_{idx}_{si_vars[0]}-{si_vars[1]}-{si_vars[2]}.tif"
+                            ras1 = Path(ras_path) / f"{ras_prefix}_{yr1}_{idx}_{si_vars[0]}-{si_vars[1]}-{si_vars[2]}.tif"
+                            deltaras = subtract_rasters(ras0, ras1, bands, printmap=True, out_path=params['scratch_dir'])
+                            summarize_zones_cont(params, deltaras)
+        elif params['feature_model']['ancillary_var_dict']:
+            pass
+            ##TODO consolidate summary methods
+    
+    else:  ## making raster outputs with polygon features
+        ## If polys is a single file and no grid cells are specified, aassumes raster is already full extent and full-scale processing is desired. 
+        ##    If grid cells are specified or polys is a directory, uses gridded structure instead (method below)
+        if (not params['grids']) and (Path(polys).is_file()):
             polys = gpd.read_file(polys) 
-            bounds = polys.bounds ## bounds returns (minx, miny, maxx, maxy)
-            boundary = (float(bounds[0]), float(bounds[2]), float(bounds[1] ), float(bounds[3]))
+            logger.debug(f' poly file looks like: {polys.head()} \n')
             ## single raster to pull data from. Either anscillary map or mosaicked classification outputs. ## TODO: add option to mosaic outputs VRT
             ## Need to add to <ancillary_var_dict> first
             if params['feature_model']['ancillary_vars']:
-                var_dict = params['feature_model']['ancillary_var_dict']
-                for avar in params['feature_model']['ancillary_vars']:
-                    stat = avar.split('-')[1]
-                    out_file = Path(out_path) / f'{avar}.tif'
-                    with open(var_dict, 'r+') as sfd:
-                        dic = json.load(sfd)
-                        if avar in dic: 
-                            var_path = dic[avar]['path']
-                            var_col = dic[avar]['col']
-                            logger.info(f'getting {avar} from {var_path} \n')
+                avars = params['feature_model']['ancillary_vars']
+                if isinstance(avar, str):
+                    avars = [avar]
+                for avar in avars:
+                    params['feature_model']['ancillary_vars'] = [avar]
+                    stat = avar.split('-')[1].split('_')[0]
+                    avar0 = avar.split('-')[0]
+                    if in_path:
+                        var_path = in_path
+                        var_col = 'Value'
+                    else:
+                        var_dict = params['feature_model']['ancillary_var_dict']
+                        with open(var_dict, 'r+') as sfd:
+                            dic = json.load(sfd)
+                        if avar0 in dic: 
+                            var_path = dic[avar0]['path']
+                            var_col = dic[avar0]['col']
+                        else:
+                            logger.warning(f'{avar0} is not in ancillary variable dict {var_dict}. Can supply in_path directly. \n')
+                    
+                        if not out_path: 
+                            out_path = params['feature_model']['poly_var_path']
+                         out_file = Path(out_path) / f'{avar}.tif'
+
+                        logger.info(f'getting {avar0} at: {var_path} \n')
+                        with rio.Env(GTIFF_SRS_SOURCE="EPSG"):
                             with rio.open(var_path) as src0:
                                 gt = src0.transform
-                                offset = img_to_bbox_offsets(gt, boundary)
                                 out_shape=src0.shape
-                                new_gt = rio.Affine(gt[0], gt[1], (gt[2] + (offset[0] * gt[0])), 0.0, gt[4], (gt[5] + (offset[1] * gt[4])))
-                                #arr = src.read(window=Window(offset[0], offset[1], offset[2], offset[3]))  
                                 out_meta = src0.meta.copy()
                                 out_meta.update({"count": 1, "dtype":np.int16})    
-                            ## within each polygon, calculate spatial stat for ras
-                            gdf = polys.join(pd.DataFrame(zonal_stats(
-                                vectors=polys['geometry'], raster=var_path, stats=[stat])), how='left' )
-                            with rio.open(out_file, 'w+', **out_meta) as dst:
-                                tmp_arr = dst.read(1)
-                            ## rasterize polygon using stat value
-                            shapes = ((geom,value) for geom, value in zip(gdf.geometry, gdf[stat]))
-                            image = features.rasterize( ((g, v) for g, v in shapes), out_shape=out_shape[1:], transform=new_gt)
-                            dst.write_band(1, image)
-                            logger.debug(f'out_fn={out_file}')
+                        ## within each polygon, calculate spatial stat for ras
+                        gdf = polys.join(pd.DataFrame(zonal_stats(
+                            vectors=polys['geometry'], raster=var_path, stats=[stat])), how='left' )
+                        with rio.open(out_file, 'w+', **out_meta) as dst:
+                            tmp_arr = dst.read(1)
+                        ## rasterize polygon using stat value
+                        shapes = ((geom,value) for geom, value in zip(gdf.geometry, gdf[stat]))
+                        if len(out_shape) == 3:
+                            out_shape=out_shape[1:] 
+                        image = features.rasterize( ((g, v) for g, v in shapes), out_shape=out_shape, transform=gt)
+                        dst.write_band(1, image)
+                        logger.info(f'out_fn={out_file}')
                     
-            else: ## using ts data
-                get_ts_stats_within_polys(params)
+            else: ## using ts data   NOTE -- this doesn't currently work without gridded structure (below).
+                get_ts_stats_within_polys(params, in_path=in_path, out_path=out_path)
                 
-        elif Path(polys).is_dir():
-            ## directory with polygon files, also indicating gridded structure
-            get_ts_stats_within_polys(params)
-            
-        else:
-            logger.warning(f'not sure how to parse polys {polys}')
+        else:  ## use gridded structure
+            if params['feature_model']['ancillary_vars']:
+                avars = params['feature_model']['ancillary_vars']
+                if isinstance(avar, str):
+                    avars = [avar]
+                    for avar in avars:
+                        params['feature_model']['ancillary_vars'] = [avar]
+                        get_ts_stats_within_polys(params, in_path=in_path, out_path=out_path)
+                
+            elif params['feature_model']['spec_indices']:
+                sis = params['feature_model']['spec_indices']   ## eg. ['kndvi', 'wi', 'ndmi']
+                si_vars = params['feature_model']['si_vars']
+                if isinstance(sis,str):
+                    sis = [sis]
+                if isinstance(si_vars,str):
+                    si_vars = [si_vars]
+                for i, si in enumerate (sis):
+                    params['feature_model']['spec_indices'] = [si]
+                    for ii, siv in enumerate (si_vars):
+                        params['feature_model']['si_vars'] = [siv]
+                        if i > 0 or ii > 0:
+                            params['segment']['make_blank_vars'] = False
+                        get_ts_stats_within_polys(params, in_path=in_path, out_path=out_path)
+
+                params['feature_model']['spec_indices'] = sis
+                params['feature_model']['si_vars'] = si_vars
+                
 
                         
 

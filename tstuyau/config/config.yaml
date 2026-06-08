@@ -371,9 +371,9 @@ feature_model:
   ## <feature_model:poly_vars> are polygon level vatriables represented at a pixel level to be compatible with other rasters used in a pixel-based model 
   poly_vars: ['poly_ext','poly_dst','poly_cropbnds','poly_area','poly_APrEf','poly_NovDecStd']
   ##<feature_model:poly_var_path> is path to raster products representing polygon-level variables (for pixel-level modeling)
-  poly_var_path: '/home/downspout-cel/paraguay_lc/Segmentations/cnet24_4VIk/feats_EO_8pt5'
+  poly_var_path: '/home/downspout-cel/paraguay_lc/Segmentations/cnet4VIk/feats_EO_8pt5_2024'
   ##<feature_model:poly_vector_path> is path to vector objects to rasterize or use in object-based analysis
-  poly_vector_path: '/home/downspout-cel/paraguay_lc/Segmentations/cnet24_4VIk/infer_polys_EO_8pt5'
+  poly_vector_path: '/home/downspout-cel/paraguay_lc/Segmentations/cnet4VIk/infer_polys_EO_8pt5_2024'
   ## <feature_model:unit_of_analysis>: 'pixel' | 'polygon' (default = 'pixel')
   unit_of_analysis: 'pixel'
   ## <feature_model:polyfeat_dict> is path to a dictionary of aggregated feature calculations for each polygon, to use if only modelling polygons (not pixels)  
@@ -602,3 +602,11 @@ segment:
     ##<segment:pos_classes> is a list of positive classes for vectorization (e.g. crops in crop model) 
     pos_classes: [1]
     target: 'crop'
+
+refine:
+    ##<refine:post_filter> is the post aggregation filter method (currently only available for 'smCrop')
+    post_filter: 'smCrop'
+    ##<refine:buffer> is the distance to buffer polygons for post filters
+    buffer: 20
+    ##<refine:neighborhood> is the size of the neighborhood (in pixels) for moving window calculations
+    neighborhood: 100

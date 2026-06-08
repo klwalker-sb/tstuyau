@@ -72,19 +72,29 @@ LC_FOCUS_DICT = {'smCrop':{'cats':['smallCrop','bigCrop', 'noCrop'],'lutcol':'LC
                  'grass':{'cats':['allGrass','noGrass'],'lutcol':'LCgrass2'},
                  'clear_grass':{'cats':['allGrass','noGrass','clearGrass'],'lutcol':'LCgrass2'}
                 }
-                 
-
-                 
-CROP_CATS_Py0 ={'smallcrops' : [23,24,25,26,32,34,35,36,39],
+                            
+CROP_CATS_Py0 ={'smallcrop_main' : 35,
+                'sugar' : 38,
+                'smallcrops' : [23,24,25,26,32,34,35,36,39],
                 'bigcrops' : [22,31,33,37,38],
-                'med_crops' : [40,41,42,43,45,46,47,54]}
+                'med_crops' : [40,41,42,43,45,46,47,54],
+                'low_crops':  [*range(22,40)],
+                'all_crops' : [*range(22,48),54],
+                'first_highveg' : 50,
+                'mixed_edge' : 19}
 
-CROP_CATS={'smallcrops' : [117,129,130,134,138,147,159],
+CROP_CATS={'smallcrop_main' : 137,
+                'sugar': 143,
+                'smallcrops' : [117,129,130,134,137,138,147],
                 'bigcrops' : [102,103,104,105,106,107,110,111,112,113,114,115,116,140,141,142,143,144,145,146],
-                'med_crops' : [148,150,151,152,153,155,156,157,158,159,191,192,193,194,196,197,198]}
+                'med_crops' : [148,150,151,152,153,155,156,157,158,159,191,192,193,194,196,197,198],
+                'low_crops': [*range(100,148)],
+                'all_crops': [*range(100,160),*range(191,199)],
+                'first_highveg': 180,
+                'mixed_edge' : 93}
 
 GRASS_CATS={'allGrass': [51,55,58,71,72,73,74,75,76,77,79,80,81,82,83,84,85,86,87,88,89,96,108],
-           'clearGrass': [51,55,58,71,73,75,76,77,79,80,81,82,83,84,85,87,88,89,108],}
+           'clearGrass': [51,55,58,71,73,75,76,77,79,80,81,82,83,84,85,87,88,89,108]}
 
 MIXED_CROPS_Py0 = ["Crops-mix", "Crops-Mandioca", "Crops-Horticulture","Crops-Sesame","Crops-Tobacco"]
 MIXED_CROPS_Py1 = ["crop_mixed_small" ,"crop_cassava", "crop_horticulture", "crop_tobacco", "crop_sesame"]

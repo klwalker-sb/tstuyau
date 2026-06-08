@@ -254,6 +254,10 @@ class Tasks(Config):
         logger.info('  making thumbnails ...')
         steps.make_thumbnails(self.params)
 
+    def post_aggregation_filter(self):
+        logger.info('  applying final refinement filters ...')
+        steps.post_aggregation_filter(self.params)
+
 
 def main():
 
@@ -265,7 +269,8 @@ def main():
                    'format_ptfeat_set', 'make_and_score_model','iterate_sample_model', 'iterate_all_model_components', 
                    'optimize_feature_model', 'classify_timestep', 'classify_CRF', 'mosaic', 'clean', 'assess', 'compress', 
                    'sample_timeseries', 'plot_timeseries', 'pre_post_df', 'pre_post_separability', 'dl_check', 'status', 
-                   'version', 'make_thumbnails', 'vectorize_seg_results', 'segmentation_accuracy', 'prep_training_ts_for_segmentation']
+                   'version', 'make_thumbnails', 'vectorize_seg_results', 'segmentation_accuracy', 'prep_training_ts_for_segmentation',
+                   'post_aggregation_filter']
 
     parser.add_argument('tasks', metavar='task', nargs='+', help='The tasks to submit', default=None,
                         choices=avail_tasks)
@@ -354,6 +359,8 @@ def main():
             tasks.status()
         elif task == 'make_thumbnails':
             tasks.make_thumbnails()
+        elif task == 'post_aggregation_filter':
+            tasks.post_aggregation_filter()
 
 
 if __name__ == '__main__':

@@ -486,7 +486,7 @@ def mosaic_cells(params):
                 ras_list.append(matches[0])
             
                 
-    if (params['classify']['save_mosaic']==True) | (params['classify']['save_mosaic']=='True'):
+    if params['classify']['save_mosaic']:
         logger.info(f"mosaicking {len(ras_list)} images.")
         with rio.open(ras_list[0], 'r') as src_exmp:
             output_meta = src_exmp.meta.copy()

@@ -180,7 +180,8 @@ def balance_training_data(params, pixdf=None, stats_only=False, print_file=False
                                    np.where(ratiodf['p1_counts'] + ratiodf['p2_counts'] < ratiodf['counts'] * ratiodf['ratios'], 1,
                                             (ratiodf['ratios']*ratiodf['counts'] - ratiodf['p1_counts']) / ratiodf['p2_counts'])).round(3)
         ratiodf['p3_draw'] =  np.where(ratiodf['p1_counts'] + ratiodf['p2_counts'] >  ratiodf['counts'] * ratiodf['ratios'], 0,
-                                   (ratiodf['ratios']*ratiodf['counts'] - (ratiodf['p1_counts']+ratiodf['p2_counts']))/ (ratiodf['counts'] - (ratiodf['p1_counts']+ratiodf['p2_counts']))).round(3)
+                                   (ratiodf['ratios']*ratiodf['counts'] - (ratiodf['p1_counts']+ratiodf['p2_counts']))/ (ratiodf['counts'] - 
+                                   (ratiodf['p1_counts']+ratiodf['p2_counts']))).round(3)
                                                       
         ## Use random column to select samples (already in df here, for easy reproduction, but could make new ran column from 0-1)
         if 'p1_draw' in pixdf.columns:  ## drop old values if already exist
@@ -801,7 +802,7 @@ def make_variable_stack(params):
     Creates stack of all features variables for each cell in cell list.
     This creates a lot of extra temp files, which will be sent to scratch_dir if set.
 
-    can clip large ancillary maps ('ancillary' features) to grid cell to include in stack
+    can clip large ancillary maps (<feature_model:ancillary_vars>) to grid cell to include in stack
     as well as calculate new data
     '''
     
@@ -918,64 +919,66 @@ def make_variable_stack(params):
                             band_names.append(new_band_name)
                         #except Exception as e:
                         #    logger.warning(f'ERROR: {e} \n')
+                
                 if params['feature_model']['ancillary_vars']:
                     ## Clips portion of ancillary raster corresponding to gridcell 
                     ## and saves with stack files (if doesn't already exist there)
-
                     ancillary_feat_dict = params['feature_model']['ancillary_var_dict']
                     if not ancillary_feat_dict:
                         ancillary_feat_dict = str(ppaths.singfeatdict)
+                    if isinstance (params['feature_model']['ancillary_vars'], str):
+                        params['feature_model']['ancillary_vars'] = [params['feature_model']['ancillary_vars']]
                     for sf in params['feature_model']['ancillary_vars']:
-                        if sf != '':
-                            with open(ancillary_feat_dict, 'r+') as sfd:
-                                dic = json.load(sfd)
-                                if sf in dic: 
-                                    sf_path = dic[sf]['path']
-                                    sf_col = dic[sf]['col']
-                                    logger.info(f'getting {sf} from {sf_path} \n')    
-                                else:
-                                    logger.warning(f'ERROR: do not know path for {sf}. Add to ancillary_var_dict and rerun \n')
-                                    sys.exit()
-
-                            ancillary_clipped = ppaths.bk/'comp'/f'{sf}.tif'
-                            if ancillary_clipped.is_file():
-                                stack_paths.append(ancillary_clipped)
-                                band_names.append(sf)
+                        with open(ancillary_feat_dict, 'r+') as sfd:
+                            dic = json.load(sfd)
+                            if sf in dic: 
+                                sf_path = dic[sf]['path']
+                                sf_col = dic[sf]['col']
+                                logger.info(f'getting {sf} from {sf_path} \n')    
                             else:
-                                comp_dir = ppaths.bk/'comp'
-                                comp_dir.mkdir(parents=True, exist_ok=True)
-                                ## clip large ancillary raster to extent of other rasters in stack for grid cell
-                                small_ras = stack_paths[0]
-                                logger.debug(f"stack_paths: {stack_paths}")
-                                ## with gdal:
-                                #src_small = gdal.Open(small_ras)
-                                #ulx, xres, xskew, uly, yskew, yres  = src_small.GetGeoTransform()
-                                #lrx = ulx + (src_small.RasterXSize * xres)
-                                #lry = uly + (src_small.RasterYSize * yres)
-                                #geometry = [[ulx,lry], [ulx,uly], [lrx,uly], [lrx,lry]]
-                                ## with geowombat.
-                                with gw.open(small_ras) as src:
-                                    logger.info(f'src: {src}')
-                                minx = src.x.min().item()
-                                maxx = src.x.max().item()
-                                miny = src.y.min().item()
-                                maxy = src.y.max().item()
-                                    #bounds = src.bounds
-                                #ulx = bounds[0]
-                                #urx = bounds[2]
-                                #lry = bounds[1]
-                                #uly = bounds[3]
-                                geometry = [[maxx,miny], [maxx,maxy], [minx,maxy], [minx,miny]]
-                                roi = [Polygon(geometry)]
-                                with rio.open(small_ras) as src0:
-                                    out_meta = src0.meta.copy()
-                                    out_meta.update({"count":1})
-                                with rio.open(sf_path) as src:
-                                    out_image, transformed = mask(src, roi, crop = True)
-                                with rio.open(ancillary_clipped, 'w', **out_meta) as dst:
-                                    dst.write(out_image)
-                                stack_paths.append(ancillary_clipped)
-                                band_names.append(f'sing_{sf}')
+                                logger.warning(f'ERROR: do not know path for {sf}. Add to ancillary_var_dict and rerun \n')
+                                sys.exit()
+
+                        ancillary_clipped = ppaths.bk/'comp'/f'{sf}.tif'
+                        if ancillary_clipped.is_file():
+                            stack_paths.append(ancillary_clipped)
+                            band_names.append(sf)
+                        else:
+                            comp_dir = ppaths.bk/'comp'
+                            comp_dir.mkdir(parents=True, exist_ok=True)
+                            ## clip large ancillary raster to extent of other rasters in stack for grid cell
+                            small_ras = stack_paths[0]
+                            logger.debug(f"stack_paths: {stack_paths}")
+                            '''## with gdal:
+                            src_small = gdal.Open(small_ras)
+                            ulx, xres, xskew, uly, yskew, yres  = src_small.GetGeoTransform()
+                            lrx = ulx + (src_small.RasterXSize * xres)
+                            lry = uly + (src_small.RasterYSize * yres)
+                            geometry = [[ulx,lry], [ulx,uly], [lrx,uly], [lrx,lry]]
+                            '''
+                            ## with geowombat:
+                            with gw.open(small_ras) as src:
+                                logger.info(f'src: {src}')
+                            minx = src.x.min().item()
+                            maxx = src.x.max().item()
+                            miny = src.y.min().item()
+                            maxy = src.y.max().item()
+                            #bounds = src.bounds
+                            #ulx = bounds[0]
+                            #urx = bounds[2]
+                            #lry = bounds[1]
+                            #uly = bounds[3]
+                            geometry = [[maxx,miny], [maxx,maxy], [minx,maxy], [minx,miny]]
+                            roi = [Polygon(geometry)]
+                            with rio.open(small_ras) as src0:
+                                out_meta = src0.meta.copy()
+                                out_meta.update({"count":1})
+                            with rio.open(sf_path) as src:
+                                out_image, transformed = mask(src, roi, crop = True)
+                            with rio.open(ancillary_clipped, 'w', **out_meta) as dst:
+                                dst.write(out_image)
+                            stack_paths.append(ancillary_clipped)
+                            band_names.append(f'sing_{sf}')
 
                 poly_vars = params['feature_model']['poly_vars']
                 if poly_vars:
