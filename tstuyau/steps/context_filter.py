@@ -1,4 +1,5 @@
 from pathlib import Path
+import csv
 import rasterio as rio
 from rasterio.windows import Window
 import numpy as np
@@ -8,10 +9,10 @@ from .lookup import CROP_CATS_Py0, CROP_CATS
 from .project import ProjectPaths
 from ..handler import logger
 from .zonal import make_polygon_features
+from .aggregate import mosaic_cells
 
 
-
-def reclass_small_fields(class_ras, poly_ras, ras_out): 
+def reclass_small_fields(params, class_ras, poly_ras, ras_out): 
     
     if params['project_ver'] == 'Py_0':
         crop_dict = CROP_CATS_Py0
@@ -36,13 +37,15 @@ def reclass_small_fields(class_ras, poly_ras, ras_out):
 
         
 def make_filter_layers_for_cell(params, filter_set):
-        
+    
+    out_yr = params['classify']['out_yrs']
+
     if 'polys_buf' in filter_set:
         ## get majority class for polygons with buffer applied
         buf = params['refine']['buffer']
         params['feature_model']['ancillary_vars'] = [f'CELseg{out_yr}-majority']
-        if 'rcsmall' in filter_set['polys_buf']['cell_final']
-            polys_buf_out = str(majclass_path).replace('rcsmall.tif', '.tif')
+        if 'rcsmall' in filter_set['polys_buf']['cell_final']:
+            polys_buf_out = str(filter_set['polys_buf']['cell_final']).replace('rcsmall.tif', '.tif')
         else: 
             polys_buf_out = filter_set['polys_buf']['cell_final']
         make_polygon_features(params, in_path=filter_set['polys_buf']['cell_base'], out_path=polys_buf_out)
@@ -51,8 +54,8 @@ def make_filter_layers_for_cell(params, filter_set):
         ## get majority class for polygons without buffer applied
         params['feature_model']['ancillary_vars'] = [f'CELseg{out_yr}-majority']
         params['refine']['buffer'] = 0
-        if 'rcsmall' in filter_set['polys_maj']['cell_final']
-            polys_maj_out = str(majclass_path).replace('rcsmall.tif', '.tif')
+        if 'rcsmall' in filter_set['polys_maj']['cell_final']:
+            polys_maj_out = str(filter_set['polys_buf']['cell_final']).replace('rcsmall.tif', '.tif')
         else: 
             polys_maj_out = filter_set['polys_maj']['cell_final']
         make_polygon_features(params, in_path=filter_set['polysmaj']['cell_base'], out_path=polys_maj_out)
@@ -95,8 +98,8 @@ def make_filter_layers_for_cell(params, filter_set):
 
     if params['refine']['post_filter'] == 'smCrop':
         ## Reclass majclass polygons to smallholder if area <5 ha (and majclass is big crop) or <2ha (and majclass is any crop)
-        reclass_small_fields(polys_buf_out, filter_set['area_focal']['cell_final'], filter_set['polysmaj']['cell_final'])
-        reclass_small_fields(polys_maj_out, filter_set['area_focal']['cell_final'], filter_set['polys_buf']['cell_final'])
+        reclass_small_fields(params, polys_buf_out, filter_set['area_focal']['cell_final'], filter_set['polysmaj']['cell_final'])
+        reclass_small_fields(params, polys_maj_out, filter_set['area_focal']['cell_final'], filter_set['polys_buf']['cell_final'])
 
     if 'highveg_nbhd' in filter_set: 
         ## make high_veg mask from original classed map
@@ -140,13 +143,13 @@ def make_filter_layers_for_cell(params, filter_set):
                 dst.write(sm_nbhd9_mask, 1)
         if 'sm_nbhd_dist' in filter_set:
             ## need to invert mask and change null to 0 for scipy distance to work
-            sm_nbhd_mask2 = np.where(sm_nbhd_mask == 1, 0, 1)
+            sm_nbhd_mask2 = np.where(sm_nbhd9_mask == 1, 0, 1)
             if np.any(sm_nbhd_mask2 == 0):   ## this is crucial for cells with no smallholder pixels
                 sm_nbhd_dist = distance_transform_edt(sm_nbhd_mask2)
                 ## clip max distance to avoid huge rasters. Note distance is measures in pixels with this method.
-                sm_nbhd_dist = np.clip(distance_raster, 0, 10)
+                sm_nbhd_dist = np.clip(sm_nbhd_dist, 0, 10)
             else:
-                sm_nbhd_dist = np.full(sm_nbhd_mask.shape, 10)
+                sm_nbhd_dist = np.full(sm_nbhd9_mask.shape, 10)
             with rio.open(filter_set['sm_nbhd_dist']['cell_final'], "w", **profile) as dst:
                 dst.write(sm_nbhd_dist, 1)
             
@@ -156,9 +159,9 @@ def make_full_filter_layers(params, filter_set):
     treat_final = params['classify']['test']
     params['classify']['test'] = True
 
-    for f in filter_set:
+    for fs in filter_set:
         if not fs['full'].is_file():
-            logger.info(f'making {fs} mosaic)
+            logger.info(f'making {fs} mosaic')
             params['classify']['name'] = fs['full'].stem.split('.')[0]
             mosaic_cells(params)      
             
@@ -191,7 +194,7 @@ def post_classification_spatial_filter_smallholder(params, filter_set):
         'area_focal' : filter_set['area_focal']['full']
         }
 
-    with rio.open(files['base_map']) as src:
+    with rio.open(first_filter_rasters['base_map']) as src:
         meta = src.meta.copy()
 
         with rio.open(filter1_path, 'w', **meta) as dst:
@@ -210,17 +213,17 @@ def post_classification_spatial_filter_smallholder(params, filter_set):
                 ##   c. convert sugar to mixed if inside area where avg field size <= 3 ha:
                 poly_c = np.where((data['area_focal'] <= 300) & (data['polysmaj'] == crop_dict['sugar']), smallholder_class, poly_b)
                 ##   d. convert all other crop to mixed if inside area where avg field size <= 5 ha:
-                polys_treated = np.where((data['area_focal'] < 500) & np.isin(data['polysmaj'],lowcrops)) 
+                polys_treated = np.where(((data['area_focal'] < 500) & np.isin(data['polysmaj'],lowcrops)) 
                                      & (data['polysmaj'] != crop_dict['sugar']), smallholder_class, poly_c)
             
                 ## 2. Inside buffered Polygons:
                 ##   a. If the majority class is mixed crop, reclassify all crop pixels in buffer area as mixed as well:
-                polys_treated2 = np.where((data['polys_buf'] == smallholder_class) & (np.isin(data['base_map'],lowcrops), smallholder_class, polys_treated)
+                polys_treated2 = np.where((data['polys_buf'] == smallholder_class) & (np.isin(data['base_map'],lowcrops)), smallholder_class, polys_treated)
 
                 ## 3. Inside buffer area only:
                 buf_a = np.where(np.isin(data['base_map'],lowcrops), smallholder_class, data['base_map'])
                 ##   b. Crops in polygon buffers in areas with fields > 5ha are not converted to smallholder 
-                buf_b = np.where((data['area_focal'] > 500) & (np.isin(data['base_map'],lowcrops), data['polys_buf'], buf_a)
+                buf_b = np.where((data['area_focal'] > 500) & (np.isin(data['base_map'],lowcrops)), data['polys_buf'], buf_a)
                 ##   c. Pixels classified as sugar in a polygon buffer are retained as sugar unless in areas with no field > 3ha (sugar fields look smaller) 
                 buf_treated = np.where((data['area_focal'] > 300) & (data['polys_buf'] ==  crop_dict['sugar']),  crop_dict['sugar'], buf_b) 
 
@@ -229,7 +232,7 @@ def post_classification_spatial_filter_smallholder(params, filter_set):
 
                 ## 4. Outside crop polygons and buffers:
                 #   a. If away from large fields and classified as any crop, reclassify as smallholder, otherwise retain current classification 
-                outside_treated = np.where((data['area_focal'] <= 500) & (np.isin(data['base_map'],lowcrops), smallholder_class, base_map)    
+                outside_treated = np.where((data['area_focal'] <= 500) & (np.isin(data['base_map'],lowcrops)), smallholder_class, data['base_map'])    
             
                 is_null_buf = np.isnan(data['polys_buf'])
                 filter_result = np.where(is_null_buf, outside_treated, seg_treated)
@@ -252,7 +255,7 @@ def post_classification_spatial_filter_smallholder(params, filter_set):
         'sm_nbhd_dist' : filter_set['sm_nbhd_dist']['full']
         }
 
-    with rio.open(files['base_map']) as src:
+    with rio.open(second_filter_rasters['base_map']) as src:
         meta = src.meta.copy()
 
         with rio.open(filterfinal_path, 'w', **meta) as dst:
@@ -261,11 +264,11 @@ def post_classification_spatial_filter_smallholder(params, filter_set):
             for ji, window in src.block_windows(1):
                 data2 = {k: r.read(1, window=window) for k, r in readers.items()}
                                        
-                rc_mixed_veg = np.where((data2['sm_nbhd'] > 0) & (data2['sm_nbhd'] <9) & (basemap == smallholder_class), crop_dict['mixed_edge'], basemap)
+                rc_mixed_veg = np.where((data2['sm_nbhd'] > 0) & (data2['sm_nbhd'] <9) & (data['base_map'] == smallholder_class), crop_dict['mixed_edge'], data['base_map'])
                 rc_mixed_veg2 = np.where((data2['sm_nbhd'] > 0) & (data2['sm_nbhd'] <9) & (data['sm_nbhd_dist'] > 1) & 
-                         (basemap == smallholder_class), crop_dict['mixed_edge'],  rc_mixed_veg)
-                outside_sm_block = np.where(np.isnan(data['sm_nbhd9_mask'],rc_mixed_veg2,basemap)
-                final = np.where(data2['highveg_nbhd'] == 0, basemap, outside_sm_block)
+                         (data['base_map'] == smallholder_class), crop_dict['mixed_edge'],  rc_mixed_veg)
+                outside_sm_block = np.where(np.isnan(data['sm_nbhd9_mask'],rc_mixed_veg2,data['base_map']))
+                final = np.where(data2['highveg_nbhd'] == 0, data['base_map'], outside_sm_block)
 
                 dst.write(filter_result.astype(rio.uint16), 1, window=window)
 
@@ -301,7 +304,7 @@ def post_aggregation_filter(params):
     buf = params['refine']['buffer']
        
     if params['grids']:
-       all_cells = params['grids']
+        all_cells = params['grids']
         ## new poly vars will be sent to the temp drive
         tmp_poly_var_path = Path(params['scratch_dir']) /'tmp_poly_rasts'
         params['feature_model']['poly_var_path'] = tmp_poly_var_path
@@ -326,7 +329,7 @@ def post_aggregation_filter(params):
             elif params['classify']['comp_dir'] == 'backup':
                 comp_dir_in = ppaths.comp
        
-               comp_dir_out = ppaths.scratch /'comp'
+            comp_dir_out = ppaths.scratch /'comp'
 
             if params['refine']['post_filter'] == 'smCrop':
                 filter_set = { 
@@ -362,7 +365,7 @@ def post_aggregation_filter(params):
             make_filter_layers_for_cell(params, filter_set=filter_set)
         
         all_cells = params['grids']
-        get_full_filter_layers(params, filter_set=filter_set)
+        make_full_filter_layers(params, filter_set=filter_set)
 
     else:
         if params['refine']['post_filter'] == 'smCrop':
@@ -376,7 +379,7 @@ def post_aggregation_filter(params):
                     'sm_nbhd9_mask': {'full':f'{comp_dir_out}/sm_nbhd9_{out_yr}_mask.tif'},
                     'sm_nbhd_dist': {'full':f'{comp_dir_out}/sm_nbhd{out_yr}_dist.tif'}
                     }           
-        get_full_filter_layers(params, filter_set=filter_set)
+        make_full_filter_layers(params, filter_set=filter_set)
     
     if params['refine']['post_filter'] == 'smCrop':
         post_classification_spatial_filter_smallholder(params, filter_set=filter_set)

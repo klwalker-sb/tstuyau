@@ -206,7 +206,7 @@ def summarize_raster_cont(ras_in,prod_name, aggstats):
         
         return(entry)
 
-def summarize_zones_cat(params, print_out=False, out_dir=None):
+def summarize_zones_cat(params, map_dir=None, print_out=False, out_dir=None):
 
     polys = params['feature_model']['poly_vector_path']
     map_dict = params['feature_model']['ancillary_var_dict']
@@ -226,7 +226,10 @@ def summarize_zones_cat(params, print_out=False, out_dir=None):
         file_name = dict_in[map_product]['loc']
     else:
         file_name = f'{map_product}.tif' 
-    ras_in = Path(map_dir) / file_name
+    if file_name.is_file():
+        ras_in = file_name
+    else:
+        ras_in = Path(map_dir) / file_name
     clip_ras_to_poly(ras_in, polys,clip_dir,map_product)
     plys = gpd.read_file(polys)
     plys.drop(['geometry'],axis=1,inplace=True)
@@ -363,7 +366,7 @@ def get_ts_stats_within_polys(params, in_path=None, out_path=None):
 
         if params['feature_model']['ancillary_vars']:
             if poly_buf > 0:
-                suffix = f'buf{buf}'
+                suffix = f'buf{poly_buf}'
             else:
                 suffix = ''
             if out_path:
@@ -597,7 +600,7 @@ def make_polygon_features(params, in_path=None, out_path=None):
                     
                         if not out_path: 
                             out_path = params['feature_model']['poly_var_path']
-                         out_file = Path(out_path) / f'{avar}.tif'
+                        out_file = Path(out_path) / f'{avar}.tif'
 
                         logger.info(f'getting {avar0} at: {var_path} \n')
                         with rio.Env(GTIFF_SRS_SOURCE="EPSG"):
