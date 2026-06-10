@@ -7,14 +7,14 @@
 #SBATCH -o Tstuyau_final_filters.%N.%a.%j.out # STDOUT
 #SBATCH -e Tstuyau_final_filters.%N.%a.%j.err # STDERR
 #SBATCH --job-name="filt"
-#SBATCH --array=978,979
+###SBATCH --array=978,979
 
 ###################################################################
 ### Modify --array above with grid cell numbers to run as array job.
 #GRID_ID=$SLURM_ARRAY_TASK_ID
 ### note: if grid cell > 999, enter last three digits in array and use
-GRID_ID=$(($SLURM_ARRAY_TASK_ID + 3000))
-
+#GRIDS=$(($SLURM_ARRAY_TASK_ID + 3000))
+GRIDS=[3978,3979]
 YR=2024
 #POLYS="/home/downspout-cel/paraguay_lc/Segmentations/cnet4VIk/infer_polys_EO_8pt5_2025/EO_8pt5_merged.gpkg"
 POLYS="/home/downspout-cel/paraguay_lc/Segmentations/cnet4VIk/infer_polys_EO_8pt5_2025"
@@ -35,7 +35,7 @@ MAIN_DIR="/home/sandbox-cel"
 BK_DIR="/home/downspout-cel"
 PROJECT="paraguay_lc"
 PROJECT_DIR="${MAIN_DIR}/${PROJECT}/stac"
-SCRATCH="/home/scratch-cel"
+SCRATCH="/home/scratch-cel/${PROJECT}"
 MOD="base4Poly6_bal200mix4_LC36_1723_RF_2024.tif"
 EPSG=8858
 GRID_FILE="${PROJECT_DIR}/project_grid_${EPSG}.gpkg"
@@ -50,11 +50,12 @@ export NUMEXPR_MAX_THREADS="${SLURM_CPUS_ON_NODE}"
 ### SHOULD NOT NEED TO MODIFY BELOW
 ###################################################################
 
-CONFIG_UPDATES="grids:[${GRID_ID}]
+CONFIG_UPDATES="grids:${GRIDS}
 grid_file:$GRID_FILE
+buffer:$BUFFER
 project_ver:$PROJECT_VER
 classify:out_yrs:$YR
-classify:name:relative_${MOD}
+classify:name:${MOD}
 classify:test:$TEST
 classify:comp_dir:$COMPDIR
 refine:buffer:$BUF
@@ -62,6 +63,7 @@ refine:post_filter:smCrop
 refine:neighborhood:$NBHD 
 feature_model:poly_vector_path:$POLYS
 feature_model:poly_var_path:$POLYVARS
+feature_model:unit_of_analysis:pixel
 main_path:${MAIN_DIR}/${PROJECT}/stac/grid
 backup_path:${BK_DIR}/${PROJECT}/stac/grids
 scratch_dir:$SCRATCH

@@ -162,6 +162,20 @@ tuyau classify_timestep
 or script: scripts/bash_TStuyau_8_classify_image.sh
 ```
 
+### Final contextual filters
+
+#### contextual filters for smallholder agriculture:
+ - changes crop pixels within segmented polygons to majority crop
+ -  identifies crop pixels in fields < 2 ha as smallholder if in areas away from large fields
+ -  converts pixels classified as smallholder mixed along edges of large fields as crop edge (not smallholder)
+ -  cleans up other common misclassification of mixed vegetation as smallholder crop, such as borders between grasslands and high vegetation
+ -  converts all low mixed veg that is not identified as smallholder crop to crop edge if it borders crop pixels and mixed grass otherwise 
+
+scripts/bash_TStuyau_9_post_filters.sh
+![alt](/images/post_filters.png)
+
+#### temporal filters:
+
 
 ## Spectral indices
 | Index | Formula | Uses | Source |

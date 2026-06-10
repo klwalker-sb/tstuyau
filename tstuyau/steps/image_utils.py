@@ -12,6 +12,7 @@ import rasterio as rio
 from skimage.exposure import rescale_intensity
 from rasterio.coords import BoundingBox
 from shapely.geometry import Polygon
+from rasterio.mask import mask
 import pyproj
 from .utils import random_id
 from ..handler import logger
@@ -201,7 +202,37 @@ def get_grid_bounds(grid_file,
     
     return bounds, proj_bounds, proj_crs
 
-
+def clip_big_ras_to_small(small_ras, big_ras, big_clipped):
+        
+    '''## with gdal:
+    src_small = gdal.Open(small_ras)
+    ulx, xres, xskew, uly, yskew, yres  = src_small.GetGeoTransform()
+    lrx = ulx + (src_small.RasterXSize * xres)
+    lry = uly + (src_small.RasterYSize * yres)
+    geometry = [[ulx,lry], [ulx,uly], [lrx,uly], [lrx,lry]]
+    '''
+    ## with geowombat:
+    with gw.open(small_ras) as src:
+        logger.debug(f'src: {src}')
+    minx = src.x.min().item()
+    maxx = src.x.max().item()
+    miny = src.y.min().item()
+    maxy = src.y.max().item()
+    #bounds = src.bounds
+    #ulx = bounds[0]
+    #urx = bounds[2]
+    #lry = bounds[1]
+    #uly = bounds[3]
+    geometry = [[maxx,miny], [maxx,maxy], [minx,maxy], [minx,miny]]
+    roi = [Polygon(geometry)]
+    with rio.open(small_ras) as src0:
+        out_meta = src0.meta.copy()
+        out_meta.update({"count":1})
+    with rio.open(big_ras) as src:
+        out_image, transformed = mask(src, roi, crop = True)
+    with rio.open(big_clipped, 'w', **out_meta) as dst:
+        dst.write(out_image)
+                                
 def geom_intersects(dfr, geom_b):
 
     bounds = (float(dfr.WEST_LON), float(dfr.SOUTH_LAT), float(dfr.EAST_LON), float(dfr.NORTH_LAT))

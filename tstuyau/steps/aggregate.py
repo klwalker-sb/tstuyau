@@ -3,13 +3,16 @@ from pathlib import Path
 import datetime as dt
 import rasterio as rio
 from rasterio.merge import merge
+from rasterio.io import MemoryFile
 import numpy as np
 import geowombat as gw
 import xarray as xr
 import pandas as pd
 import csv
 import glob
+import math
 #import re
+#from shapely.geometry import box
 from .project import ProjectPaths, get_tsdir_name
 from ..handler import logger
 from .date_utils import get_date_range
@@ -308,15 +311,15 @@ def make_ts_composite(params):
     '''
     Makes aggregated statistics (e.g. mean, stdv, cv, amp, etc.) for all images in specified time period ('yr', 'wet', or 'dry') 
     
-    Statistics to be generated are set with the ['feature_model']['si_vars'] parameter or ['feature_model']['pheno_vars'] parameter
-        in combination with ['feature_model']['spec_indices'] or ['feature_model']['spec_indices_pheno'] to set the vegetation index 
+    Statistics to be generated are set with the <feature_model:si_vars> parameter or <feature_model:pheno_vars> parameter
+        in combination with <feature_model:spec_indices> or <feature_model:spec_indices_pheno> to set the vegetation index 
         (Note this function does not work with multiple spec indices; if a list is given, only the first item will be used)
-        The ['feature_model']['start_yr'] parameter is used to set the nominal year (first year if mapping period spans two nominal years). 
-        The specific dates for the mapping year and seasons are set with the ['calendar'] parameters
-        The ['feature_model']['pheno_pad_days'] param can be set to allow for some overlap between seasons when fitting curve tails.
+        The <feature_model:start_yr> parameter is used to set the nominal year (first year if mapping period spans two nominal years). 
+        The specific dates for the mapping year and seasons are set with the <calendar> parameters
+        The <feature_model:pheno_pad_days> param can be set to allow for some overlap between seasons when fitting curve tails.
              this is a list [l,r] with l as padding (in days) into left side and r as padding into right side.
 
-    Can make a composite of the same variable over multiple years by setting the ['classify']['out_yrs'] parameter to multiple years
+    Can make a composite of the same variable over multiple years by setting the <classify:out_yrs> parameter to multiple years
     Can make a composite from unsmoothed images in the brdf folder by adding -raw to the si_var (e.g. nbr-raw)
     To make composites from the time-series folders, should add -sm.. to the si_var (e.g. nbr-smwh)
     '''
@@ -432,26 +435,33 @@ def make_ts_composite(params):
     return out_ras, comp_band_names
     
 
-def mosaic_cells(params):
+def mosaic_cells(params, out_path=None):
     '''
     Mosaics classified results for a set of cells defined with a list or path to a .csv file with a cell number on each line.
     if a .csv file, the file basename will be start the basename of the output mosaic. 
-    The ['classify']['name'] parameter is the common string in the filenmaes of the cell products to be mosaicked (usually the full model name)
+    The <classify:name> parameter is the common string in the filenmaes of the cell products to be mosaicked (usually the full model name)
     and will comprise the rest of the output mosaic name. The output mosaic is saved to the 'classified' directory on the backup drive,
-    unless ['classify']['test'] is set to true, in which case it will be saved to the scratch drive. 
+    unless <classify:test> is set to true, in which case it will be saved to the scratch drive. 
+
+    If a buffer distance was used when creating data for each grid cell (<buffer> > 0), will unbuffer cells before mosaicking to remove edge effects
+      make sure <buffer> param is set to original value
     '''
-    
-    if params['classify']['test']:
+    if out_path:
+        out_dir = Path(out_path).parent
+        output_path = out_path
+    elif params['classify']['test']:
         out_dir = Path(params['scratch_dir']) / 'classified'
     else:
-        out_dir = Path(params['backup_path']) / 'mosaics' 
+        out_dir = Path(params['backup_path']).parents[1] / 'mosaics'
     out_dir.mkdir(parents=True, exist_ok=True)
 
     if isinstance(params['grids'], list):
         cells = params['grids']
-        output_path = Path(out_dir) / f"{params['classify']['name']}_mosaic.tif"
+        if not output_path:
+            output_path = Path(out_dir) / f"{params['classify']['name']}_mosaic.tif"
     elif params['grids'].endswith('.csv'):
-        output_path = Path(out_dir) / f"{Path(params['grids']).stem}_{params['classify']['name']}.tif"
+        if not output_path:
+            output_path = Path(out_dir) / f"{Path(params['grids']).stem}_{params['classify']['name']}.tif"
         cells = []
         with open(params['grids'], newline='') as cell_file:
             for row in csv.reader(cell_file):
@@ -459,7 +469,7 @@ def mosaic_cells(params):
     else:
         logger.warning('cell_list needs to be a list or path to .csv file with list')
 
-    logger.info("mosaicking cells:{cells}")
+    logger.debug(f"mosaicking cells:{cells}")
     ras_list = []
     for cell in cells:
         ppaths = ProjectPaths(params, grid=int(cell))
@@ -469,8 +479,10 @@ def mosaic_cells(params):
             comp_path = ppaths.comp / params['classify']['local_dir']
         elif params['classify']['comp_dir'] == 'tmp':
             comp_path = ppaths.scratch  / 'comp'
+        elif params['classify']['comp_dir'].is_dir():
+            comp_path = Path(params['classify']['comp_dir']).parent / f'{cell:06d}'
         else: 
-            logger.warning("comp_dir must be main, backup or temp. You put {params['classify']['comp_dir']}")
+            logger.warning("comp_dir must be main, backup, temp, or an actual directory. You put {params['classify']['comp_dir']}")
         
         logger.debug(f'Looking in {comp_path} for individual inputs')
         if not comp_path.is_dir():
@@ -484,28 +496,74 @@ def mosaic_cells(params):
                 ras_list.append(matches[0])
             else:
                 ras_list.append(matches[0])
-            
                 
-    if params['classify']['save_mosaic']:
-        logger.info(f"mosaicking {len(ras_list)} images.")
+        logger.debug(f' ras_list = {ras_list} \n')
+        logger.info(f"mosaicking {len(ras_list)} images...\n")
+        
         with rio.open(ras_list[0], 'r') as src_exmp:
-            output_meta = src_exmp.meta.copy()
-        logger.info(f"mosaicking {src_exmp.meta['count']}-band rasters")
-    
-        mosaic, output = merge(ras_list)
-        output_meta.update(
-            {"driver": "GTiff",
-                "height": mosaic.shape[1],
-                "width": mosaic.shape[2],
-                "transform": output,
-            })
-    
-        with rio.open(output_path, 'w', **output_meta) as m:
-            m.write(mosaic)
-            logger.info(f"writing mosaic to: {output_path}")
+                out_meta = src_exmp.meta.copy()
+        logger.debug(f"these are {src_exmp.meta['count']}-band rasters")
+            
+        if params['buffer']:
+            ## unbuffer to remove edge effects
+            #res = params['res']
+            src_datasets = []
+            mem_files = []
+        
+            for ras in ras_list:
+                with rio.open(ras) as src:
+                    res = src.res[0]
+                    extrapix_x = math.ceil(params['buffer'] / res)
+                    extrapix_y = math.ceil(params['buffer'] / res)
+                
+                    window = rio.windows.Window(
+                        col_off=extrapix_x,
+                        row_off=extrapix_y,
+                        width=src.width - (2 * extrapix_x),
+                        height=src.height - (2 * extrapix_y),
+                    )
+                    kwargs = src.meta.copy()
+                    crop_transform = rio.windows.transform(window, src.transform)
+                    data = src.read(window=window)
 
-    else:
-        logger.warning("OOPS -- Sorry -- this script has not been finished!")
-        ## TODO: add vrt method
+                    kwargs.update({
+                            "height": window.height,
+                            "width": window.width,
+                            "transform": crop_transform,
+                        })
+
+                    mem_file = MemoryFile()
+                    mem_ds = mem_file.open(**kwargs)
+                    mem_ds.write(data)
+
+                    mem_files.append(mem_file)
+                    src_datasets.append(mem_ds)
+        
+            mosaic, output = merge(src_datasets)
+
+        else:
+            mosaic, output = merge(ras_list)
+            
+        if params['classify']['save_mosaic']:
+            out_meta.update(
+                {"driver": "GTiff",
+                    "height": mosaic.shape[1],
+                    "width": mosaic.shape[2],
+                    "transform": output,
+                })
+    
+            with rio.open(output_path, 'w', **out_meta) as m:
+                m.write(mosaic)
+                logger.info(f"writing mosaic to: {output_path}")
+
+        else:
+            logger.warning("OOPS -- Sorry -- this script has not been finished! - you can save the mosaic for now by setting classify:save_mosaic = True")
+            ## TODO: add vrt method
+
+        if params['buffer']:
+            for ds in src_datasets:
+                ds.close()
+            for mf in mem_files:
+                mf.close()
 
     return output_path

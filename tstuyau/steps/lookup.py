@@ -81,7 +81,8 @@ CROP_CATS_Py0 ={'smallcrop_main' : 35,
                 'low_crops':  [*range(22,40)],
                 'all_crops' : [*range(22,48),54],
                 'first_highveg' : 50,
-                'mixed_edge' : 19}
+                'mixed_edge' : 18,
+                'crop_edge': 19 }
 
 CROP_CATS={'smallcrop_main' : 137,
                 'sugar': 143,
@@ -91,7 +92,8 @@ CROP_CATS={'smallcrop_main' : 137,
                 'low_crops': [*range(100,148)],
                 'all_crops': [*range(100,160),*range(191,199)],
                 'first_highveg': 180,
-                'mixed_edge' : 93}
+                'mixed_edge' : 86,
+                'crop_edge': 93}
 
 GRASS_CATS={'allGrass': [51,55,58,71,72,73,74,75,76,77,79,80,81,82,83,84,85,86,87,88,89,96,108],
            'clearGrass': [51,55,58,71,73,75,76,77,79,80,81,82,83,84,85,87,88,89,108]}

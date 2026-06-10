@@ -27,7 +27,7 @@ MAIN_DIR="/home/sandbox-cel"
 BK_DIR="/home/downspout-cel"
 SCRATCH_DIR="/home/scratch-cel"
 PROJECT="paraguay_lc"
-
+BUF=100
 ###################################################################
 export NUMEXPR_MAX_THREADS="${SLURM_CPUS_ON_NODE}"
 
@@ -43,6 +43,7 @@ CONFIG_UPDATES="grids:$CELLS
 main_path:${MAIN_DIR}/${PROJECT}/stac/grid
 backup_path:${BK_DIR}/${PROJECT}/stac/grid
 scratch_dir:${SCRATCH_DIR}/${PROJECT}
+buffer:$BUF
 classify:comp_dir:$COMP_DIR
 classify:test:$TESTING
 classify:name:$MOD

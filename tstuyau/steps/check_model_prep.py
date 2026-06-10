@@ -8,17 +8,16 @@ import random
 from collections.abc import Iterable
 import numpy as np
 import rasterio as rio
-from rasterio.mask import mask
 import pandas as pd
 import geowombat as gw
 import geopandas as gpd
-from shapely.geometry import Polygon
 import shutil
 import tempfile
 from .project import ProjectPaths
 from .aggregate import make_ts_composite
 from .mod_utils import getset_feature_model, get_train_yrs_str, get_class_col,  multiclass_mod, get_confusion_matrix
 from .mod_utils import get_holdout_scores, get_binary_holdout_score, prep_test_train, log_acc_results
+from .image_utils import clip_big_ras_to_small
 from .lookup import CROP_CATS_Py0, CROP_CATS, MIXED_CROPS_Py0, MIXED_CROPS, MIXED_NONCROPS_Py0, MIXED_NONCROPS, LC_FOCUS_DICT, LC_VALS_DICT
 from ..handler import logger
 
@@ -947,36 +946,8 @@ def make_variable_stack(params):
                             comp_dir = ppaths.bk/'comp'
                             comp_dir.mkdir(parents=True, exist_ok=True)
                             ## clip large ancillary raster to extent of other rasters in stack for grid cell
-                            small_ras = stack_paths[0]
                             logger.debug(f"stack_paths: {stack_paths}")
-                            '''## with gdal:
-                            src_small = gdal.Open(small_ras)
-                            ulx, xres, xskew, uly, yskew, yres  = src_small.GetGeoTransform()
-                            lrx = ulx + (src_small.RasterXSize * xres)
-                            lry = uly + (src_small.RasterYSize * yres)
-                            geometry = [[ulx,lry], [ulx,uly], [lrx,uly], [lrx,lry]]
-                            '''
-                            ## with geowombat:
-                            with gw.open(small_ras) as src:
-                                logger.info(f'src: {src}')
-                            minx = src.x.min().item()
-                            maxx = src.x.max().item()
-                            miny = src.y.min().item()
-                            maxy = src.y.max().item()
-                            #bounds = src.bounds
-                            #ulx = bounds[0]
-                            #urx = bounds[2]
-                            #lry = bounds[1]
-                            #uly = bounds[3]
-                            geometry = [[maxx,miny], [maxx,maxy], [minx,maxy], [minx,miny]]
-                            roi = [Polygon(geometry)]
-                            with rio.open(small_ras) as src0:
-                                out_meta = src0.meta.copy()
-                                out_meta.update({"count":1})
-                            with rio.open(sf_path) as src:
-                                out_image, transformed = mask(src, roi, crop = True)
-                            with rio.open(ancillary_clipped, 'w', **out_meta) as dst:
-                                dst.write(out_image)
+                            clip_big_ras_to_small(stack_paths[0], sf_path, ancillary_clipped)
                             stack_paths.append(ancillary_clipped)
                             band_names.append(f'sing_{sf}')
 

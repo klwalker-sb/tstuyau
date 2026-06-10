@@ -27,6 +27,7 @@ from .check_sample import get_polygons_in_grid
 
 
 def img_to_bbox_offsets(gt, bbox):
+    ## legacy code .. there are better ways...
     origin_x = gt[2]
     origin_y = gt[5]
     pixel_width = gt[0]
@@ -314,7 +315,7 @@ def get_ts_stats_within_polys(params, in_path=None, out_path=None):
                 cells.append(row[0])
     elif isinstance(params['grids'], int) or isinstance(params['grids'], str): # if runing individual cells as array via bash script
         cells.append(params['grids']) 
-        
+    
     if params['feature_model']['ancillary_vars']:
         if in_path:
             var_path = in_path
@@ -373,23 +374,23 @@ def get_ts_stats_within_polys(params, in_path=None, out_path=None):
                 out_file = out_path
             else:
                 out_file = Path(out_dir)/f'{cell:06d}/{cell:06d}_{avar}_{suffix}.tif'
-            out_file.parent.mkdir(parents=True, exist_ok=True)
+            Path(out_file).parent.mkdir(parents=True, exist_ok=True)
             
-            if (var_path.startswith('relative')) or (Path(var_path).stem.startswith(f'cell:04d')):
+            if (str(var_path).startswith('relative')) or (f'{cell:04d}' in Path(var_path).stem):
                 ## if using classified outputs in the comp directory as ancillary inputs, the path in the dictionary should be:
                 ##      "relative_<global_file_name> with relative in the place of the cell number at the beginning of the file name
-                if var_path.is_file():
+                if Path(var_path).is_file():
                     var_path = var_path
-                elif 'relative' in var_path:
+                elif 'relative' in str(var_path):
                     prepath = ppaths.ms.parent/'comp'/f'{cell:06d}'
                     #prepath = ppaths.comp/f'{cell:06d}'
-                    var_path = var_path.replace('relative',str(prepath))
+                    var_path = str(var_path).replace('relative',str(prepath))
                 
-                logger.info(f'getting {avar0} at: {var_path} \n')
+                logger.info(f'getting {avar0} at: {str(var_path)} \n')
                 with rio.open(var_path) as src0:
                     gt = src0.transform
                     out_shape=src0.shape
-                    logger.info(f'out_shape = {out_shape}')
+                    logger.debug(f'out_shape = {out_shape}')
                     offset = img_to_bbox_offsets(gt, boundary)
                     new_gt = rio.Affine(gt[0], gt[1], (gt[2] + (offset[0] * gt[0])), 0.0, gt[4], (gt[5] + (offset[1] * gt[4])))
                     out_meta = src0.meta.copy()
@@ -414,7 +415,7 @@ def get_ts_stats_within_polys(params, in_path=None, out_path=None):
                     offset = img_to_bbox_offsets(gt, boundary)
                     new_gt = rio.Affine(gt[0], gt[1], (gt[2] + (offset[0] * gt[0])), 0.0, gt[4], (gt[5] + (offset[1] * gt[4])))
                     out_meta = src_ref.meta.copy()
-                    out_meta.update({"count": 1, "dtype":np.int16})
+                    out_meta.update(count=1, dtype=np.int16, compress="lzw", tiled=True)
                 out_tmp = Path(tmp_out_dir)/f'{cell:06d}/{avar0}_clipped'
                 out_tmp.parent.mkdir(parents=True, exist_ok=True)
                 with rio.open(out_tmp, 'w', **out_meta) as dst:
@@ -437,7 +438,7 @@ def get_ts_stats_within_polys(params, in_path=None, out_path=None):
                 logger.debug('there are no ploygon features in this cell')
                 with rio.open( ts_dir / rasts[0]) as src:
                     out_meta = src.meta.copy()
-                    out_meta.update({"count": 1, "dtype":np.int16})
+                    out_meta.update(count=1, dtype=np.int16, compress="lzw", tiled=True)
                     samp_ras = src.read(1)
                     blank_ras = samp_ras*0
                 with rio.open(out_file, 'w+', **out_meta) as dst:
@@ -462,7 +463,7 @@ def get_ts_stats_within_polys(params, in_path=None, out_path=None):
                 stack = []
                 with rio.open(rasts[0]) as src0:
                     out_meta = src0.meta.copy()
-                    out_meta.update({"count": 1, "dtype":np.int16})
+                    out_meta.update(count=1, dtype=np.int16, compress="lzw", tiled=True)
                 for rast in rasts:
                     with rio.open(rast) as src:
                         gt = src.transform
@@ -608,7 +609,7 @@ def make_polygon_features(params, in_path=None, out_path=None):
                                 gt = src0.transform
                                 out_shape=src0.shape
                                 out_meta = src0.meta.copy()
-                                out_meta.update({"count": 1, "dtype":np.int16})    
+                                out_meta.update(count=1, dtype=np.int16, compress="lzw", tiled=True)    
                         ## within each polygon, calculate spatial stat for ras
                         gdf = polys.join(pd.DataFrame(zonal_stats(
                             vectors=polys['geometry'], raster=var_path, stats=[stat])), how='left' )
@@ -620,19 +621,21 @@ def make_polygon_features(params, in_path=None, out_path=None):
                             out_shape=out_shape[1:] 
                         image = features.rasterize( ((g, v) for g, v in shapes), out_shape=out_shape, transform=gt)
                         dst.write_band(1, image)
-                        logger.info(f'out_fn={out_file}')
+                        logger.debug(f'out_fn={out_file}')
                     
             else: ## using ts data   NOTE -- this doesn't currently work without gridded structure (below).
                 get_ts_stats_within_polys(params, in_path=in_path, out_path=out_path)
                 
         else:  ## use gridded structure
+            logger.info(f' getting ts stats in polys...')
             if params['feature_model']['ancillary_vars']:
                 avars = params['feature_model']['ancillary_vars']
-                if isinstance(avar, str):
-                    avars = [avar]
-                    for avar in avars:
-                        params['feature_model']['ancillary_vars'] = [avar]
-                        get_ts_stats_within_polys(params, in_path=in_path, out_path=out_path)
+                if isinstance(avars, str):
+                    avars = [avars]
+                for avar in avars:
+                    logger.info(f'working on {avar}...')
+                    params['feature_model']['ancillary_vars'] = [avar]
+                    get_ts_stats_within_polys(params, in_path=in_path, out_path=out_path)
                 
             elif params['feature_model']['spec_indices']:
                 sis = params['feature_model']['spec_indices']   ## eg. ['kndvi', 'wi', 'ndmi']
