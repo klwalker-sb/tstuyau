@@ -61,6 +61,8 @@ def make_filter_layers_for_cell(params, filter_set):
             polyarea = area_src.read(1)
         polyha = np.round(polyarea/10).astype(np.uint16)
         areaha_inter = Path(filter_set['area_focal']['cell_final']).parent / 'area_ha.tif'
+        profile.update(dtype=rio.uint16, compress='lzw', tiled=True)
+        logger.info(f'profile = {profile}')
         with rio.open(areaha_inter, "w", **profile) as dst:
                 dst.write(polyha, 1)
 
@@ -84,9 +86,7 @@ def make_filter_layers_for_cell(params, filter_set):
             focal_mean0 = uniform_filter(polysizef, size=nbhd, mode="reflect")
             ## convert to int and convert null to 0
             focal_mean = np.nan_to_num(np.round(focal_mean0), nan=0).astype(np.uint16)
-            profile.update(dtype=rio.uint16,
-                          compress='lzw',
-                          tiled=True)
+            profile.update(dtype=rio.uint16, compress='lzw', tiled=True)
             logger.info(f"saving area_focal to {filter_set['area_focal']['cell_final']} \n")
             with rio.open(filter_set['area_focal']['cell_final'], "w", **profile) as dst:
                 dst.write(focal_mean, 1)
@@ -258,7 +258,7 @@ def post_classification_spatial_filter_smallholder(params, filter_set):
     logger.info('running final filters.... \n')
     with rio.open(first_filter_rasters['base_map']) as src:
         meta = src.meta.copy()
-        meta.update(compress='lzw',tiled=True)
+        meta.update(dtype='uint8', compress='lzw',tiled=True)
         with rio.open(filter1_path, 'w', **meta) as dst:
             readers = {k: rio.open(v) for k, v in first_filter_rasters.items()}
             for ji, window in src.block_windows(1):
@@ -315,7 +315,7 @@ def post_classification_spatial_filter_smallholder(params, filter_set):
 
     with rio.open(first_filter_rasters['base_map']) as src2:
         meta = src2.meta.copy()
-        meta.update(compress='lzw',tiled=True)
+        meta.update(dtype='uint8', compress='lzw',tiled=True)
         with rio.open(filter2_path, 'w', **meta) as dstf:
             readers2 = {k2: rio.open(v2) for k2, v2 in second_filter_rasters.items()}
             for yz, window in src2.block_windows(1):
@@ -337,7 +337,7 @@ def post_classification_spatial_filter_smallholder(params, filter_set):
         PAD_SIZE = 1 
         with rio.open (filter2_path, 'r') as src3:
             profile = src3.profile
-            profile.update(compress='lzw',tiled=True)
+            profile.update(dtype='uint8', compress='lzw',tiled=True)
             with rio.open(filterfinal_path, 'w', **profile) as dstf:
                 for ij, window in src3.block_windows(1):
                     read_window = Window(
@@ -410,6 +410,7 @@ def post_aggregation_filter(params):
             cells.append(params['grids']) 
        
         for cell in cells:
+            cell = int(cell)
             params['grids'] = [cell]
             ppaths = ProjectPaths(params, grid=cell)
             logger.info(f'working on cell {cell}...\n')

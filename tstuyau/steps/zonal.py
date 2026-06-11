@@ -7,7 +7,7 @@ from pathlib import Path
 import datetime as dt
 import rasterio as rio
 #from rasterio.merge import merge
-from rasterio.windows import Window
+from rasterio.windows import Window, from_bounds
 from rasterio import features
 from rasterio.mask import mask
 #from rasterio.features import shapes
@@ -17,28 +17,13 @@ import geowombat as gw
 import geopandas as gpd
 import xarray as xr
 import fiona
-from shapely.geometry import Polygon
 #from rasterstats import zonal_stats
 from .project import ProjectPaths
 from ..handler import logger
 from .mask_utils import apply_binary_mask, combine_binary_masks
 from .date_utils import get_date_range
 from .check_sample import get_polygons_in_grid
-
-
-def img_to_bbox_offsets(gt, bbox):
-    ## legacy code .. there are better ways...
-    origin_x = gt[2]
-    origin_y = gt[5]
-    pixel_width = gt[0]
-    pixel_height = gt[4]
-    x1 = int(round((bbox[0] - origin_x) / pixel_width))
-    x2 = int(round((bbox[1] - origin_x) / pixel_width))
-    y1 = int(round((bbox[3] - origin_y) / pixel_height))
-    y2 = int(round((bbox[2] - origin_y) / pixel_height))
-    xsize = x2 - x1
-    ysize = y2 - y1
-    return [x1, y1, xsize, ysize]
+from .image_utils import image_to_snapped_bounds
     
 def clip_ras_to_poly(ras_in, polys, out_dir,prod_name):
         
@@ -348,13 +333,8 @@ def get_ts_stats_within_polys(params, in_path=None, out_path=None):
         logger.info(f'working on cell {cell}...\n')
         ppaths = ProjectPaths(params, grid=cell)
         grid_file = gpd.read_file(params['grid_file'])
-        gridcell = grid_file[grid_file['UNQ'] == int(cell)]
-        #buffer_geom = gridcell.buffer(params['buffer']+int(params['res']), cap_style='square',join_style='mitre')
-        buffer_geom = gridcell.buffer(params['buffer']+int(params['res']), cap_style=3,join_style=2)
-        grid_bound = gridcell.buffer(params['buffer']+int(params['res']),cap_style=3,join_style=2).geometry.iloc[0]
-        bounds = grid_bound.bounds ## bounds returns (minx, miny, maxx, maxy)
-        boundary = (float(bounds[0]), float(bounds[2]), float(bounds[1] ), float(bounds[3]))
-
+        snapped_bounds = image_to_snapped_bounds(cell, grid_file, buffer=params['buffer'], res=params['res'], width=2021, height=2021)
+        
         poly_path = params['feature_model']['poly_vector_path']
         if Path(poly_path).is_file(): 
             #polys_all = gpd.read_file(poly_path)
@@ -380,48 +360,20 @@ def get_ts_stats_within_polys(params, in_path=None, out_path=None):
                 ## if using classified outputs in the comp directory as ancillary inputs, the path in the dictionary should be:
                 ##      "relative_<global_file_name> with relative in the place of the cell number at the beginning of the file name
                 if Path(var_path).is_file():
-                    var_path = var_path
+                    pass
                 elif 'relative' in str(var_path):
                     prepath = ppaths.ms.parent/'comp'/f'{cell:06d}'
                     #prepath = ppaths.comp/f'{cell:06d}'
                     var_path = str(var_path).replace('relative',str(prepath))
                 
-                logger.info(f'getting {avar0} at: {str(var_path)} \n')
-                with rio.open(var_path) as src0:
-                    gt = src0.transform
-                    out_shape=src0.shape
-                    logger.debug(f'out_shape = {out_shape}')
-                    offset = img_to_bbox_offsets(gt, boundary)
-                    new_gt = rio.Affine(gt[0], gt[1], (gt[2] + (offset[0] * gt[0])), 0.0, gt[4], (gt[5] + (offset[1] * gt[4])))
-                    out_meta = src0.meta.copy()
-                    out_meta.update({"count": 1, "dtype":np.int16})
-            
-            else:  ## clip large raster to grid cell to parse more easily
-                minx = bounds[0]
-                maxx = bounds[2]
-                miny = bounds[1]
-                maxy = bounds[3]
-                geometry = [[maxx,miny], [maxx,maxy], [minx,maxy], [minx,miny]]
-                roi = [Polygon(geometry)]
-                with rio.open(var_path) as src0:
-                    out_image, transformed = mask(src0, roi, crop = True)
-                small_ras = next(ppaths.comp.glob("*.tif"),None)
-                if not small_ras:
-                    small_ras = next(ppaths.ms.glob("*.nc"),None)
-                with rio.open(small_ras) as src_ref:
-                    gt = src_ref.transform
-                    out_shape=src_ref.shape
-                    logger.debug(f'out_shape = {out_shape}')
-                    offset = img_to_bbox_offsets(gt, boundary)
-                    new_gt = rio.Affine(gt[0], gt[1], (gt[2] + (offset[0] * gt[0])), 0.0, gt[4], (gt[5] + (offset[1] * gt[4])))
-                    out_meta = src_ref.meta.copy()
-                    out_meta.update(count=1, dtype=np.int16, compress="lzw", tiled=True)
-                out_tmp = Path(tmp_out_dir)/f'{cell:06d}/{avar0}_clipped'
-                out_tmp.parent.mkdir(parents=True, exist_ok=True)
-                with rio.open(out_tmp, 'w', **out_meta) as dst:
-                    dst.write(out_image)
-                var_path = out_tmp
-                
+            logger.info(f'getting {avar0} at: {str(var_path)} \n')
+            with rio.open(var_path) as src0:
+                out_meta = src0.meta.copy()
+                window = from_bounds(*snapped_bounds, transform=src0.transform)
+                new_gt = src0.window_transform(window)
+                out_shape = (int(window.height), int(window.width)) 
+            out_meta.update({"count": 1, "height": out_shape[0], "width": out_shape[1], "transform": new_gt, "compress": "lzw", "tiled": True})
+
         elif params['feature_model']['spec_indices']:   ## calculating stats from time-series variables
             ## the following is only for smoothed indices. TODO: add in raw
             ts_dir = ppaths.ts / si
@@ -463,13 +415,14 @@ def get_ts_stats_within_polys(params, in_path=None, out_path=None):
                 stack = []
                 with rio.open(rasts[0]) as src0:
                     out_meta = src0.meta.copy()
-                    out_meta.update(count=1, dtype=np.int16, compress="lzw", tiled=True)
+                    new_gt = src_meta['transform']
+                    out_shape = (src_meta['height'], src_meta['width'])
+                logger.debug(f'out meta for ts features is: {out_meta}')
+                out_meta.update(count=1, dtype=np.int16, compress="lzw", tiled=True)
+                
                 for rast in rasts:
-                    with rio.open(rast) as src:
-                        gt = src.transform
-                        offset = img_to_bbox_offsets(gt, boundary)
-                        new_gt = rio.Affine(gt[0], gt[1], (gt[2] + (offset[0] * gt[0])), 0.0, gt[4], (gt[5] + (offset[1] * gt[4])))
-                        arr = src.read(window=Window(offset[0], offset[1], offset[2], offset[3]))      
+                    with rio.open(rast) as src: 
+                        arr = src.read(1)
                         stack.append(arr)
                             
                 logger.info(f"getting {siv.split('-')[0]} for all images in period")
@@ -493,17 +446,17 @@ def get_ts_stats_within_polys(params, in_path=None, out_path=None):
         logger.info(f'getting {stat} for all pixels in polygon...\n')
         if poly_buf > 0:
             polys["geometry"] = polys.buffer(poly_buf)    
-        gdf = polys.join(pd.DataFrame(zonal_stats(
-            vectors=polys['geometry'], raster=var_path, stats=[stat])), how='left' )
+        stats_df = pd.DataFrame(zonal_stats(vectors=polys['geometry'], raster=var_path, stats=[stat]))
+        gdf = polys.join(stats_df, how='left' )
 
+        out_shape_2d = out_shape[-2:] 
+        shapes = ((geom,value) for geom, value in zip(gdf.geometry, gdf[stat]))
+        image = features.rasterize(shapes, out_shape=out_shape_2d, transform=new_gt)
+
+        logger.info(f'final meta for poly stats is: {out_meta}')
         with rio.open(out_file, 'w+', **out_meta) as dst:
-            tmp_arr = dst.read(1)
-            ## rasterize polygon using stat value
-            shapes = ((geom,value) for geom, value in zip(gdf.geometry, gdf[stat]))
-            if len(out_shape) == 3:
-               out_shape=out_shape[1:] 
-            image = features.rasterize( ((g, v) for g, v in shapes), out_shape=out_shape, transform=new_gt)
             dst.write_band(1, image)
+            
         logger.info(f'wrote final file to: {out_file}')
                             
         ## delete intermediate mean raster

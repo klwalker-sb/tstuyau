@@ -480,7 +480,7 @@ def mosaic_cells(params, out_path=None):
         elif params['classify']['comp_dir'] == 'tmp':
             comp_path = ppaths.scratch  / 'comp'
         elif params['classify']['comp_dir'].is_dir():
-            comp_path = Path(params['classify']['comp_dir']).parent / f'{cell:06d}'
+            comp_path = Path(params['classify']['comp_dir']).parent / f'{int(cell):06d}'
         else: 
             logger.warning("comp_dir must be main, backup, temp, or an actual directory. You put {params['classify']['comp_dir']}")
         
@@ -497,73 +497,73 @@ def mosaic_cells(params, out_path=None):
             else:
                 ras_list.append(matches[0])
                 
-        logger.debug(f' ras_list = {ras_list} \n')
-        logger.info(f"mosaicking {len(ras_list)} images...\n")
+    logger.debug(f' ras_list = {ras_list} \n')
+    logger.info(f"mosaicking {len(ras_list)} images...\n")
         
-        with rio.open(ras_list[0], 'r') as src_exmp:
-                out_meta = src_exmp.meta.copy()
-        logger.debug(f"these are {src_exmp.meta['count']}-band rasters")
+    with rio.open(ras_list[0], 'r') as src_exmp:
+        out_meta = src_exmp.meta.copy()
+    logger.debug(f"these are {src_exmp.meta['count']}-band rasters")
             
-        if params['buffer']:
-            ## unbuffer to remove edge effects
-            #res = params['res']
-            src_datasets = []
-            mem_files = []
+    if params['buffer']:
+        ## unbuffer to remove edge effects
+        #res = params['res']
+        src_datasets = []
+        mem_files = []
         
-            for ras in ras_list:
-                with rio.open(ras) as src:
-                    res = src.res[0]
-                    extrapix_x = math.ceil(params['buffer'] / res)
-                    extrapix_y = math.ceil(params['buffer'] / res)
+        for ras in ras_list:
+            with rio.open(ras) as src:
+                res = src.res[0]
+                extrapix_x = math.ceil(params['buffer'] / res)
+                extrapix_y = math.ceil(params['buffer'] / res)
                 
-                    window = rio.windows.Window(
-                        col_off=extrapix_x,
-                        row_off=extrapix_y,
-                        width=src.width - (2 * extrapix_x),
-                        height=src.height - (2 * extrapix_y),
-                    )
-                    kwargs = src.meta.copy()
-                    crop_transform = rio.windows.transform(window, src.transform)
-                    data = src.read(window=window)
+                window = rio.windows.Window(
+                    col_off=extrapix_x,
+                    row_off=extrapix_y,
+                    width=src.width - (2 * extrapix_x),
+                    height=src.height - (2 * extrapix_y),
+                )
+                kwargs = src.meta.copy()
+                crop_transform = rio.windows.transform(window, src.transform)
+                data = src.read(window=window)
 
-                    kwargs.update({
-                            "height": window.height,
-                            "width": window.width,
-                            "transform": crop_transform,
-                        })
-
-                    mem_file = MemoryFile()
-                    mem_ds = mem_file.open(**kwargs)
-                    mem_ds.write(data)
-
-                    mem_files.append(mem_file)
-                    src_datasets.append(mem_ds)
-        
-            mosaic, output = merge(src_datasets)
-
-        else:
-            mosaic, output = merge(ras_list)
-            
-        if params['classify']['save_mosaic']:
-            out_meta.update(
-                {"driver": "GTiff",
-                    "height": mosaic.shape[1],
-                    "width": mosaic.shape[2],
-                    "transform": output,
+                kwargs.update({
+                    "height": window.height,
+                    "width": window.width,
+                    "transform": crop_transform,
                 })
+
+                mem_file = MemoryFile()
+                mem_ds = mem_file.open(**kwargs)
+                mem_ds.write(data)
+
+                mem_files.append(mem_file)
+                src_datasets.append(mem_ds)
+        
+        mosaic, output = merge(src_datasets)
+
+    else:
+        mosaic, output = merge(ras_list)
+            
+    if params['classify']['save_mosaic']:
+        out_meta.update(
+            {"driver": "GTiff",
+                "height": mosaic.shape[1],
+                "width": mosaic.shape[2],
+                "transform": output,
+            })
     
-            with rio.open(output_path, 'w', **out_meta) as m:
-                m.write(mosaic)
-                logger.info(f"writing mosaic to: {output_path}")
+        with rio.open(output_path, 'w', **out_meta) as m:
+            m.write(mosaic)
+            logger.info(f"writing mosaic to: {output_path}")
 
-        else:
-            logger.warning("OOPS -- Sorry -- this script has not been finished! - you can save the mosaic for now by setting classify:save_mosaic = True")
-            ## TODO: add vrt method
+    else:
+        logger.warning("OOPS -- Sorry -- this script has not been finished! - you can save the mosaic for now by setting classify:save_mosaic = True")
+        ## TODO: add vrt method
 
-        if params['buffer']:
-            for ds in src_datasets:
-                ds.close()
-            for mf in mem_files:
-                mf.close()
+    if params['buffer']:
+        for ds in src_datasets:
+            ds.close()
+        for mf in mem_files:
+            mf.close()
 
     return output_path

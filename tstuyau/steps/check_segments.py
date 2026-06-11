@@ -3,39 +3,17 @@ import shutil
 import csv
 import yaml
 import json
-#from datetime import datetime
 import numpy as np
 import pandas as pd
 import geopandas as gpd
 import rasterio as rio
-from rasterio.windows import Window
+from rasterio.windows import Window, from_bounds
 from shapely.geometry import box, Polygon
 from osgeo import gdal, ogr, gdal_array
-
 from ..handler import logger
 from .project import ProjectPaths
 from .date_utils import get_date_range
-from .vectorize import img_to_bbox_offsets
 
-#from contextlib import ExitStack
-#import geowombat as gw
-#from geowombat.core import ndarray_to_xarray
-#from geowombat.moving import moving_window as gw_moving_window
-#from geowombat.core.windows import get_window_offsets
-#from scipy import stats
-#import sacfei
-#from sacfei._moving_window import moving_window
-#import rastercrf as rcrf
-#import dask
-#import dask.array as da
-#import xarray as xr
-#from skimage.filters import meijering
-#from skimage.measure import regionprops
-#import pymorph
-#from tqdm import tqdm, trange
-#from . import lookup
-#from .io import DataIO
-#from . import date_utils, image_utils
 #######################################################################################################################################
 ### Culltionet prep
     
@@ -128,62 +106,59 @@ def clip_to_chips(ras_list, grid_num, spec_index, version_dir, grid_file, end_yr
     for chip in chip_list:
         chip_num = int(chip.split("_")[0])
         chip_clip_shape = gpd.read_file(Path(seg_dir)/"user_train"/chip)
-        bounds =(float(chip_clip_shape.bounds.iloc[0]['minx']),float(chip_clip_shape.bounds.iloc[0]['maxx']),
-            float(chip_clip_shape.bounds.iloc[0]['miny']),float(chip_clip_shape.bounds.iloc[0]['maxy']))
+        bounds = tuple(chip_clip_shape.total_bounds)
         
         for rast in sorted(ras_list):
-            with rio.open(rast, 'r') as src:
-                grid_gt = src.transform
-                # find XY offsets locating where chip is within grid image (from chip-grid offsets and chip boundary size)
-                src_offset =img_to_bbox_offsets(grid_gt, bounds)
-                # read in only that window
-                clipped_rast = src.read(1, window=Window(src_offset[0], src_offset[1], src_offset[2], src_offset[3]))
-                rast_base = str(rast).split(f'{grid_num:06d}')[0]
-                logger.debug(f'rast={rast}, rast_base={rast_base}')
-                out_dirF =  Path(str(rast).replace(rast_base, f'{version_dir}/time_series_vars/'))
-                out_dirF.mkdir(parents=True,exist_ok=True)
-                out_rast = Path(out_dirF)/Path(rast).name   
-                logger.debug(f'raster_out: {out_rast}')
-                if not out_rast.exists():
-                    if clipped_rast.shape == (100, 100):
-                        new_gt = rio.Affine(grid_gt[0], grid_gt[1], (grid_gt[2] + (src_offset[0] * 
-                                            grid_gt[0])), 0.0, grid_gt[4], (grid_gt[5] + (src_offset[1] * grid_gt[4])))
-                        with rio.open(out_rast, "w",  driver='GTiff', width=clipped_rast.shape[1], 
-                                            height=clipped_rast.shape[0], count=1,  dtype=np.int16, crs=src.crs, transform=new_gt) as dst:
+            rast_base = str(rast).split(f'{grid_num:06d}')[0]
+            logger.debug(f'rast={rast}, rast_base={rast_base}')
+            out_dir_f =  Path(str(rast).replace(rast_base, f'{version_dir}/time_series_vars/'))
+            out_dir_f.mkdir(parents=True,exist_ok=True)
+            out_rast = Path(out_dir_f)/Path(rast).name   
+            logger.debug(f'raster_out: {out_rast}')
+            if not out_rast.exists():
+                with rio.open(rast_path, 'r') as src:
+                    window = from_bounds(*bounds, transform=src.transform)
+                if int(window.height) == 100 and int(window.width) == 100:
+                    with rio.open(rast_path, 'r') as src:
+                        clipped_rast = src.read(1, window=window)
+                        new_gt = src.window_transform(window)
+                        out_meta = {'driver': 'GTiff','width': 100,'height': 100,'count': 1,
+                                         'dtype': np.int16,'crs': src.crs,'transform': new_gt}
+                        with rio.open(out_rast, "w",  **out_meta) as dst:
                             dst.write(clipped_rast, 1)
-                    else:
-                        # load grid shape to find grids that intersect with chip shape 
-                        grids = gpd.read_file(grid_file)
-
-                        ## mosaicking intersecting chips -- don't know if this is necessary
-                        chip_within_grids = gpd.sjoin(grids, chip_clip_shape, op='intersects') 
-                        both_grids = chip_within_grids.UNQ.to_list()
-                        logger.info(f'both grids: {both_grids}')
-                        grid_folder1 = Path(rast.replace(f'{grid_num:06d}',f'{both_grids[0]:06d}')).parent
-                        raster1 = Path(grid_folder1)/rast.name                           
-                        if len(both_grids) == 2:
-                            grid_folder2 = Path(rast.replace(f'{grid_num:06d}',f'{both_grids[1]:06d}')).parent 
-                            raster2 = Path(grid_folder2)/rast.name  
-                            mosaic_list = [raster1, raster2]
-                        else:
-                            mosaic_list = [raster1]
-
-                        grid_mosaic=Path(out_dirF)/f"tmp_mos_{rast.stem}.vrt"
-                        gdal.BuildVRT(grid_mosaic, mosaic_list)
-                        # read in window of chip bounds 
-                        with rio.open(grid_mosaic) as src2:
-                            grid_gt2 = src2.transform
-                            src2_offset = img_to_bbox_offsets(grid_gt2, bounds)
-                            clipped_rast2 = src2.read(1, window=Window(src2_offset[0], src2_offset[1], src2_offset[2], src2_offset[3]))
-                            new_gt2 = rio.Affine(grid_gt2[0], grid_gt2[1], (grid_gt2[2] + (src2_offset[0] * grid_gt2[0])), 
-                                                0.0, grid_gt2[4], (grid_gt2[5] + (src2_offset[1] * grid_gt2[4])))
-                            with rio.open(out_rast, "w",  driver='GTiff', width=clipped_rast2.shape[1], 
-                                        height=clipped_rast2.shape[0], count=1,  dtype=np.int16, crs=src2.crs, transform=new_gt2) as dst:
-                                dst.write(clipped_rast2, 1)     
-                        # delete tmp mosaic 
-                        grid_mosaic.unlink()
                 else:
-                    logger.info(f'mosaic already made: {str(out_dirF)}')
+                    # load grid shape to find grids that intersect with chip shape 
+                    grids = gpd.read_file(grid_file)
+
+                    ## mosaicking intersecting chips -- don't know if this is necessary
+                    chip_within_grids = gpd.sjoin(grids, chip_clip_shape, op='intersects') 
+                    both_grids = chip_within_grids.UNQ.to_list()
+                    logger.info(f'both grids: {both_grids}')
+                    grid_folder1 = Path(rast.replace(f'{grid_num:06d}',f'{both_grids[0]:06d}')).parent
+                    raster1 = Path(grid_folder1)/rast.name                           
+                    if len(both_grids) == 2:
+                        grid_folder2 = Path(rast.replace(f'{grid_num:06d}',f'{both_grids[1]:06d}')).parent 
+                        raster2 = Path(grid_folder2)/rast.name  
+                        mosaic_list = [raster1, raster2]
+                    else:
+                        mosaic_list = [raster1]
+
+                    grid_mosaic=Path(out_dir_f)/f"tmp_mos_{rast.stem}.vrt"
+                    gdal.BuildVRT(grid_mosaic, mosaic_list)
+                    # read in window of chip bounds 
+                    with rio.open(grid_mosaic) as src2:
+                        window = from_bounds(*bounds, transform=src2.transform)
+                        new_gt2 = src2.window_transform(window)
+                        clipped_rast2 = src2.read(1, window=window)
+                        h, w = int(window.height), int(window.width)
+                        out_meta = {'driver': 'GTiff', 'width': w, 'height': h, 'count': 1, 
+                                        'dtype': np.int16, 'crs': src2.crs, 'transform': new_gt2}
+                        with rio.open(out_rast, "w", **out_meta) as dst:
+                            dst.write(clipped_rast2, 1)     
+                    # delete tmp mosaic 
+                    grid_mosaic.unlink()
+            else:
+                logger.info(f'mosaic already made: {str(out_dir_f)}')
 
 def update_cultionet_config(seg_dir, yr, params):
 

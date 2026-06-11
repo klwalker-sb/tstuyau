@@ -4,6 +4,7 @@ import pathlib
 from pathlib import Path
 import geowombat as gw
 from geowombat.core import sort_images_by_date
+import math
 import numpy as np
 import pandas as pd
 import geopandas as gpd
@@ -11,6 +12,7 @@ import xarray as xr
 import rasterio as rio
 from skimage.exposure import rescale_intensity
 from rasterio.coords import BoundingBox
+from rasterio.windows import Window
 from shapely.geometry import Polygon
 from rasterio.mask import mask
 import pyproj
@@ -18,6 +20,40 @@ from .utils import random_id
 from ..handler import logger
 
 _projections = {}
+
+def image_to_snapped_bounds(cell, grid_file, buffer=100, res=10.0, width=None, height=None):
+    '''
+    Gets grid bounds from bounding geography (cell bounds explicitly here) 
+    sometimes need to enter width and height explicily (e.g 2021) to match to existing grids  
+    '''
+    if isinstance(grid_file, str):
+        grid_file = gpd.read_file(grid_file)
+    gridcell = grid_file[grid_file['UNQ'] == int(cell)]
+    #buffer_geom = gridcell.buffer(params['buffer']+int(params['res']), cap_style='square',join_style='mitre')
+    buffer_geom = gridcell.buffer(buffer+int(res), cap_style=3,join_style=2)
+    grid_bound = buffer_geom.geometry.iloc[0]
+    bounds = grid_bound.bounds ## bounds returns (minx, miny, maxx, maxy)
+
+    west, south, east, north = bounds
+    if width:
+        target_width = width
+        if height:
+            target_height = height
+        else:
+            target_height = width
+    else:
+        target_width = int(round((east - west) / res))
+        target_height = int(round((north - south) / res))
+
+    snapped_west = math.floor(west / res) * res
+    snapped_north = math.ceil(north / res) * res
+    snapped_east = snapped_west + (target_width * res)
+    snapped_south = snapped_north - (target_height * res)
+
+    snapped_bounds = (snapped_west, snapped_south, snapped_east, snapped_north)
+    
+    return snapped_bounds
+
 
 def rescale_band(img_in, maxval=255, profile=None, outpath=None):
     '''

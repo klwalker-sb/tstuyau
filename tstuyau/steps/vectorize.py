@@ -5,17 +5,14 @@ import numpy as np
 import rasterio as rio
 from rasterio import features
 from rasterio.features import shapes
+from rasterio.windows import Window, from_bounds
 import geopandas as gpd
 from scipy import ndimage as ndi
 from skimage.segmentation import watershed
 from skimage.feature import peak_local_max
-#from rasterstats import zonal_stats, point_query
 import shapely
 from rasterio.windows import Window
 from rasterio.features import shapes
-#from shapely.geometry import Polygon
-#from shapely import BufferCapStyle, BufferJoinStyle   
-#from shapely.geometry import Point, LineString, Polygon
 import gc
 import math
 import shutil
@@ -23,20 +20,7 @@ from ..handler import logger
 from .project import ProjectPaths
 
 #############################################################################################
-def img_to_bbox_offsets(gt, bbox):
-    origin_x = gt[2]
-    origin_y = gt[5]
-    pixel_width = gt[0]
-    pixel_height = gt[4]
-    x1 = int(round((bbox[0] - origin_x) / pixel_width))
-    x2 = int(round((bbox[1] - origin_x) / pixel_width))
-    y1 = int(round((bbox[3] - origin_y) / pixel_height))
-    y2 = int(round((bbox[2] - origin_y) / pixel_height))
-    xsize = x2 - x1
-    ysize = y2 - y1
-    return [x1, y1, xsize, ysize]
-
-    
+ 
 def instance_to_poly(input_raster, mmu=900.0):
     with rio.open(input_raster, 'r') as tmp:
         rast = tmp.read(1)
@@ -227,13 +211,12 @@ def single_semantic2instance(params):
         
         if not Path(fname).exists():
             with rio.open(pred_rast) as src:
-                gt = src.transform
-                offset = img_to_bbox_offsets(gt, boundary)
-                new_gt = rio.Affine(gt[0], gt[1], (gt[2] + (offset[0] * gt[0])), 0.0, gt[4], (gt[5] + (offset[1] * gt[4])))
-                dist_arr, bound_arr, ext_arr, _ = src.read(window=Window(offset[0], offset[1], offset[2], offset[3]))      
+                window = from_bounds(*boundary, transform=src.transform)
+                new_gt = src.window_transform(window)
+                dist_arr, bound_arr, ext_arr, _ = src.read(window=window)
                 out_meta = src.meta.copy()
                 ## read in the 2k x 2k grid shape window to remove cultionet inference edge-effects 
-                out_meta.update({"count": 1, "dtype":np.int16, "transform":new_gt, "height":dist_arr.shape[0], "width":dist_arr.shape[1]})
+                out_meta.update({"count": 1, "dtype":np.int16, "transform":new_gt, "height":int(window.height), "width":int(window.width)})
         
                 if "EO" in instance_method:
                     ## EO THRESHOLD METHOD (3)
@@ -380,22 +363,19 @@ def vectorize_seg_results(params):
     files = sorted(list(in_dir.glob('*_cut.gpkg')))
     grids = [i.stem.replace('_cut', '')[-4:] for i in files]
     for grid in grids:
-        ## Need to buffer cell bounds to match other raster products for cell TODO: remove hardcoded buffer
-        #grid_bound = grid_file[grid_file['UNQ'] == int(grid)].geometry.iloc[0]
+        ## Need to buffer cell bounds to match other raster products for cell
         gridcell = grid_file[grid_file['UNQ'] == int(grid)]
-        #buffer_geom = gridcell.buffer(params['buffer']+int(params['res']), cap_style='square',join_style='mitre')
         grid_bound = gridcell.buffer(params['buffer']+int(params['res']),cap_style=3,join_style=2).geometry.iloc[0]
-        #grid_bound = gridcell.assign(geometry=buffer_geom)
         polys_per_grid = gpd.clip(field_shp, grid_bound) ## making area raster from merged shape
         print(polys_per_grid.bounds)
         rst_fn = Path(out_dir)/f"{pred_prefix}_{str(instance_method)}_{str(grid)}_{threshs}th.tif"
 
         ## raster to use as template
-        rst = rio.open(rst_fn)
-        meta = rst.meta.copy()
-        print(meta)
+        with rio.open(rst_fn) as rst:
+            meta = rst.meta.copy()
         meta.update({'dtype':np.uint16,'crs':proj_crs})
-
+        logger.debug(f'meta = {meta}')
+        
         for attrib in ['area', 'APR', 'APrEf']:
             logger.debug(f'working on {attrib}...\n')
             out_fn = Path(perm_feat_dir)/ f"pred_{attrib}_{str(grid)}.tif"
