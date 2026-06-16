@@ -18,6 +18,7 @@ import math
 import shutil
 from ..handler import logger
 from .project import ProjectPaths
+#from .image_utils import img_to_bbox_offsets
 
 #############################################################################################
  
@@ -211,6 +212,13 @@ def single_semantic2instance(params):
         
         if not Path(fname).exists():
             with rio.open(pred_rast) as src:
+                gt = src.transform
+                '''
+                ## old method. Seems overkill but TODO: make sure this is working fine without
+                offset = img_to_bbox_offsets(gt, cell, grid_file, buffer=100, res=10.0)
+                new_gt = rio.Affine(gt[0], gt[1], (gt[2] + (offset[0] * gt[0])), 0.0, gt[4], (gt[5] + (offset[1] * gt[4])))
+                dist_arr, bound_arr, ext_arr, _ = src.read(window=Window(offset[0], offset[1], offset[2], offset[3]))      
+                '''
                 window = from_bounds(*boundary, transform=src.transform)
                 new_gt = src.window_transform(window)
                 dist_arr, bound_arr, ext_arr, _ = src.read(window=window)

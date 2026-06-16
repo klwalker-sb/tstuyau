@@ -23,7 +23,7 @@ from ..handler import logger
 from .mask_utils import apply_binary_mask, combine_binary_masks
 from .date_utils import get_date_range
 from .check_sample import get_polygons_in_grid
-from .image_utils import image_to_snapped_bounds
+from .image_utils import img_to_bbox_offsets, image_to_snapped_bounds
     
 def clip_ras_to_poly(ras_in, polys, out_dir,prod_name):
         
@@ -280,7 +280,6 @@ def summarize_zones_cont(params, ras_in=None):
     
     return dict_in
 
-
 def get_ts_stats_within_polys(params, in_path=None, out_path=None):
     from rasterstats import zonal_stats
 
@@ -333,7 +332,7 @@ def get_ts_stats_within_polys(params, in_path=None, out_path=None):
         logger.info(f'working on cell {cell}...\n')
         ppaths = ProjectPaths(params, grid=cell)
         grid_file = gpd.read_file(params['grid_file'])
-        snapped_bounds = image_to_snapped_bounds(cell, grid_file, buffer=params['buffer'], res=params['res'], width=2021, height=2021)
+        #snapped_bounds = image_to_snapped_bounds(cell, grid_file, buffer=params['buffer'], res=params['res'], width=2021, height=2021)
         
         poly_path = params['feature_model']['poly_vector_path']
         if Path(poly_path).is_file(): 
@@ -369,9 +368,16 @@ def get_ts_stats_within_polys(params, in_path=None, out_path=None):
             logger.info(f'getting {avar0} at: {str(var_path)} \n')
             with rio.open(var_path) as src0:
                 out_meta = src0.meta.copy()
-                window = from_bounds(*snapped_bounds, transform=src0.transform)
-                new_gt = src0.window_transform(window)
-                out_shape = (int(window.height), int(window.width)) 
+                ''' if using image_to_snapped_bounds():
+                raw_window = rio.windows.from_bounds(*snapped_bounds, transform=src0.transform)
+                window = raw_window.round_lengths()
+                out_shape = (int(window.height), int(window.width))
+                new_gt = rio.windows.transform(window, src0.transform)
+                '''
+                gt = src0.transform
+                offset = img_to_bbox_offsets(gt, cell, grid_file, buffer=100, res=10.0)
+                new_gt = rio.Affine(gt[0], gt[1], (gt[2] + (offset[0] * gt[0])), 0.0, gt[4], (gt[5] + (offset[1] * gt[4])))
+                out_shape = src0.shape
             out_meta.update({"count": 1, "height": out_shape[0], "width": out_shape[1], "transform": new_gt, "compress": "lzw", "tiled": True})
 
         elif params['feature_model']['spec_indices']:   ## calculating stats from time-series variables
@@ -445,19 +451,28 @@ def get_ts_stats_within_polys(params, in_path=None, out_path=None):
         ## within each polygon, calculate spatial stat for temporal stat ras
         logger.info(f'getting {stat} for all pixels in polygon...\n')
         if poly_buf > 0:
-            polys["geometry"] = polys.buffer(poly_buf)    
-        stats_df = pd.DataFrame(zonal_stats(vectors=polys['geometry'], raster=var_path, stats=[stat]))
-        gdf = polys.join(stats_df, how='left' )
+            polys["geometry"] = polys.buffer(poly_buf)
+        if polys.shape[0] == 0:
+            logger.info('there are no ploygon features in this cell')
+            with rio.open(var_path, 'r') as src:
+                ras_temp = src.read(1)
+                blank_ras = ras_temp*0
+            with rio.open(out_file, 'w+', **out_meta) as dst:
+                dst.write_band(1, blank_ras)
+        else:
+            stats_df = pd.DataFrame(zonal_stats(vectors=polys['geometry'], raster=var_path, stats=[stat]))
+            gdf = polys.join(stats_df, how='left' )
 
-        out_shape_2d = out_shape[-2:] 
-        shapes = ((geom,value) for geom, value in zip(gdf.geometry, gdf[stat]))
-        image = features.rasterize(shapes, out_shape=out_shape_2d, transform=new_gt)
+            out_shape_2d = out_shape[-2:]
+            gdf[stat] = gdf[stat].fillna(0).astype(int)
+            shapes = ((geom,value) for geom, value in zip(gdf.geometry, gdf[stat]))
+            image = features.rasterize(shapes, out_shape=out_shape_2d, transform=new_gt, dtype=out_meta['dtype'])
 
-        logger.info(f'final meta for poly stats is: {out_meta}')
-        with rio.open(out_file, 'w+', **out_meta) as dst:
-            dst.write_band(1, image)
+            logger.info(f'final meta for poly stats is: {out_meta}')
+            with rio.open(out_file, 'w+', **out_meta) as dst:
+                dst.write_band(1, image)
             
-        logger.info(f'wrote final file to: {out_file}')
+            logger.info(f'wrote final file to: {out_file}')
                             
         ## delete intermediate mean raster
         try:
@@ -564,8 +579,12 @@ def make_polygon_features(params, in_path=None, out_path=None):
                                 out_meta = src0.meta.copy()
                                 out_meta.update(count=1, dtype=np.int16, compress="lzw", tiled=True)    
                         ## within each polygon, calculate spatial stat for ras
-                        gdf = polys.join(pd.DataFrame(zonal_stats(
-                            vectors=polys['geometry'], raster=var_path, stats=[stat])), how='left' )
+                        if stat == 'majority':
+                            gdf = polys.join(pd.DataFrame(zonal_stats(
+                                vectors=polys['geometry'], raster=var_path, stats=[stat], categorical=True)), how='left' )
+                        else:
+                            gdf = polys.join(pd.DataFrame(zonal_stats(
+                                vectors=polys['geometry'], raster=var_path, stats=[stat])), how='left' )
                         with rio.open(out_file, 'w+', **out_meta) as dst:
                             tmp_arr = dst.read(1)
                         ## rasterize polygon using stat value

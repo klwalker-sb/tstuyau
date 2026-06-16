@@ -21,6 +21,32 @@ from ..handler import logger
 
 _projections = {}
 
+def img_to_bbox_offsets(gt, cell, grid_file, buffer=100, res=10.0):
+    '''
+    For aligning grids when rasterizing polygons. This is an older method (compared to image_to_snapped_bounds())),
+    but gives cleaner results. The other is somethimes off by a pixel.
+    '''
+    if isinstance(grid_file, str):
+        grid_file = gpd.read_file(grid_file)
+    gridcell = grid_file[grid_file['UNQ'] == int(cell)]
+    #buffer_geom = gridcell.buffer(params['buffer']+int(params['res']), cap_style='square',join_style='mitre')
+    buffer_geom = gridcell.buffer(buffer+int(res), cap_style=3,join_style=2)
+    grid_bound = buffer_geom.geometry.iloc[0]
+    bounds = grid_bound.bounds  ## bounds returns (minx, miny, maxx, maxy)
+    bbox = (float(bounds[0]), float(bounds[2]), float(bounds[1] ), float(bounds[3]))
+    
+    origin_x = gt[2]
+    origin_y = gt[5]
+    pixel_width = gt[0]
+    pixel_height = gt[4]
+    x1 = int(round((bbox[0] - origin_x) / pixel_width))
+    x2 = int(round((bbox[1] - origin_x) / pixel_width))
+    y1 = int(round((bbox[3] - origin_y) / pixel_height))
+    y2 = int(round((bbox[2] - origin_y) / pixel_height))
+    xsize = x2 - x1
+    ysize = y2 - y1
+    return [x1, y1, xsize, ysize]
+    
 def image_to_snapped_bounds(cell, grid_file, buffer=100, res=10.0, width=None, height=None):
     '''
     Gets grid bounds from bounding geography (cell bounds explicitly here) 
@@ -32,21 +58,19 @@ def image_to_snapped_bounds(cell, grid_file, buffer=100, res=10.0, width=None, h
     #buffer_geom = gridcell.buffer(params['buffer']+int(params['res']), cap_style='square',join_style='mitre')
     buffer_geom = gridcell.buffer(buffer+int(res), cap_style=3,join_style=2)
     grid_bound = buffer_geom.geometry.iloc[0]
-    bounds = grid_bound.bounds ## bounds returns (minx, miny, maxx, maxy)
 
-    west, south, east, north = bounds
-    if width:
+    west, south, east, north = grid_bound.bounds  ## bounds returns (minx, miny, maxx, maxy)
+
+    snapped_west = math.floor(west / res) * res - (0.5 * res)
+    snapped_north = math.ceil(north / res) * res - (0.5 * res)
+
+    if width and height:
         target_width = width
-        if height:
-            target_height = height
-        else:
-            target_height = width
+        target_height = height
     else:
         target_width = int(round((east - west) / res))
         target_height = int(round((north - south) / res))
 
-    snapped_west = math.floor(west / res) * res
-    snapped_north = math.ceil(north / res) * res
     snapped_east = snapped_west + (target_width * res)
     snapped_south = snapped_north - (target_height * res)
 

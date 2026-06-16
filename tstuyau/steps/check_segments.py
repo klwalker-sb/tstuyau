@@ -13,7 +13,7 @@ from osgeo import gdal, ogr, gdal_array
 from ..handler import logger
 from .project import ProjectPaths
 from .date_utils import get_date_range
-
+#from .image_utils import img_to_bbox_offsets
 #######################################################################################################################################
 ### Culltionet prep
     
