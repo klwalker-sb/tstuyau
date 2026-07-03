@@ -158,7 +158,7 @@ def make_ts_composite_single(ppaths, params):
                     if season == former_season:
                         params['reconstruct']['overwrite'] = False
             logger.debug(f"overwrite = {params['reconstruct']['overwrite']}")
-            if params['reconstruct']['overwrite'] or (not any(img_dir.iterdir())):
+            if params['reconstruct']['overwrite'] or (not img_dir.is_dir()) or (not any(img_dir.glob('*.tif'))):
                 ## calculate the indices for selected time period -- these are sent to ppaths.scratch/raw/sis
                 logger.info(f'calculating new raw time series for {si} index in {img_dir}')
                 reconstruct(params)
@@ -455,6 +455,8 @@ def mosaic_cells(params, out_path=None):
         out_dir = Path(params['backup_path']).parents[1] / 'mosaics'
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    if isinstance(params['grids'], int):
+        params['grids'] = [params['grids']]
     if isinstance(params['grids'], list):
         cells = params['grids']
         if not output_path:

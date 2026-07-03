@@ -25,6 +25,10 @@ def reclass_small_fields(params, class_ras, poly_ras, area_ras, ras_out):
         crop_dict = CROP_CATS_Py0
     else:
         crop_dict = CROP_CATS
+
+    sm_class = crop_dict['smallcrop_main']
+    big_crops = crop_dict['bigcrops']
+    lowcrops = crop_dict['low_crops']
         
     with rio.open(class_ras, 'r') as maj_src:
         maj = maj_src.read(1)
@@ -33,13 +37,78 @@ def reclass_small_fields(params, class_ras, poly_ras, area_ras, ras_out):
             polysize = size_src.read(1)
             with rio.open(area_ras, 'r') as area_src:
                croparea = area_src.read(1)
-        big_crop = np.isin(maj, crop_dict['bigcrops']) & (croparea > 100)
-        maj_reclassed = np.where((np.isin(maj, crop_dict['all_crops'])) & (polysize < 20) & (~big_crop), crop_dict['smallcrop_main'], maj)
+        big_crop = np.isin(maj, big_crops) & (croparea > 200)
+        maj_reclassed0 = np.where((np.isin(maj, lowcrops)) & (polysize < 50) & (~big_crop), sm_class, maj)
+        maj_reclassed = np.where((np.isin(maj, big_crops)) & (polysize <= 20) & (croparea < 200), sm_class, maj_reclassed0)
         profile.update(compress='lzw', tiled=True)
         with rio.open(ras_out, 'w', **profile) as rcsmall_dst:
             rcsmall_dst.write(maj_reclassed,1)
 
+
+def refine_polygon_area_ras(params, poly_area_in,poly_area_out,buf=0):
+    '''
+    Preps rasterized area polygons for neighborhood operation. Buffers if buf >0, Reduces area for badly split polygons 
+      and divides original output (100 ha) by 10 so that neighborhood results will not exceed dtype limits
+      
+    inputs: poly_area_in is path to rasterized polygons with field size
+        expects files with same name but 'APrEf' in place of 'area' to break up polygons that did not segment well
+            if APrEF >= 200, split area in half (two polygons). If APrEF > 400, split in 3 
+            (if that file doesn't exist, this step will be skipped)
+    '''
+    
+    if buf == 0:
+        ras1 = poly_area_out
+    else:
+        ras1 = Path(poly_area_out).parent/'poly_area_tmp.tif'
         
+    with rio.open(poly_area_in, 'r') as area_src:
+        profile = area_src.profile
+        polyarea = area_src.read(1)
+
+        ## high values for APrEF (area-perimeter efficiency) suggest that multiple plots are in one polygon
+        ##    if APrEF >= 200, split area in halp (two polygons). If APrEF > 400, split in 3 
+        poly_apref = poly_area_in.replace('area','APrEf')
+        if Path(poly_apref).is_file():
+            with rio.open(poly_apref, 'r') as ef_src:
+                apref = ef_src.read(1)
+                doubles = np.where(apref >= 200, polyarea/2, polyarea)
+                polyarea = np.where(apref >= 400, polyarea/3, doubles)
+        else:
+            logger.info('WARNING: can not find poly_APrEf. Keeping areas as is.')
+
+        ## divide by 10 to reduce load (original area values are 100 hectares, now are 10 hectares)
+        polyarea_simp = np.round(polyarea/10).astype(np.uint16)
+            
+        profile.update(dtype=rio.uint16, compress='lzw', tiled=True)
+        logger.debug(f'profile = {profile}')
+        with rio.open(ras1, "w", **profile) as dst:
+            dst.write(polyarea_simp, 1)
+
+    if buf > 0:
+        pix_res = abs(profile['transform'][0]) 
+        pixel_radius = int(np.round(buf / pix_res))
+        window_size = (2 * pixel_radius) + 1
+        expanded_polyarea = maximum_filter(polyarea_simp, size=window_size)
+        with rio.open(poly_area_out, "w", **profile) as dst:
+            dst.write(expanded_polyarea, 1)
+        #make_polygon_features(params, in_path=ras1,  out_path=poly_area_out)
+            
+def get_avg_fieldsize_ras_from_polys(params, poly_area_in, nbhd_out, nbhd=100):
+
+     with rio.open(poly_area_in, 'r') as size_src:
+        profile = size_src.profile
+        polysize = size_src.read(1)
+        
+        polysizef = polysize.astype(np.float32)
+        focal_mean0 = uniform_filter(polysizef, size=nbhd, mode="reflect")
+        ## convert to int and convert null to 0
+        focal_mean = np.nan_to_num(np.round(focal_mean0), nan=0).astype(np.uint16)
+        profile.update(dtype=rio.uint16, compress='lzw', tiled=True)
+        logger.info(f"saving area_focal to {nbhd_out} \n")
+        with rio.open(nbhd_out, "w", **profile) as dst:
+            dst.write(focal_mean, 1)
+
+
 def make_filter_layers_for_cell(params, filter_set):
 
     out_yr = params['classify']['out_yrs']
@@ -49,35 +118,15 @@ def make_filter_layers_for_cell(params, filter_set):
         crop_dict = CROP_CATS_Py0
     else:
         crop_dict = CROP_CATS
-
+    
     if ('polys_area' in filter_set) or ('area_focal' in filter_set):
         ## get field size raster (this should already exist from vectorize_seg_results(), but may need to buffer)
+        
         if 'polys_area' in filter_set:
             poly_area_in = filter_set['polys_area']['cell_base']
         else:
             poly_area_in = filter_set['area_focal']['cell_base']
-        with rio.open(poly_area_in, 'r') as area_src:
-            profile = area_src.profile
-            polyarea = area_src.read(1)
-
-            ## high values for APrEF (area-perimeter efficiency) suggest that multiple plots are in one polygon
-            ##    if APrEF >= 200, split area in halp (two polygons). If APrEF > 400, split in 3 
-            poly_apref = poly_area_in.replace('area','APrEf')
-            if Path(poly_apref).is_file():
-                with rio.open(poly_apref, 'r') as ef_src:
-                    apref = ef_src.read(1)
-                    doubles = np.where(apref >= 200, polyarea/2, polyarea)
-                    polyarea = np.where(apref >= 400, polyarea/3, doubles)
-            else:
-                logger.info('WARNING: can not find poly_APrEf. Keeping areas as is.')
-            ## divide by 10 to reduce load (original area values are 100 hectares, now are 10 hectares)
-            polyha = np.round(polyarea/10).astype(np.uint16)
-            areaha_inter = Path(filter_set['area_focal']['cell_final']).parent / 'area_ha.tif'
-            profile.update(dtype=rio.uint16, compress='lzw', tiled=True)
-            logger.info(f'profile = {profile}')
-            with rio.open(areaha_inter, "w", **profile) as dst:
-                dst.write(polyha, 1)
-
+            
         ## get polygon area with buffer applied (buffer is not calculated in area)
         if 'polys_area' in filter_set:
             poly_area_out = Path(filter_set['polys_area']['cell_final']).parent/f'polyarea{out_yr}-majority.tif'
@@ -86,23 +135,14 @@ def make_filter_layers_for_cell(params, filter_set):
             
         params['feature_model']['ancillary_vars'] = [f'polyarea{out_yr}-majority']
         logger.info(f'saving polys_area to {poly_area_out} \n')
-        make_polygon_features(params, in_path=areaha_inter,  out_path=poly_area_out)
+        refine_polygon_area_ras(params, poly_area_in,poly_area_out,buf=0)
         
         if 'area_focal' in filter_set:
             ## Run moving neighborhood calc on field size raster
             nbhd = params['refine']['neighborhood'] 
-            with rio.open(poly_area_out, 'r') as size_src:
-                profile = size_src.profile
-                polysize = size_src.read(1)
-            polysizef = polysize.astype(np.float32)
-            focal_mean0 = uniform_filter(polysizef, size=nbhd, mode="reflect")
-            ## convert to int and convert null to 0
-            focal_mean = np.nan_to_num(np.round(focal_mean0), nan=0).astype(np.uint16)
-            profile.update(dtype=rio.uint16, compress='lzw', tiled=True)
-            logger.info(f"saving area_focal to {filter_set['area_focal']['cell_final']} \n")
-            with rio.open(filter_set['area_focal']['cell_final'], "w", **profile) as dst:
-                dst.write(focal_mean, 1)
-                
+            nbhd_out = filter_set['area_focal']['cell_final']
+            get_avg_fieldsize_ras_from_polys(params, poly_area_out, nbhd_out, nbhd=nbhd)
+           
     if 'polys_buf' in filter_set:
         ## get majority class for polygons with buffer applied
         params['feature_model']['ancillary_vars'] = [f'CELseg{out_yr}-majority']
@@ -129,13 +169,20 @@ def make_filter_layers_for_cell(params, filter_set):
         params['refine']['buffer'] = buf
 
     if params['refine']['post_filter'] == 'smCrop':
+        
         logger.info('reclassifying small polys to smallholder...\n')
-       # polys_buf_temp = Path(filter_set['polys_buf']['cell_final']).parent/'poly_buffers.tif'
+       
         ## Reclass majclass polygons to smallholder if area <5 ha (and majclass is big crop) or <2ha (and majclass is any crop)
-        reclass_small_fields(params, polys_buf_out, filter_set['polys_area']['cell_final'], filter_set['area_focal']['cell_final'], 
-                             filter_set['polys_buf']['cell_final'])
-        reclass_small_fields(params, polys_maj_out, filter_set['polys_area']['cell_final'], 
+        # polys_buf_temp = Path(filter_set['polys_buf']['cell_final']).parent/'poly_buffers.tif'
+        reclass_small_fields(params, polys_maj_out, filter_set['polys_area']['cell_final'],
                              filter_set['area_focal']['cell_final'], filter_set['polys_maj']['cell_final'])
+        
+        ## do same for buffered polygons -- need to buffer area raster first
+        poly_area_buf = Path(filter_set['polys_area']['cell_final']).parent/'poly_area_buf.tif'
+        refine_polygon_area_ras(params, filter_set['polys_area']['cell_base'], poly_area_buf, buf=buf)
+        reclass_small_fields(params, polys_buf_out, poly_area_buf, filter_set['area_focal']['cell_final'], 
+                             filter_set['polys_buf']['cell_final'])
+     
 
     if 'chaco' in filter_set:
         logger.info(f'clipping chaco \n')
@@ -158,7 +205,7 @@ def make_filter_layers_for_cell(params, filter_set):
         with rio.open(filter_set['highveg_nbhd']['cell_final'], "w", **profile) as dst:
             dst.write(highveg_nbhd, 1)
         
-    if ('sm_neighbors' in filter_set) or ('sm_nbhd9_mask' in filter_set) or ('sm_nbhd_dist' in filter_set):
+    if ('sm_neighbors' in filter_set) or ('sm_nbhd_mask' in filter_set) or ('sm_nbhd_dist' in filter_set):
         ## make smallholder mixed mask from original classed map combined with refined buffer layer
 
         with rio.open(filter_set['base_map']['cell_final'], 'r') as lc_src:
@@ -170,25 +217,29 @@ def make_filter_layers_for_cell(params, filter_set):
             sm = np.where((np.isin(lc, crop_dict['smallcrops'])) | (poly_lc == crop_dict['smallcrop_main']), 1, 0)
             #sm_nbhd = generic_filter(sm, np.sum, size=3, mode='reflect', cval=0)
             smf = sm.astype(np.float32)
-            sm_nbhd_mean = uniform_filter(smf, size=3, mode='reflect', cval=0.0)
-            sm_nbhd = np.round(sm_nbhd_mean * 9).astype(np.uint16)
+
+            sm_nbhd_size = params['refine']['sm_neighborhood']
+            if sm_nbhd_size > 3:
+                majsm = int(round(.8 * sm_nbhd_size * sm_nbhd_size))
+            sm_nbhd_mean = uniform_filter(smf, size=sm_nbhd_size, mode='reflect', cval=0.0)
+            sm_nbhd = np.round(sm_nbhd_mean * sm_nbhd_size*sm_nbhd_size).astype(np.uint16)
             if 'sm_neighbors' in filter_set:
                 with rio.open(filter_set['sm_neighbors']['cell_final'], "w", **profile) as dst:
                     dst.write(sm_nbhd, 1)
-            if 'sm_nbhd9_mask' in filter_set:
-                sm_nbhd9_mask = np.where(sm_nbhd == 9, 1, np.nan)
-                with rio.open(filter_set['sm_nbhd9_mask']['cell_final'], "w", **profile) as dst:
-                    dst.write(sm_nbhd9_mask, 1)
+            if 'sm_nbhd_mask' in filter_set:
+                sm_nbhd_mask = np.where(sm_nbhd >= majsm, 1, np.nan)
+                with rio.open(filter_set['sm_nbhd_mask']['cell_final'], "w", **profile) as dst:
+                    dst.write(sm_nbhd_mask, 1)
             if 'sm_nbhd_dist' in filter_set:
                 ## need to invert mask and change null to 0 for scipy distance to work
-                sm_nbhd_mask2 = np.where(sm_nbhd9_mask == 1, 0, 1)
+                sm_nbhd_mask2 = np.where(sm_nbhd_mask == 1, 0, 1)
                 if np.any(sm_nbhd_mask2 == 0):   ##  without this will get infinate hang if cell has no smallholder pixels
                     sm_nbhd_dist = distance_transform_edt(sm_nbhd_mask2)
                     ## clip max distance to avoid large numbers. Note distance is measures in pixels with this method.
                     sm_nbhd_dist = np.clip(sm_nbhd_dist, 0, 10)
                     sm_nbhd_dist = np.nan_to_num(sm_nbhd_dist, nan=10).astype(rio.uint16)
                 else:  ## there were no smallholder pixels. Fill with max distance (which is 10 here)
-                    sm_nbhd_dist = np.full(sm_nbhd9_mask.shape, 10)
+                    sm_nbhd_dist = np.full(sm_nbhd_mask.shape, 10)
                 with rio.open(filter_set['sm_nbhd_dist']['cell_final'], "w", **profile) as dst:
                     dst.write(sm_nbhd_dist, 1)
             
@@ -225,147 +276,117 @@ def post_classification_spatial_filter_smallholder(params, filter_set):
         out_dir = Path(params['backup_path']) / 'mosaics' 
     out_dir.mkdir(parents=True, exist_ok=True)
     
-    filter1_path = Path(params['scratch_dir']) /'comp/first_smallholder_filter.tif'
-    filter2_path = Path(params['scratch_dir']) /'comp/second_smallholder_filter.tif'
+    filter1_path = Path(params['scratch_dir']) /'comp/second_smallholder_filter.tif'
     filterfinal_path = Path(out_dir)/f"{Path(filter_set['base_map']['full']).stem}_filtsmh-sp.tif"
+
+    PAD_SIZE = 1 
+    is_paraguay = 'paraguay' in str(params['backup_path'])
 
     if params['project_ver'] == 'Py_0':
         crop_dict = CROP_CATS_Py0
     else:
         crop_dict = CROP_CATS
-        
+
     smallholder_class = crop_dict['smallcrop_main']
     smallholder_classes = crop_dict['smallcrops']
     bigcrop_classes = crop_dict['bigcrops']
     lowcrops = crop_dict['low_crops']
     crops = crop_dict['all_crops']
+    sugar_val = crop_dict['sugar']
+    mixed_edge_val = crop_dict['mixed_edge']
+    crop_edge_val = crop_dict['crop_edge']
 
-    first_filter_rasters = {
-        'base_map' :  filter_set['base_map']['full'],
-        'polys_maj' : filter_set['polys_maj']['full'],
-        'polys_buf' :  filter_set['polys_buf']['full'],
-        'area_focal' : filter_set['area_focal']['full']
-        }
+    sm_edge_dist = params['refine']['sm_neighborhood']
 
-    if 'paraguay' in str(params['backup_path']):
-        paraguay_extra = {'chaco' :  filter_set['chaco']['full']}
-        first_filter_rasters.update(paraguay_extra )
-        
-        
-    logger.info('running final filters.... \n')
-    with rio.open(first_filter_rasters['base_map']) as src:
+    raster_keys = ['base_map', 'polys_maj', 'polys_buf', 'area_focal', 'highveg_nbhd', 'sm_neighbors', 'sm_nbhd_mask', 'sm_nbhd_dist']
+    all_rasters = {k: filter_set[k]['full'] for k in raster_keys if k in filter_set}
+    if is_paraguay:
+        all_rasters['chaco'] = filter_set['chaco']['full']
+
+    with rio.open(all_rasters['base_map']) as src:
         meta = src.meta.copy()
-        meta.update(dtype='uint8', compress='lzw',tiled=True)
-        with rio.open(filter1_path, 'w', **meta) as dst:
-            readers = {k: rio.open(v) for k, v in first_filter_rasters.items()}
+        meta.update(dtype='uint8', compress='lzw', tiled=True)
+    
+        readers = {k: rio.open(v) for k, v in all_rasters.items()}
+    
+        with rio.open(filterfinal_path, 'w', **meta) as dstf:
             for ji, window in src.block_windows(1):
-                data = {k: r.read(1, window=window) for k, r in readers.items()}
-
-                ## 1. Inside original segmented polygons:
-                ##   a. Reclass all crop to main crop(classification (without segmenation, if possible), else retain current classification:
-                poly_a = np.where(np.isin(data['polys_maj'],lowcrops), data['polys_maj'], data['base_map'])
-                ##   b. classification with segmentation classifies a pixel as sugar or mixed crop, keep it that way
-                #poly_treated = np.where(np.isin(data['maj_class6'], [smallholder_class, crop_dict['sugar']]), data['maj_class6'], poly_a)
-                ##   (the above is only useful if majority class is based on pre-segmentation map):
-                polys_treated = poly_a
-                
-                ## 2. Inside buffered Polygons:
-                ##   a. If the majority class is mixed crop, reclassify all crop pixels in buffer area as mixed as well:
-                polys_treated2 = np.where((data['polys_buf'] == smallholder_class) & (np.isin(data['base_map'],lowcrops)), smallholder_class, polys_treated)
-
-                ## 3. Inside buffer area only:
-                ##   a. reclassify low crops to mixed IF in smallholder area
-                ##      crops in polygon buffers in areas with fields > 5ha (or in Chaco, where segmentation does not work well)) 
-                ##      are not converted to smallholder 
-                buf_a = np.where(np.isin(data['base_map'],lowcrops), smallholder_class, data['base_map'])
-                not_smh = (data['area_focal'] > 50) | (data['chaco'] == 1)
-                keep_asis = not_smh | ~np.isin(data['polys_buf'], lowcrops)
-                buf_b = np.where(keep_asis, data['base_map'], buf_a)
-                ##   b. Pixels classified as sugar in a polygon buffer are retained as sugar unless in areas with no field > 3ha (sugar fields look smaller) 
-                buf_treated = np.where((data['area_focal'] > 30) & (data['polys_buf'] ==  crop_dict['sugar']),  crop_dict['sugar'], buf_b) 
-                ''' moving below
-                ##   c. Pixels outside smallholder areas that are classified as smallholder and in buffer of other crops are reclassified to mixed_veg
-                buf_treated2 = np.where(((data['area_focal'] > 50) & (np.isin(data['polys_buf'], lowcrops)) & (data['base_map'] == smallholder_class)), 
-                                        crop_dict['mixed_edge'],buf_treated)
-                '''
-                ##  buffer logic only applies outside polygons; if buffer overlaps another polygon, that polygon's classification will take precedent.
-                seg_treated = np.where(data['polys_maj'] == 0, buf_treated, polys_treated)
-                
-                ## 4. Outside crop polygons and buffers:
-                #   a. If away from large fields and classified as any crop, reclassify as smallholder, otherwise retain current classification 
-                outside_treated = np.where((data['area_focal'] <= 50) & (np.isin(data['base_map'],lowcrops)), smallholder_class, data['base_map'])    
+                read_window = Window(
+                    col_off = window.col_off - PAD_SIZE,
+                    row_off = window.row_off - PAD_SIZE,
+                    width = window.width + (PAD_SIZE * 2),
+                    height = window.height + (PAD_SIZE * 2)
+                )
+                data = {k: r.read(1, window=read_window, boundless=True, fill_value=0) for k, r in readers.items()}
             
-                filter_result = np.where(data['polys_buf'] == 0, outside_treated, seg_treated)
-
-                ## vegetation seems noisier in the Chaco -- do not convert veg to smallholder crop outside of segmented polygons there
-                filter_result = np.where((data['polys_buf'] == 0) & (data['chaco'] == 1), data['base_map'], filter_result) 
+                orig = data['base_map']
+                p_maj = data['polys_maj']
+                p_buf = data['polys_buf']
+                a_focal = data['area_focal']
+                smdist = data['sm_nbhd_dist']
+                #smnbhd = data['sm_neighbors']
+                highvegnbhd = data['highveg_nbhd']
+                area_focal = data['area_focal']
+                chaco = data['chaco'] if is_paraguay else np.zeros_like(orig)
+            
+                ## 1. Inside original segmented polygons
+                ## reclass to majority crop if crop pixel in crop polygon
+                polys_treated = np.where(np.isin(p_maj,crops) & np.isin(orig, crops), p_maj, orig)
+            
+                ## 2. Inside buffered Polygons
+                ## leave alone if not low crop, doesn't border a low crop polygon, is outside smallholder area (avg field size > 5 ha), or is in Chaco 
+                keep_asis = (a_focal > 50) | (chaco == 1) | (~np.isin(p_buf, lowcrops)) | (~np.isin(orig, lowcrops))
+                ##  otherwise, convert low crop pixels to smallholder class if in polygon buffer
+                buf = np.where(keep_asis, orig, smallholder_class)
+                ## sugar exception: if any crop in the buffer of a sugar field where field sizes are > 3 ha, convert to sugar 
+                buf_treated = np.where((a_focal > 30) & (p_buf == sugar_val) & (np.isin(orig, crops)), sugar_val, buf)
                 
-                dst.write(filter_result.astype(rio.uint16), 1, window=window)
+                ## if is in a segmented polygon, treat according to #1, otherwise treat according to #2 (if in polygon buffer area)
+                polys_wbuf_treated = np.where(p_maj == 0, buf_treated, polys_treated)
+            
+                ## 3. Outside polygons and buffers
+                ## low crop pixels in smallholder areas (except in Chaco) are converted to smallholder class if outside polygon & buffer area
+                
+                maybe_smallholder = (a_focal <= 50) & np.isin(orig, lowcrops) & (chaco == 0)
+                outside_poly_treatment = np.where(maybe_smallholder, smallholder_class, orig)
+                in_out = np.where(p_buf == 0, outside_poly_treatment, polys_wbuf_treated) 
 
+                ## 4. Mixed crop halo removal -- 
+                ## Anything classified as smallholder and within 2 pixels of highVeg will be reset to mixed veg IF
+                ##  IF it is > 1 pixel from a block of smallholder crop (bolck size determined with <refine:sm_neighborhood> 4)
+                ##       (This ensures that edges of the actual smallholder fields will be preserved even if they touch high veg) 
+                
+                in_sm_classes = np.isin(in_out, smallholder_classes)
+
+                ## remove high veg halos: reclassify smallholder crop to mixed edge if borders high veg and > 1 pixel from contiguous smallholder block
+                wo_highveg_halo = np.where((smdist > 1) & (highvegnbhd == 1) & in_sm_classes, mixed_edge_val, in_out)
+                ## remove other halos: reclassify smallholder pixels to mixed edge if in buffer of main field 
+                no_halo = np.where((smdist > 1) & in_sm_classes & (p_maj == 0) & np.isin(p_buf, bigcrop_classes), 
+                                   mixed_edge_val, wo_highveg_halo)
+            
+                no_specs = np.where((smdist > sm_edge_dist) & in_sm_classes & (p_buf == 0) & ~np.isin(orig, lowcrops), mixed_edge_val, no_halo)
+                
+                ## convert all crop edge to mixed edge (to convert back in next step if actually on crop edge)
+                postfilt = np.where(no_specs == crop_edge_val, mixed_edge_val, no_specs)
+                
+                ## convert mixed edge pixels to crop edge if border crops 
+                ##      -- uses neighborhood with padding to avoid edge effects along read blocks
+                crop_mask = np.where(np.isin(postfilt, crops), 1, 0)
+                crop_nbhd = maximum_filter(crop_mask, size=3)
+                final_padded = np.where((crop_nbhd == 1) & (postfilt == mixed_edge_val), crop_edge_val, postfilt)
+                # Slice off the 1-pixel boundary padding to return to the original window size
+                final = final_padded[PAD_SIZE:-PAD_SIZE, PAD_SIZE:-PAD_SIZE]
+
+                logger.debug(f"Unique classes in orig: {np.unique(orig)}")
+                logger.debug(f"Unique classes in polys_wbuf_treated: {np.unique(polys_wbuf_treated)}")
+                logger.debug(f"Unique classes in in_out: {np.unique(in_out)}")
+                logger.debug(f"Unique classes in final: {np.unique(final)}")
+                
+                dstf.write(final.astype(rio.uint8), 1, window=window)
+        
         for r in readers.values():
             r.close()
-        dst.close()
-
-    ## Final filter to remove mixed crop halos around high vegetation:
-    ## Anything classified as smallholder and within 2 pixels of highVeg will be reset to mixed veg IF
-    ##  IF it is > 1 pixel from a 3x3 block of smallholder crop (This ensures that edges of the actual smallholder fields 
-    ##    will be preserved even if they touch high veg. (smallholder pixels are assumed to be real if a 9-pixel block is all classified as smallholder)
-                                       
-    second_filter_rasters = {
-        'base_map' :  filter1_path,
-        'highveg_nbhd' : filter_set['highveg_nbhd']['full'],
-        'sm_nbhd' :  filter_set['sm_neighbors']['full'],
-        'sm_nbhd9_mask' :  filter_set['sm_nbhd9_mask']['full'],
-        'sm_nbhd_dist' : filter_set['sm_nbhd_dist']['full'],
-        'polys_buf' :  filter_set['polys_buf']['full'],
-        }
-
-    with rio.open(first_filter_rasters['base_map']) as src2:
-        meta = src2.meta.copy()
-        meta.update(dtype='uint8', compress='lzw',tiled=True)
-        with rio.open(filter2_path, 'w', **meta) as dstf:
-            readers2 = {k2: rio.open(v2) for k2, v2 in second_filter_rasters.items()}
-            for yz, window in src2.block_windows(1):
-                data2 = {k2: r2.read(1, window=window, masked=True) for k2, r2 in readers2.items()}
-                        
-                rc_mixed_veg = np.where(((data2['sm_nbhd'] > 0) & (data2['sm_nbhd'] <9) & (data2['sm_nbhd_dist'] > 1) & 
-                         (data2['base_map'] == smallholder_class)), crop_dict['mixed_edge'], data2['base_map'])
-                rc_sm_strays = np.where(data2['sm_nbhd9_mask'] == 0,rc_mixed_veg,data2['base_map'])
-                rc_highveg = np.where(data2['highveg_nbhd'] == 0, data2['base_map'], rc_sm_strays)
-                no_halo = np.where((data2['sm_nbhd_dist'] > 1) & (np.isin(data2['base_map'], smallholder_classes)) & (np.isin(data2['polys_buf'], lowcrops)), 
-                                        crop_dict['mixed_edge'],rc_highveg)
-                no_specs = np.where((data2['sm_nbhd_dist'] > 2) & (data2['sm_nbhd'] < 5) & (np.isin(data2['base_map'], smallholder_classes)), 
-                                    crop_dict['mixed_edge'], no_halo)
-                ## reclass any crop_edge (if exists) to mixed_edge (will change actual crop_edge back in next step)
-                final = np.where(no_halo == crop_dict['crop_edge'], crop_dict['mixed_edge'], no_specs)
-
-                dstf.write(final.astype(rio.uint16), 1, window=window)
-
-        for r2 in readers2.values():
-            r2.close()
-
-    ## crop edge filter with single-pixel padding to avoid edge effects along read blocks
-        PAD_SIZE = 1 
-        with rio.open (filter2_path, 'r') as src3:
-            profile = src3.profile
-            profile.update(dtype='uint8', compress='lzw',tiled=True)
-            with rio.open(filterfinal_path, 'w', **profile) as dstf:
-                for ij, window in src3.block_windows(1):
-                    read_window = Window(
-                        col_off = window.col_off - PAD_SIZE,
-                        row_off = window.row_off - PAD_SIZE,
-                        width = window.width + (PAD_SIZE * 2),
-                        height = window.height + (PAD_SIZE * 2)
-                        )
-                    lcf_padded = src3.read(1, window=read_window, boundless=True, fill_value=0)
-                    crop_mask = np.where(np.isin(lcf_padded, crops), 1, 0)
-                    crop_nbhd = maximum_filter(crop_mask, size=3)
-                    lcff_padded = np.where((crop_nbhd == 1) & (lcf_padded == crop_dict['mixed_edge']), crop_dict['crop_edge'], lcf_padded)
-                    lcff = lcff_padded[PAD_SIZE:-PAD_SIZE, PAD_SIZE:-PAD_SIZE]
-        
-                    dstf.write(lcff.astype(rio.uint16), 1, window=window)
     
-
     logger.info(f' ALL DONE!  saved final output at: {filterfinal_path}')
 
 def post_aggregation_filter(params):
@@ -442,6 +463,10 @@ def post_aggregation_filter(params):
             cell_var_dir.mkdir(parents=True, exist_ok=True)
             
             if params['refine']['post_filter'] == 'smCrop':
+                if not params['refine']['sm_neighborhood']:
+                    params['refine']['sm_neighborhood'] = 3
+                sm_nbhd_size = params['refine']['sm_neighborhood']
+                
                 map_filters = { 
                     'base_map' : {'cell_base':f'{str(comp_dir_in)}/{cell:06d}_{mod_base}',
                                  'cell_final':f'{str(comp_dir_in)}/{cell:06d}_{mod_base}', 
@@ -464,9 +489,9 @@ def post_aggregation_filter(params):
                     'sm_neighbors': {'cell_base':f'{str(comp_dir_in)}/{cell:06d}_{mod_base}',
                                     'cell_final':f'{cell_var_dir}/sm_neighbors.tif', 
                                      'full':f'{comp_dir_out}/sm_neighbors{out_yr}.tif'},
-                    'sm_nbhd9_mask': {'cell_base':f'{str(comp_dir_in)}/{cell:06d}_{mod_base}',
-                                    'cell_final':f'{cell_var_dir}/sm_nbhd9_mask.tif', 
-                                     'full':f'{comp_dir_out}/sm_nbhd9_{out_yr}_mask.tif'},
+                    'sm_nbhd_mask': {'cell_base':f'{str(comp_dir_in)}/{cell:06d}_{mod_base}',
+                                    'cell_final':f'{cell_var_dir}/sm_nbhd_mask.tif', 
+                                     'full':f'{comp_dir_out}/sm_nbhd{sm_nbhd_size}_{out_yr}_mask.tif'},
                     'sm_nbhd_dist': {'cell_base':f'{str(comp_dir_in)}/{cell:06d}_{mod_base}',
                                     'cell_final':f'{cell_var_dir}/sm_nbhd_dist.tif', 
                                      'full':f'{comp_dir_out}/sm_nbhd{out_yr}_dist.tif'}
@@ -489,6 +514,10 @@ def post_aggregation_filter(params):
 
     else:
         if params['refine']['post_filter'] == 'smCrop':
+            if not params['refine']['sm_neighborhood']:
+                params['refine']['sm_neighborhood'] = 3
+            sm_nbhd_size = params['refine']['sm_neighborhood']
+            
             map_filters = { 
                     'base_map' : {'full':f'{final_dir}/CELPyTileAll_{mod_base}'},
                     'polys_maj' : {'full':f'{comp_dir_out}/CELseg{out_yr}-majority_rcsmall.tif'},
@@ -497,7 +526,7 @@ def post_aggregation_filter(params):
                     'area_focal' : {'full':f'{comp_dir_out}/field_area_focal100avg_int0.tif'},
                     'highveg_nbhd': {'full':f'{comp_dir_out}/highveg{out_yr}_nbhd.tif'},
                     'sm_neighbors': {'full':f'{comp_dir_out}/sm_neighbors{out_yr}.tif'},
-                    'sm_nbhd9_mask': {'full':f'{comp_dir_out}/sm_nbhd9_{out_yr}_mask.tif'},
+                    'sm_nbhd_mask': {'full':f'{comp_dir_out}/sm_nbhd{sm_nbhd_size}_{out_yr}_mask.tif'},
                     'sm_nbhd_dist': {'full':f'{comp_dir_out}/sm_nbhd{out_yr}_dist.tif'}
                     }           
         make_full_filter_layers(params, filter_set=map_filters)

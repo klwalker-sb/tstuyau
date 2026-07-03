@@ -218,8 +218,8 @@ class TimeSeriesLoader(object):
             si_base = self.params['reconstruct']['si']
             if '.' in si_base:
                 si_base = si_base.split('.')[0]
-            elif any(m in si_base for m in ('-', '_')):
-                si_base = si_base.split(m)[0]
+            elif m := next((char for char in ('-', '_') if char in si), None):
+                sidx = si.split(m)[0]
             if (self.params['project_ver'] == 'Py_0') and (si_base in ['ndmi','ndvi','nbr']):
                 si_base = f'{si_base}V0'
                 logger.info(f'using legacy code to calculate {si}')
@@ -274,8 +274,8 @@ class TimeSeriesLoader(object):
         if '.' in si:
             si = si.split('.')[0]
             si_extra = si.split('.')[1].split('-')[0]
-        elif any(m in si for m in ('-', '_')):
-            si = si.split(m)[0]
+        elif m := next((char for char in ('-', '_') if char in si), None):
+            sidx = si.split(m)[0]
             si_extra = None
         else:
             si_extra = None

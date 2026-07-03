@@ -7,20 +7,22 @@
 #SBATCH -o Tstuyau_final_filters.%N.%a.%j.out # STDOUT
 #SBATCH -e Tstuyau_final_filters.%N.%a.%j.err # STDERR
 #SBATCH --job-name="filt"
-###SBATCH --array=978,979
+#SBATCH --array=1-10%1
 
 ###################################################################
 ### Modify --array above with grid cell numbers to run as array job.
 #GRID_ID=$SLURM_ARRAY_TASK_ID
 ### note: if grid cell > 999, enter last three digits in array and use
 #GRIDS=$(($SLURM_ARRAY_TASK_ID + 3000))
-GRIDS=[3978,3979]
+#GRIDS=3939
+GRIDS="/home/downspout-cel/paraguay_lc/mosaics/lists/CELPyTile${SLURM_ARRAY_TASK_ID}.csv"
 YR=2024
 #POLYS="/home/downspout-cel/paraguay_lc/Segmentations/cnet4VIk/infer_polys_EO_8pt5_2025/EO_8pt5_merged.gpkg"
-POLYS="/home/downspout-cel/paraguay_lc/Segmentations/cnet4VIk/infer_polys_EO_8pt5_2025"
-POLYVARS="/home/downspout-cel/paraguay_lc/Segmentations/cnet4VIk/feats_EO_8pt5_2025"
-BUF=20
+POLYS="/home/downspout-cel/paraguay_lc/Segmentations/cnet4VIk/infer_polys_EO_8pt5_$((YR + 1 ))"
+POLYVARS="/home/downspout-cel/paraguay_lc/Segmentations/cnet4VIk/feats_EO_8pt5_$((YR + 1 ))"
+BUF=40
 NBHD=100
+SMNBHD=5
 ## If TEST=True final outputs will be saved to scratch dir. Else to 'mosaics' is backup dir
 TEST=True
 ## COMPDIR = 'input_dir' if looking for map inputs in comp folder of main_dir
@@ -36,14 +38,15 @@ BK_DIR="/home/downspout-cel"
 PROJECT="paraguay_lc"
 PROJECT_DIR="${MAIN_DIR}/${PROJECT}/stac"
 SCRATCH="/home/scratch-cel/${PROJECT}"
-MOD="base4Poly6_bal200mix4_LC36_1723_RF_2024.tif"
+MOD="base4Poly6_bal200mix4_LC36_1723_RF_${YR}.tif"
 EPSG=8858
 GRID_FILE="${PROJECT_DIR}/project_grid_${EPSG}.gpkg"
 RES=10.0
 BUFFER=100
 ###################################################################
 ### activate the virtual environment
-conda activate venv.lucinsa38_pipe
+conda activate tstuyau_pipe
+
 export NUMEXPR_MAX_THREADS="${SLURM_CPUS_ON_NODE}"
 ###################################################################
 ###################################################################
@@ -60,7 +63,8 @@ classify:test:$TEST
 classify:comp_dir:$COMPDIR
 refine:buffer:$BUF
 refine:post_filter:smCrop
-refine:neighborhood:$NBHD 
+refine:neighborhood:$NBHD
+refine:sm_neighborhood:$SMNBHD 
 feature_model:poly_vector_path:$POLYS
 feature_model:poly_var_path:$POLYVARS
 feature_model:unit_of_analysis:pixel

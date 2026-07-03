@@ -608,5 +608,7 @@ refine:
     post_filter: 'smCrop'
     ##<refine:buffer> is the distance to buffer polygons for post filters
     buffer: 20
-    ##<refine:neighborhood> is the size of the neighborhood (in pixels) for moving window calculations
+    ##<refine:sm_neighborhood> is the size of the neighborhood (pixel width) for moving window calculations for smallholder filters 
+    sm_neighborhood: 3
+    ##<refine:neighborhood> is the size of the neighborhood (in pixels) for moving window calculations for other filters
     neighborhood: 100

@@ -80,7 +80,7 @@ def reconstruct(params):
     vegetation indices are defined in SpecIndices in spec_indices.py (called through TimeSeriesLoader) and io.py. 
         any new index need to be added to the SI_DICT as well as SpecIndices methods.
     """
-    
+
     si = params['reconstruct']['si']
     #if '.' in si:
     #    si_extraparam = si.split('.')[1].split('-')[0]
@@ -221,14 +221,14 @@ def reconstruct(params):
         sidx = si
         ## sis may be passed in with parameters attached (e.g. savi.100 and/or with ts info (e.g. savi-raw or savi.100-raw). '_' is legacy only.
         if '.' in si:
-            si = si.split('.')[0]
-        else:
-            if any(m in si for m in ('-', '_')):
-                sidx = si.split(m)[0]
+            sidx = si.split('.')[0]
+        elif m := next((char for char in ('-', '_') if char in si), None):
+            sidx = si.split(m)[0]
+        params['reconstruct']['si'] = sidx
         if sidx in SI_DICT.keys():
             band_names = SI_DICT[sidx]['band_names']
         else:
-            logger.exception(f"  Model does not recognize {sidx}. Supported spectral indices are {SI_DICT.keys()}")
+            logger.warning(f"  Model does not recognize {sidx}. Supported spectral indices are {SI_DICT.keys()}")
             raise NameError
 
         with rio.Env(GDAL_CACHEMAX=params['io']['gdal_cachemax']):

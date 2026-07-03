@@ -631,7 +631,7 @@ def prep_ts_variable_bands(si_vars, ts_stack,ds_stack, out_dir,temp,start_doy,co
     ## sort images by date just in case, but if coming from smoothed time series, should be in order already
     sts_stack = [ts for ds, ts in sorted(zip(ds_stack, ts_stack))]
     sds_stack = [ds for ds, ts in sorted(zip(ds_stack, ts_stack))]
-        
+    
     with gw.open(sts_stack, time_names = sds_stack) as src0:
         attrs = src0.attrs.copy()
 
@@ -640,7 +640,9 @@ def prep_ts_variable_bands(si_vars, ts_stack,ds_stack, out_dir,temp,start_doy,co
     src = src0.where((src0 != int(nodata_in)) & (src0 != 10000))
 
     ## remove glcm portion of variables in case it exists. For glcms, the underlying variable will be processed, then the glcm after.
-    no_glcm = r'\.glcm.*?(?=-|$)' 
+    if isinstance(si_vars,str):
+        si_vars = [si_vars]
+    no_glcm = r'\.glcm.*'
     si_vars = [re.sub(no_glcm, '', siv) for siv in si_vars]
     logger.info(f'calculating bands: {si_vars}')
 

@@ -374,10 +374,10 @@ def get_ts_stats_within_polys(params, in_path=None, out_path=None):
                 out_shape = (int(window.height), int(window.width))
                 new_gt = rio.windows.transform(window, src0.transform)
                 '''
-                gt = src0.transform
-                offset = img_to_bbox_offsets(gt, cell, grid_file, buffer=100, res=10.0)
-                new_gt = rio.Affine(gt[0], gt[1], (gt[2] + (offset[0] * gt[0])), 0.0, gt[4], (gt[5] + (offset[1] * gt[4])))
-                out_shape = src0.shape
+                new_gt = src0.transform
+                #offset = img_to_bbox_offsets(gt, cell, grid_file, buffer=100, res=10.0)
+                #new_gt = rio.Affine(gt[0], gt[1], (gt[2] + (offset[0] * gt[0])), 0.0, gt[4], (gt[5] + (offset[1] * gt[4])))
+                out_shape = (src0.height, src0.width)
             out_meta.update({"count": 1, "height": out_shape[0], "width": out_shape[1], "transform": new_gt, "compress": "lzw", "tiled": True})
 
         elif params['feature_model']['spec_indices']:   ## calculating stats from time-series variables
@@ -574,8 +574,9 @@ def make_polygon_features(params, in_path=None, out_path=None):
                         logger.info(f'getting {avar0} at: {var_path} \n')
                         with rio.Env(GTIFF_SRS_SOURCE="EPSG"):
                             with rio.open(var_path) as src0:
+                                ## note: this only works if var_path is already clipped to the grid cell. otherwise need one of the image_utils methods.
                                 gt = src0.transform
-                                out_shape=src0.shape
+                                out_shape==(src0.height, src0.width)
                                 out_meta = src0.meta.copy()
                                 out_meta.update(count=1, dtype=np.int16, compress="lzw", tiled=True)    
                         ## within each polygon, calculate spatial stat for ras
@@ -591,7 +592,7 @@ def make_polygon_features(params, in_path=None, out_path=None):
                         shapes = ((geom,value) for geom, value in zip(gdf.geometry, gdf[stat]))
                         if len(out_shape) == 3:
                             out_shape=out_shape[1:] 
-                        image = features.rasterize( ((g, v) for g, v in shapes), out_shape=out_shape, transform=gt)
+                        image = features.rasterize( ((g, v) for g, v in shapes), out_shape=out_shape, transform=gt, fill=0, dtype=np.int16)
                         dst.write_band(1, image)
                         logger.debug(f'out_fn={out_file}')
                     
