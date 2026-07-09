@@ -67,8 +67,9 @@ do
 	procseq:${PROCSEQ}
 	main_path:${MAIN_DIR}/${PROJECT}/stac/grid
 	backup_path:${BK_DIR}/${PROJECT}/stac/grid
-	scratch_dir:${SCRATCH_DIR}/${PROJECT}/stackprods 
+	scratch_dir:${SCRATCH_DIR}/${PROJECT}/stackprods  
 	feature_model:ts_type:raw
+    reconstruct:nodata:0
 	feature_model:spec_indces:$SI
 	classify:out_yrs:$MULTIYR
 	feature_model:spec_indices:$SI

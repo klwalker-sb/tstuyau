@@ -713,17 +713,67 @@ def prep_ts_variable_bands(si_vars, ts_stack,ds_stack, out_dir,temp,start_doy,co
         mind_cos = 100 * (np.cos(mind_360) + 1)
         mind_cos = mind_cos.astype('int16')
         add_var_to_stack(mind_cos,f'mindc-{temp}', attrs,out_dir,comp_band_names,ras_list,**gw_args)
-    if f'deltaobs-{temp}' in si_vars:
+    
+    if f'numobs-{temp}' in si_vars:
+        ## number of valid observations in data stack -- mostly useful with raw time series
+        ## <reconstruct><nodata> probably neeeds to be set to 0 so that 0s are also seen as NA
+        numobs = src.count(dim="time").astype('int16')
+        add_var_to_stack(numobs,f'numobs-{temp}', attrs,out_dir,comp_band_names,ras_list,**gw_args)
+    if f'perclear-{temp}' in si_vars:
+        ## not super useful because num_images will include partially overlapping images (NA is missing data; not always clouds)
         num_images = len(sts_stack)
+        numobs = src.count(dim="time")
+        perclear = (100 * numobs / num_images).astype('int16')
+        add_var_to_stack(perclear,f'perclear-{temp}', attrs,out_dir,comp_band_names,ras_list,**gw_args)
+    if f'gapavg-{temp}' in si_vars:
+        numobs = src.count(dim="time").astype('int16')
+        numdays = (src.time[-1] - src.time[0]).dt.days.item() + 1
+        gapavg = (numobs / numdays).astype('int16')
+        add_var_to_stack(gapavg,f'gapavg-{temp}', attrs,out_dir,comp_band_names,ras_list,**gw_args)
+    if f'gapmax-{temp}' in si-vars:
+        is_na = src.isnull()
+        grouper = (~is_na).cumsum(dim='time')
+        numna = da.time.where(is_na)
+        streak_starts = numna.groupby(grouper).min(dim='time')
+        streak_ends = numna.groupby(grouper).max(dim='time')
+        durations = (streak_ends - streak_starts) + np.timedelta64(1, 'D')
+        gapmax = durations.dt.days.max().item()
+        add_var_to_stack(gapmax,f'gapmax-{temp}', attrs,out_dir,comp_band_names,ras_list,**gw_args)
+        
+    if any(v.startswith('deltaobs') and v.endswith(temp) for v in si_vars):
+        '''
+        output is percent of significant changes (exceeding <thresh>) in temporal period for valid observations
+        threshold is supplied with . following deltaobs -- e.g. deltaobs.p500 or deltaobs.n500 
+        (n and p indicate whether negative or positive changes are to be counted, respectively) 
+        '''
+        siv = [v for v in si_vars if v.startswith('deltaobs')][0]
+        if '.' in siv:
+            thresh0 = siv.split('.')[1].split('-')[0]
+            if 'n' in thresh0:
+                thresh = -1 * int(thresh0.split('n')[1])
+            elif 'p' in thresh0:
+                thresh = int(thresh0.split('p')[1])
+            else: ## assume negative changes are significant if unspecified
+                thresh = -1 * int(thresh0)
+        else:
+            thresh = 0
+        ## <reconstruct><nodata> neeeds to be set to 0 to set 0s to NA
+        num_images = len(sts_stack) ## note -- this count will include NAs
+        numobs = src.count(dim="time")  ## this is number of non NA observations for each pixel
         src_c = src.chunk({"time": -1})
         srcf = src_c.ffill(dim='time')
         srcff = srcf.bfill(dim='time')
         ## shift moves data one to the right 
         delta = srcff - srcff.shift(time=1)
-        negdelta = xr.where(delta < 0, 1, 0)
-        numnegs = negdelta.sum(dim='time').fillna(0).astype('int16')
-        numnegs1 = (100 * numnegs / num_images).astype('int16')
-        add_var_to_stack(numnegs1,f'numnegdelta-{temp}', attrs,out_dir,comp_band_names,ras_list,**gw_args)
+        if ('.' in siv) and ('p' in thresh0):
+            deltaflag = xr.where(delta > thresh, 1, 0)
+            varname = 'numposdelta'
+        else:
+            deltaflag = xr.where(delta < thresh, 1, 0)
+            varname = 'numnegdelta'
+        numflags = deltaflag.sum(dim='time').fillna(0).astype('int16')
+        numflags1 = (100 * numflags / numobs).astype('int16')
+        add_var_to_stack(numflags1,f'{varname}-{temp}', attrs,out_dir,comp_band_names,ras_list,**gw_args)
     
     logger.debug(f"comp_band_names = {comp_band_names}, ras_list={ras_list}")
     return comp_band_names,ras_list
