@@ -46,7 +46,7 @@ def calculate_char_index(red_val, green_val, blue_val, scale_factor=10000):
     index_val = si/3 * mask 
     return index_val
 
-def calculate_raw_index(nir_val, b2_val, spec_index, params=None):
+def calculate_raw_index(nir_val, b2_val, si, params=None):
     '''
     This is for on-the-fly calculations at a specific point. 
     For raster level calculations, xarray/geowombat methods in SpecIndices class are used
@@ -59,6 +59,8 @@ def calculate_raw_index(nir_val, b2_val, spec_index, params=None):
         if params['masking']['maxval']:
             s = params['masking']['maxval']
     
+    spec_index = si.split('.')[0]
+    
     if spec_index == 'evi2': ## b2=red
         index_val =  s * 2.5 * ((nir_val/s - b2_val/s) / (nir_val/s + 1.0 + 2.4 * b2_val/s))
     elif spec_index in ['gcvi','ndvi','nbr','nbr2']: ## gcvi: b2=green, ndvi: bs=red, nbr: b2=swir2, nbr2: b2=swir2 and nir_val is actually swir1
@@ -66,15 +68,26 @@ def calculate_raw_index(nir_val, b2_val, spec_index, params=None):
         index_val = np.where(orig_idx == 0, 0, (orig_idx + 1) * s/2)
     elif spec_index == 'cai': #b2=swir2 and nir_val is actually swir1
         index_val = s *  b2_val / (nir_val + 1e-9)
-    elif spec_index == 'savi':  ## b2=red
-        lfactor = .5  ## (0-1, 0=very green, 1=very arid. .5 most common. Some use negative vals for arid env)
-        index_val = s * (1 + lfactor) * ((nir_val/s - b2_val/s) / (nir_val/s + b2_val/s + lfactor))
+    elif spec_index == 'savi':  ## b2=red  lfactor = 0-1, 0=very green, 1=very arid. .5 most common. Some use negative vals for arid env)
+        if '.' in si:
+            lfactor = si.split('.')[1]
+            if lfactor.startswith('n'):
+                lfactor = -1 * int(lfactor.split('n')[1])
+        else:
+            lfactor = .5  
+        orig_idx = (1 + int(lfactor)) * ((nir_val/s - b2_val/s) / (nir_val/s + b2_val/s + int(lfactor)))
+        if int(lfactor) > 0:
+            index_val = np.where(orig_idx == 0, 0, s * (1.0 + orig_idx) / 2.0)
+        else:
+            logger.warning('OOPS  -- TODO: finish the negative case here')
     elif spec_index == 'msavi': ## b2=red
         index_val =  s/2 * (2 * nir_val/s + 1) - ((2 * nir_val/s + 1)**2 - 8*(nir_val/s - b2_val/s))**1/2
         index_val = np.where(nir_val < s, index_val, 0)
     elif spec_index == 'ndmi': ## b2=swir1
         orig_idx = s * (nir_val - b2_val) / ((nir_val + b2_val) + 1e-9)
         index_val = (orig_idx + 1) * s/2
+    elif spec_index == 'kndvi':
+        index_val = s * (np.tanh(((nir_val - b2_val) / ((nir_val + b2_val) + 1e-9))**2))
     elif spec_index == 'bai': ## b2=swir2
         index_v = s / ((0.06 - nir_val/s)**2 + (0.1 - b2_val/s)**2)
         index_val = np.where(b2_val + nir_val > 0, index_v, 0) 
@@ -180,7 +193,7 @@ class SpecIndices(object):
     def evi2(data,extra_param=None):
         if extra_param is None:
             lfactor = 1.0
-        elif extra_param.startswith(n):
+        elif extra_param.startswith('n'):
             lfactor = -1*int(extra_param[1:])/100
         else:
             lfactor = int(extra_param)/100
@@ -190,22 +203,44 @@ class SpecIndices(object):
     @staticmethod
     def savi(data,extra_param=None):
         '''
-        lfactor is usually 0-1, 0=very green, 1=very arid. .5 most common. Some use negative vals for arid env
-        passed in as value from 0 to 1000, or n0 to n1000 if negative l-factor is desired
+        Soil-adjusted ndvi (= ndvi if L-factor = 0)
+        lfactor (passed in as value from 0 to 100) is usually 0-1, 0=very green, 1=very arid. .5 (default) is most common. 
+        Some use negative vals for arid env (passed in as n0 to n100)
         '''
         if extra_param is None:
             lfactor = .5
-        elif extra_param.startswith(n):
+        elif extra_param.startswith('n'):
             lfactor = -1*int(extra_param[1:])/100
         else:
             lfactor = int(extra_param)/100
-       
-        return (1 + lfactor) * ((data[1] - data[0]) / (data[1] + data[0] + lfactor))
+
+        #logger.debug(f'calculating savi with l-factor of {lfactor}')
+        nir = data[1].astype(np.float32)
+        red = data[0].astype(np.float32)
+        num = nir - red
+        denom = nir + red + lfactor
+        denom = np.where(denom == 0, 1e-10, denom)
+        savi = (1.0 + lfactor) * (num / denom)
+
+        if lfactor >= 0:
+            savi_rescaled = np.where(savi == 0, 0, (1.0 + savi) / 2.0)
+        else:
+            #bound_edge = 1.0 / (1.0 + abs(lfactor))  
+            #gmin = -1.0 * bound_edge
+            #gmax = 1.0 * bound_edge
+            gmin = -5.0
+            gmax = 5.0
+            denom_scale = gmax - gmin
+            savi_clamped = np.clip(savi, gmin, gmax)
+            savi_rescaled = np.where(savi == 0, 0, (savi_clamped - gmin) / denom_scale)
+        return savi_rescaled
+        
 
     @staticmethod
     def msavi(data,extra_param=None):
         '''
-        The values in the msavi are all constants -- this is a version of Savi without the need to select an L-factor
+        version of Savi without the need to select an L-factor
+        (The values in the msavi are all constants) 
         '''
         return 1/2 * (2 * data[1] + 1) - ((2 * data[1] + 1)**2 - 8*(data[1] - data[0]))**1/2
 

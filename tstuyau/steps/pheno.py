@@ -684,7 +684,7 @@ def prep_ts_variable_bands(si_vars, ts_stack,ds_stack, out_dir,temp,start_doy,co
         if f'sd-{temp}' in si_vars:
             add_var_to_stack(sstd,f'sd-{temp}', attrs,out_dir,comp_band_names,ras_list,**gw_args)
     if f'cv-{temp}' in si_vars:
-        ccv = ((sstd * 1000) / aavg).astype('int16')
+        ccv = ((sstd / aavg) * 10000).astype('int16')
         add_var_to_stack(ccv,f'cv-{temp}',attrs,out_dir,comp_band_names,ras_list,**gw_args)
     if any(v in si_vars for v in [f'maxd-{temp}', f'maxdc-{temp}']):
         maxd = src.idxmax(dim='time',skipna=True)

@@ -82,10 +82,6 @@ def reconstruct(params):
     """
 
     si = params['reconstruct']['si']
-    #if '.' in si:
-    #    si_extraparam = si.split('.')[1].split('-')[0]
-    #else:
-    #    si_extraparam = None
     if si.endswith('raw'):
         params['reconstruct']['merge_ts'] = False
         season = params['feature_model']['si_vars'][0].split('-')[1] 
@@ -218,13 +214,11 @@ def reconstruct(params):
                 if pad % 2 == 0:
                     pad += 1
         
-        sidx = si
         ## sis may be passed in with parameters attached (e.g. savi.100 and/or with ts info (e.g. savi-raw or savi.100-raw). '_' is legacy only.
-        if '.' in si:
-            sidx = si.split('.')[0]
-        elif m := next((char for char in ('-', '_') if char in si), None):
-            sidx = si.split(m)[0]
-        params['reconstruct']['si'] = sidx
+        sidx = si.split('.')[0]
+        if m := next((char for char in ('-', '_') if char in sidx), None):
+            sidx = sidx.split(m)[0]
+        #params['reconstruct']['si'] = sidx
         if sidx in SI_DICT.keys():
             band_names = SI_DICT[sidx]['band_names']
         else:

@@ -216,13 +216,12 @@ class TimeSeriesLoader(object):
 
             # Open all arrays and calculate the VI
             si_base = self.params['reconstruct']['si']
-            if '.' in si_base:
-                si_base = si_base.split('.')[0]
-            elif m := next((char for char in ('-', '_') if char in si), None):
-                sidx = si.split(m)[0]
+            si_base = si_base.split('.')[0]
+            if m := next((char for char in ('-', '_') if char in si_base), None):
+                si_base = si_base.split(m)[0]
             if (self.params['project_ver'] == 'Py_0') and (si_base in ['ndmi','ndvi','nbr']):
                 si_base = f'{si_base}V0'
-                logger.info(f'using legacy code to calculate {si}')
+                logger.info(f'using legacy code to calculate {si_base}')
             ds = getattr(gw,si_base)(xr.open_mfdataset(self.time_band_df_slice.image_path.str.replace('netcdf:', '').values.tolist(),
                                                                                  concat_dim='time',
                                                                                  chunks={'y': 512, 'x': 512},
@@ -272,10 +271,11 @@ class TimeSeriesLoader(object):
         si = self.params['reconstruct']['si']
         ## sis may be passed in with parameters attached (e.g. savi.100 and/or with ts info (e.g. savi-raw or savi.100-raw). '_' is legacy only.
         if '.' in si:
-            si = si.split('.')[0]
             si_extra = si.split('.')[1].split('-')[0]
+            si = si.split('.')[0]
+            logger.debug(f'si_extra = {si_extra}')
         elif m := next((char for char in ('-', '_') if char in si), None):
-            sidx = si.split(m)[0]
+            si = si.split(m)[0]
             si_extra = None
         else:
             si_extra = None

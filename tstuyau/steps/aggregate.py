@@ -123,11 +123,10 @@ def make_ts_composite_single(ppaths, params):
             ts_type = 'smooth'
         else:
             logger.warning(f"ERROR: problem parsing si_var. ts_type should br 'raw' or 'sm...'. Got {tst}")
-    else:   
-        if 'raw' in si:
-            ts_type = 'raw'
-        else:
-            ts_type = 'smooth'
+    elif 'raw' in si:
+        ts_type = 'raw'
+    else:
+        ts_type = 'smooth'
 
     ras_list = []
     comp_band_names = []
@@ -414,6 +413,7 @@ def make_ts_composite(params):
                         
                 else:
                     logger.debug(f'ras_list:{full_ras_list}')
+                    comp_band_names = [str(yr) for yr in params['classify']['out_yrs']]
                     #logger.debug(f'comp_band_names:{full_comp_band_names}')
                     logger.info(f'writing stack for si_vars:{si_vars}')
 
@@ -423,7 +423,6 @@ def make_ts_composite(params):
                         meta.update(count = len(full_ras_list))
 
                     var_name = comp_band_names[0]
-                    comp_band_names = [str(yr) for yr in params['classify']['out_yrs']]
                     out_ras = f"{out_dir}/{int(cell):06d}_{si_full}_{var_name}_{'-'.join(comp_band_names)}.tif"
 
                     with rio.open(out_ras, 'w', **meta) as dst:

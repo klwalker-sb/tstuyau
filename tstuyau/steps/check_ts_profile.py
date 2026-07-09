@@ -23,7 +23,7 @@ from ..handler import logger
 
 LANDSAT_LIKE_BANDS = ['blue', 'green', 'red', 'nir', 'swir1', 'swir2']
     
-def get_index_vals_at_pts(ts_stack, ts_type, img_type, polys, spec_index, npts, 
+def get_index_vals_at_pts(ts_stack, ts_type, img_type, polys, si, npts, 
                           seed, load_samp=False, ptgdb=None, printfile=False, out_dir=None, params=None):
     '''
     Gets values for all sampled points <'numpts'> in all polygons <'polys'> for all images in <'ts_stack'>
@@ -66,7 +66,7 @@ def get_index_vals_at_pts(ts_stack, ts_type, img_type, polys, spec_index, npts,
             with rio.open(img, 'r') as src:
                 pt_dict[img_date] = [sample[0] for sample in src.sample(coords)]
         elif ts_type == 'raw':
-            spec_index = spec_index.split('-')[0]
+            spec_index = si.split('-')[0].split('.')[0]
             available_indices = list(SI_DICT)
             if spec_index not in available_indices:
                  logger.warning(f"ERROR: {spec_index} is not specified or does not have current method")
@@ -135,7 +135,7 @@ def get_index_vals_at_pts(ts_stack, ts_type, img_type, polys, spec_index, npts,
 
                         logger.debug(f"b2_val = {b2_val} for image {str(img_date)}.")
 
-                        index_val = calculate_raw_index(nir_val, b2_val, spec_index, params=params)
+                        index_val = calculate_raw_index(nir_val, b2_val, si, params=params)
                     
                     pt_vals.append(index_val)
                 pt_dict[str(img_date)] = pt_vals
