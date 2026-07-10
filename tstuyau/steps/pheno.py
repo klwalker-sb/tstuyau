@@ -297,6 +297,7 @@ def find_peaks_deriv(ts_stack,ds_stack,comp_band_names,peak_thresh,base_thresh,r
     '''
     with gw.open(ts_stack, time_names = ds_stack) as src1:
         attrs = src1.attrs.copy()
+    ## make sure time is single chunk for ffill and bfill operations    
     src_c = src1.chunk({"time": -1})
     
     deriv = src_c.differentiate("time")
@@ -728,16 +729,18 @@ def prep_ts_variable_bands(si_vars, ts_stack,ds_stack, out_dir,temp,start_doy,co
     if f'gapavg-{temp}' in si_vars:
         numobs = src.count(dim="time").astype('int16')
         numdays = (src.time[-1] - src.time[0]).dt.days.item() + 1
-        gapavg = (numobs / numdays).astype('int16')
+        gapavg = (numdays / numobs).astype('int16')
         add_var_to_stack(gapavg,f'gapavg-{temp}', attrs,out_dir,comp_band_names,ras_list,**gw_args)
-    if f'gapmax-{temp}' in si-vars:
-        is_na = src.isnull()
+    if f'gapmax-{temp}' in si_vars:
+        src_chunked = src.chunk({'time': -1, 'x': 256, 'y': 256})
+        is_na = src_chunked.isnull()
         grouper = (~is_na).cumsum(dim='time')
-        numna = da.time.where(is_na)
-        streak_starts = numna.groupby(grouper).min(dim='time')
-        streak_ends = numna.groupby(grouper).max(dim='time')
-        durations = (streak_ends - streak_starts) + np.timedelta64(1, 'D')
-        gapmax = durations.dt.days.max().item()
+        time_as_days = src_chunked.time.astype('datetime64[D]').astype(int)
+        numna = time_as_days.where(is_na)
+        streak_starts = numna.groupby(grouper).min(dim=...)
+        streak_ends = numna.groupby(grouper).max(dim=...)
+        durations = (streak_ends - streak_starts) + 1
+        gapmax = durations.max(dim=...).fillna(0).astype('int16')
         add_var_to_stack(gapmax,f'gapmax-{temp}', attrs,out_dir,comp_band_names,ras_list,**gw_args)
         
     if any(v.startswith('deltaobs') and v.endswith(temp) for v in si_vars):
