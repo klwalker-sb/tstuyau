@@ -731,18 +731,20 @@ def prep_ts_variable_bands(si_vars, ts_stack,ds_stack, out_dir,temp,start_doy,co
         numdays = (src.time[-1] - src.time[0]).dt.days.item() + 1
         gapavg = (numdays / numobs).astype('int16')
         add_var_to_stack(gapavg,f'gapavg-{temp}', attrs,out_dir,comp_band_names,ras_list,**gw_args)
+    
     if f'gapmax-{temp}' in si_vars:
-        src_chunked = src.chunk({'time': -1, 'x': 256, 'y': 256})
-        is_na = src_chunked.isnull()
-        grouper = (~is_na).cumsum(dim='time')
-        time_as_days = src_chunked.time.astype('datetime64[D]').astype(int)
-        numna = time_as_days.where(is_na)
-        streak_starts = numna.groupby(grouper).min(dim=...)
-        streak_ends = numna.groupby(grouper).max(dim=...)
-        durations = (streak_ends - streak_starts) + 1
-        gapmax = durations.max(dim=...).fillna(0).astype('int16')
-        add_var_to_stack(gapmax,f'gapmax-{temp}', attrs,out_dir,comp_band_names,ras_list,**gw_args)
-        
+        src0 = src.chunk({"time": -1}).astype(float)
+        valsin = src0.where((src0 > 0) & (src0 < 10000))
+        is_na = valsin.isnull()
+        #logger.debug(f"total nan pixels found: {int(is_na.sum().values)}") 
+        time_as_days = (src0.time - np.datetime64('1970-01-01')) / np.timedelta64(1, 'D')
+        valid_days = time_as_days.where(~is_na)
+        current_valid_ffill = valid_days.ffill(dim='time')
+        prior_valid_day = current_valid_ffill.shift(time=1)
+        observation_gaps = (time_as_days - prior_valid_day).where(~is_na, 0)
+        gapmax = observation_gaps.max(dim='time').fillna(0).round().astype(np.int16)
+        add_var_to_stack(gapmax, f'gapmax-{temp}', attrs, out_dir, comp_band_names, ras_list, **gw_args)
+
     if any(v.startswith('deltaobs') and v.endswith(temp) for v in si_vars):
         '''
         output is percent of significant changes (exceeding <thresh>) in temporal period for valid observations
@@ -764,8 +766,9 @@ def prep_ts_variable_bands(si_vars, ts_stack,ds_stack, out_dir,temp,start_doy,co
         num_images = len(sts_stack) ## note -- this count will include NAs
         numobs = src.count(dim="time")  ## this is number of non NA observations for each pixel
         src_c = src.chunk({"time": -1})
+        srcf = src_c.ffill(dim='time',limit=2)
+        srcff = srcf.bfill(dim='time',limit=2)
         srcf = src_c.ffill(dim='time')
-        srcff = srcf.bfill(dim='time')
         ## shift moves data one to the right 
         delta = srcff - srcff.shift(time=1)
         if ('.' in siv) and ('p' in thresh0):
