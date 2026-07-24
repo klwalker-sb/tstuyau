@@ -26,10 +26,16 @@ OUT='tmp'
 ###  Pheno allows for extra padding around season and more complex statistics.
 ###    the following parameters only matter if PHENO=True
 PHENO=False
-PHENOSIS="[kndvi]"
-PHENOVARS="[posv_wet]"
-PHENOPAD="[30,0]"
-SIGDIF=500
+PHENOSIS="[mirbi-raw]"
+#PHENOVARS="[posv_wet]"
+PHENOVARS="[burn.p1200.doy-Monthly]"
+PHENOPAD="[15,15]"
+##  these only matter for delta calculations (sigdif, burn, etc.)
+SIGDIF=1200
+RANGE_PREEVENT="[1400,3200]"
+RANGE_POSTEVENT="[3200,10000]"
+IMGBUF=3
+MAKETS=True
 ###################################################################
 ### Project settings
 MAIN_DIR="/home/sandbox-cel"
@@ -39,6 +45,9 @@ PROJECT="biltong"
 RES=10.0
 IMGTYPE='LS2'
 PROCSEQ='mu.br.cga'
+NCHUNKS=512
+SM_CHUNKS=51
+METHOD='STAC'
 
 ######  project calendar
 STARTMO=11
@@ -65,14 +74,20 @@ do
 	res:${RES}
 	image_type:${IMGTYPE}
 	procseq:${PROCSEQ}
+    dlMehod:${METHOD}
 	main_path:${MAIN_DIR}/${PROJECT}/stac/grid
 	backup_path:${BK_DIR}/${PROJECT}/stac/grid
 	scratch_dir:${SCRATCH_DIR}/${PROJECT}/stackprods  
 	feature_model:ts_type:raw
     reconstruct:nodata:0
+    reconstruct:exclude:'X'
+    reconstruct:chunks:${SM_CHUNKS}
+    num_workers:${SLURM_CPUS_ON_NODE}
+    io.n_chunks:${NCHUNKS}
+    reconstruct:rewrite_win:False
+    reconstruct:overwrite:$MAKETS
 	feature_model:spec_indces:$SI
 	classify:out_yrs:$MULTIYR
-	feature_model:spec_indices:$SI
 	feature_model:start_yr:$MODYR
 	feature_model:si_vars:$BANDS
 	feature_model:treat_out:$OUT
@@ -84,7 +99,13 @@ do
 	feature_model:use_pheno:$PHENO
 	feature_model:spec_indices_pheno:$PHENOSIS 
 	feature_model:pheno_vars:$PHENOVARS 
-	feature_model:pheno_pad_days:$PHENOPAD"
+	feature_model:pheno_pad_days:$PHENOPAD
+    feature_model:pheno_sigdif:$SIGDIF
+    feature_model:pheno_basethresh_pre:$RANGE_PREEVENT
+    feature_model:pheno_basethresh_post:$RANGE_POSTEVENT
+    feature_model:pheno_imgbuf:$IMGBUF
+
+    "
 
 tuyau make_ts_composite --config-updates $CONFIG_UPDATES
 
