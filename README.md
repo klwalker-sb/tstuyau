@@ -133,6 +133,13 @@ best via --script: bash_TStuyau_6_texture.sh
 -- Vector extraction and feature generation tools for segmantic segmentation outputs from cultionet 
 ![alt](/images/seg_images.jpg)
 
+#### Feature visualization 
+```commandline
+tuyau make_ts_composite --config-updates grids:[<grid number>] feature_model:ts_type:raw feature_model:spec_indces:$SI classify:out_yrs:$MULTIYR feature_model:start_yr:$MODYR feature_model:si_vars:$SI_VARS feature_model:treat_out:$OUT calendar:first_mo:$STARTMO calendar:start_wet:$STARTWET calendar:end_wet:$ENDWET calendar:start_dry:$STARTDRY calendar:end_dry:$ENDDRY feature_model:use_pheno:$PHENO feature_model:spec_indices_pheno:$PHENOSIS feature_model:pheno_vars:$PHENOVARS feature_model:pheno_pad_days:$PHENOPAD
+```
+SI is the spectral index, entered as ```<spec_index>-<ts_type>-<ts_norm>``` (image optrions below)
+SI_VARS are the features, entered as a list of ```<si_var>-<temp>``` (image options below)
+The output is an image stack of length SI_VARS. Can also use 'Monthly' or 'Quarterly' in place of ```<temp>``` to create one band for each month/quarter.
 
 ![alt](/images/tstuyau_features.png)
 

@@ -349,7 +349,8 @@ feature_model:
   pheno_sigdif: 500
   ## <feature_model:pheno_basethresh> is value above which a pixel is very unlikely to have recently experienced an event (e.g. burning) 
   ##    if the index decreases with the event (or below which if the index increases with the event). If 0, will skip this step. (typical values around 5000) 
-  pheno_basethresh: 0
+  pheno_basethresh_pre: [0,10000]
+  pheno_basethresh_post: [0,10000]
   pheno_imgbuf: 2
   ancillary_vars: []
   ## <feature_model:singelton_mod_dict is the dictionary with ancillary feature data... 

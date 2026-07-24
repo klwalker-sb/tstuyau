@@ -16,32 +16,41 @@ def get_date_range(year,period,params,return_type='ymd',padded=False):
     
     The year is the starting year if period spans more than one year
     <period> can be 'yr', 'wet' or 'dry' based on seasonal <calendar> parameters (which are in julien doy)
-        or a single month ('Jan','Feb','Mar',etc) or multiple months ('NovDec','JanMar')
-        (note: 'JanMar' will behave the same as 'JanFebMar')
+        or a quarter ('Q1','Q2','Q3','Q4') or a single month ('Jan','Feb','Mar',etc) or multiple months ('NovDec','JanMar')
+              (note: months must be consecutive and inclusive. 'JanMar' will behave the same as 'JanFebMar')
     
     if return_type is 'doy', returns int in format YYYYdoy
     otherwise returns strings in format YYYY-MM-DD 
     '''
 
-    yr_start = datetime(year, params['calendar']['first_mo'], 1)
-    yr_end = datetime(year, params['calendar']['first_mo'], 1) + timedelta(364)
+    ## start of the year is the first day of the starting calendar month
+    start_of_yr = datetime(year, params['calendar']['first_mo'], 1)
+    ## end of the year is 364 days from the start of the year
+    end_of_yr = datetime(year, params['calendar']['first_mo'], 1) + timedelta(364)
     
     if period == 'yr':
-        start_date = yr_start
-        end_date = yr_end
+        start_date = start_of_yr
+        end_date = end_of_yr
 
     elif any(month in period for month in ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']):
-        month1_num = list(month_abbr).index(period[:3])
-        start_date = datetime(year, month1_num, 1)
-        if len(period) == 3:
-            last_day = monthrange(year, month1_num)[1]
-            end_date = datetime(year, month1_num, last_day)
+        ## match month to month in calendar package to get date range info
+        month1_num = list(month_abbr).index(period[:3])   ## gives index location (should = normal month num since sequence in calendar starts with a blank)
+        if month1_num >= params['calendar']['first_mo']:
+            target_yr = year
         else:
-            month2_num = list(month_abbr).index(period[-3:])
-            last_day = monthrange(year, month2_num)[1]
-            end_date = datetime(year, month2_num, last_day)
+            target_yr = year + 1
+        start_date = datetime(target_yr, month1_num, 1)
+        ## if single month, end month is same as start month. But period can be range (e.g. 'JanMar') 
+        end_month = month1_num if len(period) == 3 else list(month_abbr).index(period[-3:])
+        last_day = monthrange(year, end_month)[1]
+        end_date = datetime(target_yr, end_month, last_day)
+    elif any (q in period for q in ['Q1','Q2','Q3','Q4']):
+        quarter = int(period.split('Q')[1][0])
+        qend = quarter * 91
+        qstart = qend - 91
+        start_date = datetime(year, params['calendar']['first_mo'], 1) + timedelta(qstart)
+        end_date = datetime(year, params['calendar']['first_mo'], 1) + timedelta(qend)
     else:
-
         if period == 'wet':
             doys = [int(params['calendar']['start_wet']), int(params['calendar']['end_wet'])]
 
@@ -51,12 +60,12 @@ def get_date_range(year,period,params,return_type='ymd',padded=False):
         if padded:
             doys = [doys[0] - params['feature_model']['pheno_pad_days'][0], doys[1] + params['feature_model']['pheno_pad_days'][1]]
 
-        if datetime((int(year) + 1), 1, 1) + timedelta(days=doys[0] - 1) > yr_end:
+        if datetime((int(year) + 1), 1, 1) + timedelta(days=doys[0] - 1) > end_of_yr:
             start_date = datetime((int(year)), 1, 1) + timedelta(days=(doys[0] - 1))
         else:
             start_date = datetime((int(year) + 1), 1, 1) + timedelta(days=(doys[0]  - 1))
             
-        if datetime((int(year) + 1), 1, 1) + timedelta(days=doys[1] - 1) > yr_end:
+        if datetime((int(year) + 1), 1, 1) + timedelta(days=doys[1] - 1) > end_of_yr:
             end_date = datetime((int(year)), 1, 1) + timedelta(days=(doys[1] - 1))
         else:
             end_date = datetime((int(year) + 1), 1, 1) + timedelta(days=(doys[1] - 1))

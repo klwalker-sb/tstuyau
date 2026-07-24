@@ -12,6 +12,7 @@ from ..handler import logger
 
 
 def add_var_to_stack(arr, var, attrs, out_dir, comp_band_names, ras_list, **gw_args):
+    logger.info(f'adding var {var} at last position in stack: {comp_band_names}')
     logger.debug(f'gw_args are:{gw_args}')
     logger.debug(f'file attrs are:{attrs}')
     ras = Path(out_dir) / f'{var}.tif'
@@ -133,16 +134,16 @@ def p95(data, axis=1):
 ### phenology functions
 ##################################################################################################
     
-def get_sig_change(ts_stack, ds_stack, cng_thresh, base_thresh=None, image_buffer=0, cng_freq='doy', normalize=None):
+def get_sig_change(ts_stack, ds_stack, cng_thresh, basethresh_pre=[0,10000], basethresh_post=[0,10000], imgbuf=0, cng_freq='doy', normalize=None):
     '''
     Captures moment of significant change (above <cng_thresh>) in index, either as a drop (negatve <cng_thresh>) or spike (positive <cng_thresh>) 
     Returns change events formated based on <cng_freq>: 'bi' = 0/1, 'count', 'doy' (day-of-year of 1st occurance), or 'mo' (month of first occurance)
        if doy or month, the day-of-year value for the last day of the mapping period will be used as nan value, 
           so mapping period should be designed such that the last day's doy is not on a day of year that the event is likely to happen.  
            
-    Allows for <base_thresh> to filter out changes in spectral areas outside the targeted range. This value is above/below normal post-event values
-        when the index decreases/increases with the event. If 0, this step will be skipped.
-    <image_buffer> stes the number of images that are backfilled if a pixel has a nodata value. This is important in burn mapping because intense 
+    Allows for <basethresh_pre> and <basethresh_post> to filter out changes in spectral areas outside the targeted range. 
+        These are lists of [min_val,max_val] of values below/above the normal pre/post-event values.  (use 0 to ignore 
+    <imgbuf> stes the number of images that are backfilled if a pixel has a nodata value. This is important in burn mapping because intense 
         fire events are often masked as cloud shadow. if not useful for mapping task, set <feature_model:pheno_imgbuf> to 0.
     '''
 
@@ -157,56 +158,65 @@ def get_sig_change(ts_stack, ds_stack, cng_thresh, base_thresh=None, image_buffe
         attrs = src.attrs.copy()
 
     ## set nodata. TODO: pass nodata variables
-    valsin = src.where((src > lowest) & (src < highest))
+    valsin0 = src.where((src > lowest) & (src < highest))
     
     if normalize:
         allavg = valsin.mean(dim='time')
     if normalize == '0m': 
-        valsin = valsin - allavg
+        valsin0 = valsin0 - allavg
     elif normalize == 'z':
-        allstd = valsin.std(dim='time')
-        valsin = (valsin - allavg) / allstd
+        allstd = valsin0.std(dim='time')
+        valsin0 = (valsin0 - allavg) / allstd
     
-    ## backfill n images based on <image_buffer>
-    if image_buffer:
-        valsin = valsin.bfill(dim='time', limit=int(image_buffer))
+    ## backfill n images based on <imgbuf>
 
-    ## If the change event results in a spike in values (<cng_thresh> is positive), values are inverted prior to inquiry:
-    if int(cng_thresh) > 0:
-        cng_thresh = -1 * cng_thresh
+    is_null_orig = valsin0.isnull()
+    valsin = valsin0.ffill(dim='time', limit=int(imgbuf))
+
+    ## Filter pre and post event values to plausible ranges (to reduce false signals from shade, etc.)
+    pre_min = basethresh_pre[0]
+    pre_max = basethresh_pre[1]
+    post_min = basethresh_post[0]
+    post_max = basethresh_post[1]
+    
+    if int(cng_thresh) < 0:
+        plausvals_pre = valsin.where((valsin > pre_min) & (valsin < pre_max))
+        plausvals_post = valsin.where((valsin > post_min) & (valsin < post_max))
+    elif int(cng_thresh) > 0:
+        ## If the change event results in a spike in values (<cng_thresh> is positive), everything is inverted prior to inquiry:
         valsin = lowest + highest - valsin
-        if base_thresh:
-            base_thresh = lowest + highest - base_thresh
+        pre_min_invert = lowest + highest - pre_min
+        pre_max_invert = lowest + highest - pre_max
+        plausvals_pre = valsin.where((valsin < pre_min_invert) & (valsin > pre_max_invert))
+        post_min_invert = lowest + highest - post_min
+        post_max_invert = lowest + highest - post_max
+        plausvals_post = valsin.where((valsin < post_min_invert) & (valsin > post_max_invert))
+        cng_thresh = -1 * cng_thresh
         
-    if base_thresh:
-        ## set base_thresh <feature_model:pheno_basethresh> to restrict set of possible events to those with reasonable post-event value 
-        plausvals = valsin.where(valsin <= base_thresh)
-    else:
-        plausvals = valsin
-
-    logger.info(f'finding instances of values < {base_thresh} where values have dropped by at least {cng_thresh} since previous observation')
-    pass1 = plausvals.where (valsin.fillna(highest) - valsin.shift(time=1).fillna(lowest) <= cng_thresh)  
+    logger.info(f'finding instances of values within basethresh limits where values have dropped by at least {cng_thresh} since previous observation')
+    pass1 = valsin.where(plausvals_post.fillna(highest) - plausvals_pre.shift(time=1).fillna(lowest) <= cng_thresh)  
     ## only count if the low is sustained for at least two more images
-    pass2 = pass1.where (valsin.shift(time=-1).fillna(highest) - valsin.shift(time=1).fillna(lowest) <= (.7 * cng_thresh))
-    pass3 = pass2.where (valsin.shift(time=-2).fillna(highest) - valsin.shift(time=1).fillna(lowest) <= (.7 * cng_thresh))
-    ## remove cases where the previous value was not above the base thresh (often heavily shaded areas)
-    if base_thresh:
-        pass3 = pass3.where(valsin.shift(time=-1) > base_thresh)
-    ##  only count if the previous two values are above the change threshold (not abnormal spike)
-    pass4 = pass3.where((valsin.fillna(highest) - valsin.shift(time=2).fillna(lowest)) < (.8 * cng_thresh))
-    pass5 = pass4.where((valsin.fillna(highest) - valsin.shift(time=3).fillna(lowest)) < (.8 * cng_thresh)).fillna(lowest)
+    pass2 = pass1.where (plausvals_post.shift(time=-1).fillna(highest) - plausvals_pre.shift(time=1).fillna(lowest) <= (.7 * cng_thresh))
+    pass3 = pass2.where (plausvals_post.shift(time=-2).fillna(highest) - plausvals_pre.shift(time=1).fillna(lowest) <= (.7 * cng_thresh))
+    ##  only count if the previous two values are above the change threshod (not abnormal spike)
+    pass4 = pass3.where((plausvals_post.fillna(highest) - plausvals_pre.shift(time=2).fillna(lowest)) < (.7 * cng_thresh))
+    pass5 = pass4.where((plausvals_post.fillna(highest) - plausvals_pre.shift(time=3).fillna(lowest)) < (.7 * cng_thresh))
+    ## filter out if both observations after sig change are nodata and next obs is not significant
+    problem_gap = ((is_null_orig.rolling(time=2, center=False).sum() == 2) & 
+        (plausvals_post.shift(time=-3).fillna(highest) - plausvals_pre.shift(time=1).fillna(lowest) <= (0.7 * cng_thresh)))
+    pass6 = pass5.where(~problem_gap, other=lowest)
 
-    cng_v = pass5.max(dim="time").fillna(lowest).astype('int16')
+    cng_v = pass6.max(dim="time").fillna(lowest).astype('int16')
     if cng_freq == 'bi': ## binary resolution: 1 if any significant change
-       cgn_t = xr.where(pass5 > lowest, 1, lowest).max(dim="time").fillna(lowest)
+       cgn_t = xr.where(pass6 > lowest, 1, lowest).max(dim="time").fillna(lowest)
     elif cng_freq == 'count': ## returns number of significant changes observed
-       cgn_t = pass5.where(pass5 > lowest).count(dim="time").fillna(lowest)
+       cgn_t = pass6.where(pass6 > lowest).count(dim="time").fillna(lowest)
     else:
         ## get day-of-year of significant change observations:
         ## need to fill nas with a valid date for min to work. passing a value in with timestamp or datetime.datetime does not work
         ##     using the last date in the array -- then replacing as 0 after conversion to doy. 
         logger.debug(f"last time vals: {valsin.time[-1].values}")                        
-        change_t = pass5["time"].where(pass5 > lowest).fillna(valsin.time[-1].values).min(dim="time")
+        change_t = pass6["time"].where(pass6 > lowest).fillna(valsin.time[-1].values).min(dim="time")
         logger.debug(f'change_t (before doy): \n {change_t}')
         
         ## convert values for the last day back to Nan (0 here)
@@ -224,8 +234,9 @@ def get_sig_change(ts_stack, ds_stack, cng_thresh, base_thresh=None, image_buffe
             #cgn_t =  -(-cng_t0 // 30).where(cng_t0 != nan_doy, 0)
             cng_t = change_t.dt.month.astype('uint8')
         
-    return cng_t, cng_v 
+    return cng_t, cng_v
     
+
 def find_peak_simp(ts_stack,ds_stack):
     
     with gw.open(ts_stack, time_names = ds_stack) as src:
@@ -384,8 +395,8 @@ def get_senescence(ts_stack, ds_stack, peak_time, method='step'):
     eosv = postpeak1.sel(time=eos, method='nearest').astype('int16')
     return eos, eosv
 
-def prep_pheno_bands(pheno_vars,ts_stack,ds_stack,ts_stack_padded, ds_stack_padded, out_dir,start_yr, 
-                     temp,start_doy,comp_band_names,ras_list,sigdif=None,sigbase=None,img_buf=None,params=None, **gw_args):
+def prep_pheno_bands(pheno_vars,ts_stack,ds_stack,ts_stack_padded, ds_stack_padded, out_dir,start_yr, temp,start_doy,comp_band_names, 
+                     ras_list,sigdif=None, basethresh_pre=None, basethresh_post=None, imgbuf=None,params=None, **gw_args):
 
     logger.info('prepping pheno bands...')
     if isinstance(pheno_vars,str):
@@ -416,15 +427,15 @@ def prep_pheno_bands(pheno_vars,ts_stack,ds_stack,ts_stack_padded, ds_stack_padd
             if '-' not in dv:  ## legacy code
                 norm = None
                 freq = 'doy'
-                thresh = sigdif
+                cng_thresh = sigdif
             else:
-                thresh = dv.split('.')[1]
-                if thresh.startswith('n'):
-                    thresh = -1 * int(thresh[1:])
-                elif thresh.startswith('p'):
-                    thresh = int(thresh[1:])
+                cng_thresh = dv.split('.')[1]
+                if cng_thresh.startswith('n'):
+                    cng_thresh = -1 * int(cng_thresh[1:])
+                elif cng_thresh.startswith('p'):
+                    cng_thresh = int(cng_thresh[1:])
                 else:
-                    thresh = thresh
+                    cng_thresh = cng_thresh
                 if dv.split('.')[2] == 'v':
                     freq = 'doy'
                 else:
@@ -440,31 +451,36 @@ def prep_pheno_bands(pheno_vars,ts_stack,ds_stack,ts_stack_padded, ds_stack_padd
                     norm = None
 
             logger.info(f'calculating delta varaible {dv}...')
-            cng_d0, cng_v0 = get_sig_change(ts_stack, ds_stack, thresh, sigbase, img_buf,cng_freq=freq,normalize=norm)
+            cng_d0, cng_v0 = get_sig_change(ts_stack, ds_stack, cng_thresh, basethresh_pre, basethresh_post, imgbuf,cng_freq=freq,normalize=norm)
+
             cng_d = cng_d0.persist()
             if (dv.startswith('sigcngv')) or ((dv.startswith('sigcng')) and (dv.split('.')[2] == 'v')):
                 cng_v1 = cng_v0.persist()
                 cng_v = cng_v1.where(cng_d != 0, 0).astype('int16')
                 add_var_to_stack(cng_v,dv,attrs,out_dir,comp_band_names,ras_list,**gw_args) 
+            
             elif dv.startswith('burn'):
+                
+                burn = cng_d.astype('int16')
+                '''
+                ### This does not work with the same index as the burn thresh. Would need to use second index.
                 medras = mmed.persist()
                 minras = mmin.persist()
                 ## remove very shady areas
+                medthresh = 0
                 if params and params['feature_model']['pheno_shadethreshmed']: 
                     medthresh = params['feature_model']['pheno_shadethreshmed']
-                else:
-                    medthresh = 0
+                minthresh = 0    
                 if params and params['feature_model']['pheno_shadethreshmin']:
                     minthresh = params['feature_model']['pheno_shadethreshmin']
-                else: 
-                    minthresh = 0
                 burn = cng_d.where(((medras > medthresh) & (minras > minthresh)),0).astype('int16')
+                '''
                 if '.' not in dv and 'burnmo' in dv:  ##legacy code
                     burn = -(-burn // 30).astype('uint8')
                 add_var_to_stack(burn,dv,attrs,out_dir,comp_band_names,ras_list,**gw_args) 
             else:
                 add_var_to_stack(cng_d,dv,attrs,out_dir,comp_band_names,ras_list,**gw_args) 
-    
+
     if f'slp-{temp}' in pheno_vars:
         slp_path = Path(out_dir)/f'slp-{temp}.tif'
         if not slp_path.is_file():

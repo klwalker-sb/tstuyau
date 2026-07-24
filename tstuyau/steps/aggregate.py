@@ -20,80 +20,139 @@ from .check_reconstruction import reconstruct
 from .pheno import prep_pheno_bands, prep_ts_variable_bands
 from .texture import make_glcm
 
-    
-def get_monthly_ts(si_vars, img_dir, start_yr, start_mo, comp_band_names, ras_list):
-    for img in sorted(list(img_dir.glob('*.tif'))):
-        im = str(img.stem)
-        if (start_mo == 1 and im.startswith(str(start_yr))) or (start_mo > 1 and im.startswith(str(int(start_yr)+1))):
-            logger.debug(f'looking at {im}')
-            if im.endswith('020') and ('Jan-20' in si_vars):
-                ras_list.append(img)
-                comp_band_names.append('Jan-20')
-                logger.info('added Jan')
-        if (start_mo <= 2 and im.startswith(str(start_yr))) or (start_mo > 2 and im.startswith(str(int(start_yr)+1))):
-            if im.endswith('051') and 'Feb-20' in si_vars:
-                ras_list.append(img)
-                comp_band_names.append('Feb-20')
-                logger.info('added Feb')
-        if (start_mo <= 3 and im.startswith(str(start_yr))) or (start_mo > 3 and im.startswith(str(int(start_yr)+1))):
-            if (im.endswith('079') | im.endswith('080')) and 'Mar-20' in si_vars:
-                ras_list.append(img)
-                comp_band_names.append('Mar-20')
-                logger.info('added Mar')
-        if (start_mo <= 4 and im.startswith(str(start_yr))) or (start_mo > 4 and im.startswith(str(int(start_yr)+1))):
-            if (im.endswith('110') | im.endswith('111')) and 'Apr-20' in si_vars:
-                ras_list.append(img)
-                comp_band_names.append('Apr-20')
-                logger.info('added Apr')
-        if (start_mo <= 5 and im.startswith(str(start_yr))) or (start_mo > 5 and im.startswith(str(int(start_yr)+1))):
-            if (im.endswith('140') | im.endswith('141')) and 'May-20' in si_vars:
-                ras_list.append(img)
-                comp_band_names.append('May-20')
-                logger.info('added May')
-        if (start_mo <= 6 and im.startswith(str(start_yr))) or (start_mo > 6 and im.startswith(str(int(start_yr)+1))):
-            if (im.endswith('171') | im.endswith('172')) and 'Jun-20' in si_vars:
-                ras_list.append(img)
-                comp_band_names.append('Jun-20')
-                logger.info('added Jun')
-        if (start_mo <= 7 and im.startswith(str(start_yr))) or (start_mo > 7 and im.startswith(str(int(start_yr)+1))):
-            if (im.endswith('201') | im.endswith('202')) and 'Jul-20' in si_vars:
-                ras_list.append(img)
-                comp_band_names.append('Jul-20')
-                logger.info('added July')
-        if (start_mo <= 8 and im.startswith(str(start_yr))) or (start_mo > 8 and im.startswith(str(int(start_yr)+1))):
-            if (im.endswith('232') | im.endswith('233')) and 'Aug-20' in si_vars:
-                ras_list.append(img)
-                comp_band_names.append('Aug-20')
-                logger.info('added Aug')
-        if (start_mo <= 9 and im.startswith(str(start_yr))) or (start_mo > 9 and im.startswith(str(int(start_yr)+1))):
-            if (im.endswith('263') | im.endswith('264')) and 'Sep-20' in si_vars:
-                ras_list.append(img)
-                comp_band_names.append('Sep-20')
-                logger.info('added Sep')
-        if (start_mo <= 10 and im.startswith(str(start_yr))) or (start_mo > 10 and im.startswith(str(int(start_yr)+1))):
-            if (im.endswith('293') | im.endswith('294')) and 'Oct-20' in si_vars:
-                ras_list.append(img)
-                comp_band_names.append('Oct-20')
-                logger.info('added Oct')
-        if (start_mo <= 11 and im.startswith(str(start_yr))) or (start_mo > 11 and im.startswith(str(int(start_yr)+1))):
-            logger.debug(f'looking at {im}')
-            if (im.endswith('324') | im.endswith('325')) and 'Nov-20' in si_vars:
-                ras_list.append(img)
-                comp_band_names.append('Nov-20')
-                logger.info('added Nov')
-        if (start_mo <=12 and im.startswith(str(start_yr))):
-            if (im.endswith('354') | im.endswith('355')) and 'Dec-20' in si_vars:
-                ras_list.append(img)
-                comp_band_names.append('Dec-20')
-                logger.info('added Dec')
 
+def get_monthly_ts(si_vars, img_dir, start_yr, start_mo, comp_band_names, ras_list, ts_type=None):
+
+    '''
+    This is just to pull single image per month from time series. It is called if the month is the variable (the first component of <si_var>,
+    not the aggregation factor (the second component of si_var). To calculate monthly statistics, we get the dates with get_date_range in date_utils.
+    This currently pulls the image from the 20th of the month (or the closest to it if a raw ts). TODO: allow for other values, like the 1st. 
+    '''
+
+    MONTH_DEFS = {
+    'Jan': {'mo_num': 1, 'doy_20': ('020',)},
+    'Feb': {'mo_num': 2, 'doy_20': ('051',)},
+    'Mar': {'mo_num': 3, 'doy_20': ('079', '080')},
+    'Apr': {'mo_num': 4, 'doy_20': ('110', '111')},
+    'May': {'mo_num': 5, 'doy_20': ('140', '141')},
+    'Jun': {'mo_num': 6, 'doy_20': ('171', '172')},
+    'Jul': {'mo_num': 7, 'doy_20': ('201', '202')},
+    'Aug': {'mo_num': 8, 'doy_20': ('232', '233')},
+    'Sep': {'mo_num': 9, 'doy_20': ('263', '264')},
+    'Oct': {'mo_num': 10, 'doy_20': ('293', '294')},
+    'Nov': {'mo_num': 11, 'doy_20': ('324', '325')},
+    'Dec': {'mo_num': 12, 'doy_20': ('354', '355')}
+    }
+    
+    current_year_str = str(start_yr)
+    next_year_str = str(int(start_yr) + 1)
+
+    all_imgs = sorted(list(img_dir.glob('*.tif')))
+    
+    months_to_run = {}
+    ## Check whether each month is in any of the si_vars before running it
+    for mo_name, mo_defs in MONTH_CONFIGS.items():       
+        if any(var.startswith(mo_name) for var in si_vars):
+            months_to_run[mo_name] = mo_defs
+
+    for mo_name, mo_defs in months_to_run.items():
+        ## Determine the target year prefix for this month (in case the year doesn't start Jan 1st)
+        target_year_str = current_year_str if start_mo <= mo_defs['mo_num'] else next_year_str
+        candidate_images = [img for img in all_imgs if img.stem.startswith(target_year_str)]
+        if not candidate_images:
+            logger.warning(f"No images found in {mo_name} for year {target_year_str}")
+        else:
+            if f'{mo_name}-20' in si_vars:
+                ## just grab the image that corresponds to the 20th of the month (or closest if using raw time series)
+                if (not ts_type) or (ts_type.startswith('sm')):
+                    for img in all_imgs:
+                        im = img.stem
+                        if im.startswith(target_year_str) and im.endswith(mo_defs['doy_20']):
+                            ras_list.append(img)
+                            comp_band_names.append(f'{mo_name}-20')
+                            logger.info(f"added {mo_name}-20")   
+                elif ts_type == 'raw':
+                    best_img = None
+                    smallest_distance = float('inf')
+
+                    # Evaluate candidates to find the one closest to the 20th doy
+                    for img in candidate_images:
+                        try:
+                            img_suffix_num = int(img.stem[len(target_year_str):])
+                        except ValueError:
+                            continue # Skip files without clean numbers at the end
+            
+                        ## Find the absolute distance to the nearest target suffix
+                        ## (e.g. if suffixes are 79 and 80, and file is 82, distance is 2)
+                        this_dist = abs(img_suffix_num - mo_defs['doy_20'][0])
+                        # If this image is closer than anything we've seen before, save it
+                        if this_dist < smallest_distance:
+                            smallest_distance = this_dist
+                            best_img = img
+
+                    if best_img:
+                        ras_list.append(best_img)
+                        comp_band_names.append(mo_name)
+                        logger.info(f"added {mo_name} ({smallest_distance} days from 20th)")
+    
     return comp_band_names,ras_list
 
+def get_image_stack(params, temp, img_dir):
+        
+    model_yr = int(params['feature_model']['start_yr'])
+    ts_stack = []
+    ds_stack = []
+    if (params['feature_model']['use_pheno'] and params['feature_model']['pheno_pad_days'] and params['feature_model']['pheno_pad_days'] != [0,0]):
+        padding = True
+        pad_days = params['feature_model']['pheno_pad_days']
+        ts_stack_padded = []
+        ds_stack_padded = []
+    else:
+        padding = False
+    start, end = get_date_range(model_yr,temp,params,return_type='doy',padded=False)
+    logger.info(f"using images for {temp} from {start} to {end} \n")
+
+    logger.info(f"looking in {img_dir}...")
+    for img in sorted(img_dir.rglob("*.tif")):
+        ## ts images are named YYYYdoy.tif
+        imgdt = int(img.stem)
+        logger.debug(f'imgdt: {imgdt}')
+        img_date = pd.to_datetime(img.stem,format='%Y%j')
+            
+        if (imgdt >= start) and (imgdt <= end):
+            ts_stack.append(str(img))
+            ds_stack.append(img_date)
+                
+    logger.debug(f'stack length for {temp}: {len(ds_stack)}')
+    if padding:
+        padded_start, padded_end = get_date_range(model_yr,temp,params,return_type='doy',padded=True)
+        if (imgdt >= padded_start) and (imgdt <= padded_end):
+            ts_stack_padded.append(str(img))
+            ds_stack_padded.append(img_date)
+        
+    return ts_stack, ds_stack, ts_stack_padded, ds_stack_padded
+     
 def make_ts_composite_single(ppaths, params):
+    '''
+    makes ts composite for a single year
+    '''
 
     si = params['feature_model']['spec_indices'][0]  ##Only working for first index for now. TODO: loop through all sis in list
     si_vars = params['feature_model']['si_vars']
-       
+
+    if (len(si_vars) == 1):
+        si_stat = si_vars[0].split('-')[0]
+        if 'Monthly' in si_vars[0] or 'monthly' in si_vars[0]:
+            logger.info(f'Making monthly {si_stat} composite')
+            all_months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+            offset = params['calendar']['first_mo'] - 1
+            ## reorder so that band sequence will start at start_mo if making monthly composite
+            reordered_months = all_months[offset:] + all_months[:offset]
+            si_vars = [f'{si_stat}-{mon}' for mon in reordered_months]
+        elif 'Quarterly' in si_vars[0] or 'quarterly' in si_vars[0]:
+            logger.info(f'Making quarterly {si_stat} composite')
+            si_vars = [f'{si_stat}-Q1',f'{si_stat}-Q2',f'{si_stat}-Q3',f'{si_stat}-Q4']
+    
     model_yr = int(params['feature_model']['start_yr'])
     start_mo = params['calendar']['first_mo']
     start_doy = int(30.5 * int(start_mo)) - 30
@@ -102,19 +161,18 @@ def make_ts_composite_single(ppaths, params):
     tmpout_dir.mkdir(parents=True, exist_ok=True)
 
     ## the following parameters are only needed for pheno variables, and only for some cases
+    sigdif = None
     if params['feature_model']['pheno_sigdif']:
         sigdif = params['feature_model']['pheno_sigdif']
-    else:
-        sigdif = None
-    if params['feature_model']['pheno_basethresh'] is not None:
-        basethresh = params['feature_model']['pheno_basethresh']
-    else:
-        basethresh = None
+    basethresh_pre = None    
+    if params['feature_model']['pheno_basethresh_pre'] is not None:
+        basethresh_pre = params['feature_model']['pheno_basethresh_pre']
+    if params['feature_model']['pheno_basethresh_post'] is not None:
+        basethresh_post = params['feature_model']['pheno_basethresh_post'] 
+    imgbuf = None
     if params['feature_model']['pheno_imgbuf'] is not None:
         imgbuf = params['feature_model']['pheno_imgbuf']
-    else:
-        imgbuf = None
-
+        
     if '-' in si:
         tst = si.split('-')[1]
         if 'raw' in tst:
@@ -128,19 +186,25 @@ def make_ts_composite_single(ppaths, params):
     else:
         ts_type = 'smooth'
 
+    ### DO THIS
+    ###if __ == 'monthly'...
+    ###    params['reconstruct']['overwrite']
+    
     ras_list = []
     comp_band_names = []
     gw_args = {'verbose':1,'n_workers':4,'n_threads':1,'n_chunks':200, 'gdal_cache':64,'overwrite':True}
 
     ts_root = get_tsdir_name(params)
     if ts_type == 'raw':
+        ## If time series is raw, will run reconstruction to calculate si for all images in time period (with pheno pad if set) 
+        ##    and output them to a tmp folder. all images in this tmp folder are then used for the calculation of the statistic.
         for i, var in enumerate(si_vars):
             params['feature_model']['si_vars'] = [var]
             logger.info(f"working on unsmoothed brdf images for {var}")
             ts_stack = []
             ds_stack = []
+            season = var.split('-')[1]
             img_dir = ppaths.scratch / 'raw' / ts_root / si / str(model_yr)
-    
             params['reconstruct']['si'] = si
             params['reconstruct']['start'] = params['feature_model']['start_yr']
             if params['calendar']['first_mo']>1:
@@ -157,13 +221,14 @@ def make_ts_composite_single(ppaths, params):
                     if season == former_season:
                         params['reconstruct']['overwrite'] = False
             logger.debug(f"overwrite = {params['reconstruct']['overwrite']}")
+        
             if params['reconstruct']['overwrite'] or (not img_dir.is_dir()) or (not any(img_dir.glob('*.tif'))):
                 ## calculate the indices for selected time period -- these are sent to ppaths.scratch/raw/sis
                 logger.info(f'calculating new raw time series for {si} index in {img_dir}')
                 reconstruct(params)
             
             ## read the images in the img_dir to get the aggregated bands for the composite
-            season = var.split('-')[1]
+            
             images = list(img_dir.rglob("*.tif"))
             
             if len(images) == 0:
@@ -181,106 +246,55 @@ def make_ts_composite_single(ppaths, params):
 
                 if params['feature_model']['use_pheno']:
                     comp_band_names,ras_list = prep_pheno_bands(var, ts_stack, ds_stack, ts_stack, ds_stack,tmpout_dir,model_yr,
-                        season, start_doy, comp_band_names, ras_list, sigdif=sigdif, basethresh=basethresh, imgbuf=imgbuf, **gw_args)
+                        season, start_doy, comp_band_names, ras_list, sigdif=sigdif, 
+                        basethresh_pre=basethresh_pre, basethresh_post=basethresh_post, imgbuf=imgbuf, **gw_args)
 
                 else:
                     comp_band_names,ras_list = prep_ts_variable_bands(
                         var, ts_stack, ds_stack, tmpout_dir,season,start_doy, comp_band_names, ras_list, nodata_in, ppaths, **gw_args)
-    
+
     elif ts_type == 'smooth':
         ## get stack from images in smoothed time-series directory that match temporal period of interest
         img_dir = ppaths.ts / si
-        ts_stack = []
-        ds_stack = []
-        ts_stack_wet = []
-        ts_stack_dry = []
-        ds_stack_wet = []
-        ds_stack_dry = []
-        
-        if (params['feature_model']['use_pheno'] and params['feature_model']['pheno_pad_days'] and params['feature_model']['pheno_pad_days'] != [0,0]):
-            padding = True
-            pad_days = params['feature_model']['pheno_pad_days']
-            ts_stack_wet_padded = []
-            ds_stack_wet_padded = []
-            ts_stack_dry_padded = []
-            ds_stack_dry_padded = []
-            logger.info(f"padded will add {pad_days[0]} days on left and {pad_days[1]} days on right \n")
-        else:
-            padding = False
 
-        yr_start, yr_end = get_date_range(model_yr,'yr',params,return_type='doy',padded=False)
-        wet_start, wet_end = get_date_range(model_yr,'wet',params,return_type='doy',padded=False)
-        dry_start, dry_end = get_date_range(model_yr,'dry',params,return_type='doy',padded=False)
-        logger.info(f"using images from {yr_start} to {yr_end} \n")
-        logger.info(f"wet season is from {wet_start} to {wet_end} and dry season is from {dry_start} to {dry_end} \n")
-        
-        logger.info(f"looking in {img_dir}...")
-        for img in sorted(img_dir.rglob("*.tif")):
-            ## ts images are named YYYYdoy.tif
-            imgdt = int(img.stem)
-            logger.debug(f'imgdt: {imgdt}')
-            img_date = pd.to_datetime(img.stem,format='%Y%j')
-            
-            if (imgdt >= yr_start) and (imgdt <= yr_end):
-                ts_stack.append(str(img))
-                ds_stack.append(img_date)
-                
-            ## if in wet season add to wet season subset
-            if (imgdt >= wet_start) and (imgdt <= wet_end):
-                ts_stack_wet.append(str(img))
-                ds_stack_wet.append(img_date)
-                    
-            ## if in dry season add to dry season subset
-            if (imgdt >= dry_start) and (imgdt <= dry_end):
-                ts_stack_dry.append(str(img))
-                ds_stack_dry.append(img_date)
-
-            logger.debug(f'images stack lengths: annual:{len(ds_stack)}, wet:{len(ds_stack_wet)}, dry:{len(ds_stack_dry)}')
-            
-            if padding:
-                wet_padded_start, wet_padded_end = get_date_range(model_yr,'wet',params,return_type='doy',padded=True)
-                if (imgdt >= wet_padded_start) and (imgdt <= wet_padded_end):
-                    ts_stack_wet_padded.append(str(img))
-                    ds_stack_wet_padded.append(img_date)
-                    
-                dry_padded_start, dry_padded_end = get_date_range(model_yr,'dry',params,return_type='doy',padded=True)
-                if (imgdt >= dry_padded_start) and (imgdt <= dry_padded_end):
-                    ts_stack_dry_padded.append(str(img))
-                    ds_stack_dry_padded.append(img_date)
-                    
         ## Calculate statistics for each time period
-        
-        annual_bands = [b for b in si_vars if (("-" not in b) and ("_" not in b)) or 'yr' in b]
-        logger.info(f"calculating annual bands: {annual_bands}...")
-        if len(annual_bands) > 0:
+
+        ## if temp not specified in si_var, treat as year:
+        yr_bands = [b for b in si_vars if ("-" not in b) and ("_" not in b)]
+        if len(yr_bands) > 0:
+            logger.info(f"calculating {annual} bands: {yr_bands}...")
+            ts_stack, ds_stack, ts_stack_padded, ds_stack_padded = get_image_stack(params,'yr',img_dir)
             if params['feature_model']['use_pheno']:
-                comp_band_names,ras_list = prep_pheno_bands(annual_bands, ts_stack, ds_stack, None, None, 
-                    tmpout_dir,model_yr,'yr',start_doy, comp_band_names, ras_list, sigdif=sigdif, basethresh=basethresh, imgbuf=imgbuf, **gw_args)
+                comp_band_names,ras_list = prep_pheno_bands(annual_bands, ts_stack, ds_stack, ts_stack_padded, ds_stack_padded, 
+                    tmpout_dir,model_yr,'yr', start_doy, comp_band_names, ras_list, sigdif=sigdif, basethresh_pre=basethresh_pre, 
+                    basethresh_post=basethresh_post, imgbuf=imgbuf, **gw_args)
             else:
                 comp_band_names,ras_list = prep_ts_variable_bands(annual_bands, ts_stack, ds_stack, 
-                                                                  tmpout_dir,'yr',start_doy, comp_band_names, ras_list, nodata_in, ppaths, **gw_args)
+                                                                  tmpout_dir,temp,start_doy, comp_band_names, ras_list, nodata_in, ppaths, **gw_args)
 
-        wet_bands = [b for b in si_vars if ("_" in b and b.split("_")[1] == 'wet') or ("-" in b and b.split("-")[1] == 'wet')]
-        logger.info(f"calculating wet bands: {wet_bands}...")
-        if len(wet_bands) > 0:
-            if params['feature_model']['use_pheno']:
-                comp_band_names,ras_list = prep_pheno_bands(wet_bands, ts_stack_wet, ds_stack_wet, ts_stack_wet_padded, ds_stack_wet_padded,
-                    tmpout_dir,model_yr,'wet', start_doy, comp_band_names, ras_list, sigdif=sigdif, basethresh=basethresh, imgbuf=imgbuf, **gw_args)
-            else:
-                comp_band_names,ras_list = prep_ts_variable_bands(wet_bands, ts_stack_wet, ds_stack_wet, 
-                                                                  tmpout_dir,'wet', start_doy, comp_band_names, ras_list, nodata_in, ppaths, **gw_args)
-            
-        dry_bands = [b for b in si_vars if ("_" in b and b.split("_")[1] == 'dry') or ("-" in b and b.split("-")[1] == 'dry')]
-        logger.info(f"calculating dry bands: {dry_bands}...")
-        if len(dry_bands) > 0:
-            if params['feature_model']['use_pheno']:
-                comp_band_names,ras_list = prep_pheno_bands(dry_bands, ts_stack_dry, ds_stack_dry, ts_stack_dry_padded, ds_stack_dry_padded,
-                    tmpout_dir,model_yr,'dry', start_doy, comp_band_names, ras_list, sigdif=sigdif, basethresh=basethresh, imgbuf=imgbuf, **gw_args)
-            else:
-                comp_band_names,ras_list = prep_ts_variable_bands(dry_bands, ts_stack_dry, ds_stack_dry, 
-                                                                  tmpout_dir,'dry', start_doy, comp_band_names, ras_list, nodata_in, ppaths, **gw_args)
-    
-        mo_bands = [b for b in si_vars if ("_" in b and b.split("_")[1] == '20') or ('-' in b and b.split("-")[1] == '20')]
+        all_months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+        offset = params['calendar']['first_mo'] - 1
+        ## reorder so that band sequence will start at start_mo if making monthly composite
+        reordered_months = all_months[offset:] + all_months[:offset]
+        logger.info(f'month order will be {reordered_months}')
+        all_quarters = ['Q1','Q2','Q3','Q4']  ## nothe these are already defined starting at start_mo
+        all_temps = ['yr','wet','dry'] + reordered_months + all_quarters
+        
+        for temp in all_temps:
+            bands = [b for b in si_vars if ("_" in b and b.split("_")[1] == temp) or ("-" in b and b.split("-")[1] == temp)]
+            if len(bands) > 0:
+                logger.info(f"calculating {temp} bands: {bands}...")
+                ts_stack, ds_stack, ts_stack_padded, ds_stack_padded = get_image_stack(params,temp, img_dir)
+                if params['feature_model']['use_pheno']:
+                    comp_band_names,ras_list = prep_pheno_bands(bands, ts_stack, ds_stack, ts_stack_padded, ds_stack_padded, 
+                        tmpout_dir,model_yr,temp, start_doy, comp_band_names, ras_list, sigdif=sigdif, basethresh_pre=basethresh_pre, 
+                        basethresh_post=basethresh_post, imgbuf=imgbuf, **gw_args)
+                else:
+                    comp_band_names,ras_list = prep_ts_variable_bands(bands, ts_stack, ds_stack, 
+                                                                  tmpout_dir,temp,start_doy, comp_band_names, ras_list, nodata_in, ppaths, **gw_args)
+
+        ## to get an example image of each month (from the 20th), the SI variable is written with month first (as statistic) followed by -20 (e.g. Jan-20) 
+        mo_bands = [b for b in si_vars if ("-" in b and b.split("_")[1] == '20') or ('-' in b and b.split("-")[1] == '20')]
         if len(mo_bands) > 0:
             comp_band_names,ras_list = get_monthly_ts(mo_bands, img_dir, model_yr, start_mo, comp_band_names, ras_list)
 
@@ -338,16 +352,19 @@ def make_ts_composite(params):
         logger.warning("WARNING: all but the first spec index will be ignored")
 
     si = params['feature_model']['spec_indices'][0]
-    
+
+    ## sipre is usually '' unless compare params are set to compare models with different image_type, resolution and/or procseq
     sipre = get_tsdir_name(params)
     if sipre == '' or sipre == 'ms':
         si_full = si
     else:
         si_full = f'{sipre}_{si}'
         
-    si_vars = params['feature_model']['si_vars']
+    si_vars0 = params['feature_model']['si_vars']
+    if isinstance(si_vars0, str):
+        si_vars0 = [si_vars0]
     mod_yr = params['feature_model']['start_yr']
-    logger.debug(f"si_vars = {si_vars}")
+    logger.debug(f"si_vars = {si_vars0}")
     
     if isinstance(params['grids'],int):
         params['grids'] = [params['grids']]
@@ -366,32 +383,42 @@ def make_ts_composite(params):
             
             comp_band_names, ras_list = make_ts_composite_single(ppaths, params)
             logger.info(f' ras_list: {ras_list}')
-            
-            if len(ras_list) < len(si_vars):
+            logger.info(f' band_names: {comp_band_names}')
+
+            if len(ras_list) < len(si_vars0):
                 logger.warning('OOPS -- got an unknown band')
-
-            else:
-                ## Start writing output composite
-                with rio.open(ras_list[0]) as src0:
-                    meta = src0.meta
-                    meta.update(count = len(ras_list))
-
-                if params['feature_model']['use_pheno']:
-                    out_ras = f"{out_dir}/{int(cell):06d}_{mod_yr}_{si_full}_{'-'.join(comp_band_names)}_Phen.tif"
+            elif (len(si_vars0) == 1) and ('Monthly' in si_vars0[0]) and(len(ras_list)) < 12:
+                logger.warning(f'UH_OH -- montlhy series only has {len(ras_list)} bands')
+            elif (len(si_vars0) == 1) and ('Quarterly' in si_vars0[0]) and(len(ras_list)) < 4:
+                logger.warning(f'UH_OH -- quarterly series only has {len(ras_list)} bands')
                 
+            else:
+                if (len(si_vars0) == 1) and (('Monthly' in si_vars0[0]) or ('Quarterly' in si_vars0[0])):
+                    out_ras = f"{out_dir}/{int(cell):06d}_{mod_yr}_{si_full}_{si_vars0[0]}.tif"
+                    ## simplify band names
+                    comp_band_names = [s.split('.')[0] + '-' + s.split('-')[-1] if '.' in s else s for s in comp_band_names]
+                elif params['feature_model']['use_pheno']:
+                    out_ras = f"{out_dir}/{int(cell):06d}_{mod_yr}_{si_full}_{'-'.join(comp_band_names)}_Phen.tif"
                 else:
                     if len(ras_list)>12:
                         out_ras = f"{out_dir}/{int(cell):06d}_{mod_yr}_{si_full}_ModVars.tif"
                     elif len(ras_list)==12:
-                        out_ras = f"{out_dir}/{int(cell):06d}_{mod_yr}_{si_full}_monthly.tif"
+                        out_ras = f"{out_dir}/{int(cell):06d}_{mod_yr}_{si_full}_monthly20.tif"
                     else:
                         out_ras = f"{out_dir}/{int(cell):06d}_{mod_yr}_{si_full}_{'-'.join(comp_band_names)}.tif"
+                        
+            ## Start writing output composite
+            with rio.open(ras_list[0]) as src0:
+                meta = src0.meta
+                meta.update(count = len(ras_list))
 
-                with rio.open(out_ras, 'w', **meta) as dst:
-                    for id, layer in enumerate(ras_list, start=1):
-                        with rio.open(layer) as src1:
-                            dst.write(src1.read(1),id)
+            with rio.open(out_ras, 'w', **meta) as dst:
+                for id, layer in enumerate(ras_list, start=1):
+                    with rio.open(layer) as src1:
+                        dst.write(src1.read(1),id)
                     dst.descriptions = tuple(comp_band_names)
+
+            logger.info(f'final composite written to {out_ras}')
                 
         else:
             logger.info(f'making multi year composite for cell {cell}...')
