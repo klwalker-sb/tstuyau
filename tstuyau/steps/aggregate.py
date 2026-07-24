@@ -474,7 +474,6 @@ def mosaic_cells(params, out_path=None):
     '''
     if out_path:
         out_dir = Path(out_path).parent
-        output_path = out_path
     elif params['classify']['test']:
         out_dir = Path(params['scratch_dir']) / 'classified'
     else:
@@ -485,11 +484,11 @@ def mosaic_cells(params, out_path=None):
         params['grids'] = [params['grids']]
     if isinstance(params['grids'], list):
         cells = params['grids']
-        if not output_path:
-            output_path = Path(out_dir) / f"{params['classify']['name']}_mosaic.tif"
+        if not out_path:
+            out_path = Path(out_dir) / f"{params['classify']['name']}_mosaic.tif"
     elif params['grids'].endswith('.csv'):
-        if not output_path:
-            output_path = Path(out_dir) / f"{Path(params['grids']).stem}_{params['classify']['name']}.tif"
+        if not out_path:
+            out_path = Path(out_dir) / f"{Path(params['grids']).stem}_{params['classify']['name']}.tif"
         cells = []
         with open(params['grids'], newline='') as cell_file:
             for row in csv.reader(cell_file):
@@ -580,9 +579,9 @@ def mosaic_cells(params, out_path=None):
                 "transform": output,
             })
     
-        with rio.open(output_path, 'w', **out_meta) as m:
+        with rio.open(out_path, 'w', **out_meta) as m:
             m.write(mosaic)
-            logger.info(f"writing mosaic to: {output_path}")
+            logger.info(f"writing mosaic to: {out_path}")
 
     else:
         logger.warning("OOPS -- Sorry -- this script has not been finished! - you can save the mosaic for now by setting classify:save_mosaic = True")
