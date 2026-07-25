@@ -529,6 +529,7 @@ def mosaic_cells(params, out_path=None):
         
     with rio.open(ras_list[0], 'r') as src_exmp:
         out_meta = src_exmp.meta.copy()
+        band_names = src_exmp.descriptions
     logger.debug(f"these are {src_exmp.meta['count']}-band rasters")
             
     if params['buffer']:
@@ -574,6 +575,7 @@ def mosaic_cells(params, out_path=None):
     if params['classify']['save_mosaic']:
         out_meta.update(
             {"driver": "GTiff",
+                "compress":'lzw',
                 "height": mosaic.shape[1],
                 "width": mosaic.shape[2],
                 "transform": output,
@@ -581,6 +583,7 @@ def mosaic_cells(params, out_path=None):
     
         with rio.open(out_path, 'w', **out_meta) as m:
             m.write(mosaic)
+            m.descriptions = band_names
             logger.info(f"writing mosaic to: {out_path}")
 
     else:
@@ -593,4 +596,4 @@ def mosaic_cells(params, out_path=None):
         for mf in mem_files:
             mf.close()
 
-    return output_path
+    return out_path
