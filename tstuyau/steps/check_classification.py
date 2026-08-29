@@ -7,7 +7,7 @@ from ..handler import logger
 from .project import ProjectPaths
 from .check_model_prep import make_variable_stack,  make_and_score_model
 from .mod_utils import getset_feature_model, get_train_yrs_str, get_class_col, prep_test_train
-from .lookup import SCHEMATIC_MODS, CROP_CATS
+from .lookup import SCHEMATIC_MODS, LC_CATS
 from . import date_utils, image_utils, prechecks
 from .. import errors
 

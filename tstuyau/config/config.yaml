@@ -30,8 +30,6 @@ grid_file: "/home/sandbox-cel/LUCinLA_grid_8858.gpkg"
 grid_size: 20000
 # <buffer> is extra distance (in m) added to each cell edge to avoid edge effects
 buffer: 100
-# <nodata> is the image 'no data' value
-nodata: 65535
 ################################################################################################################################
 
 ## <log_level> sets logging options for output message detail: DEBUG | INFO | WARNING
@@ -42,6 +40,8 @@ grids:
 # <res> is the input images. when res is passed to geowombat, the precision will determine the output datatype. 
 #      If rasters with 0-1 values are being processed, res needs a decimal or the output will be 0/1.
 res: 10.0
+# <nodata> is the image 'no data' value
+nodata: 65535
 # <image_type> (currently 'LS2' for all Landsat & Sentinel-2, 'S2' for all Sentinel-2 only, 'L' for all Landsat only,
 #              or 'LT05', 'LE07', 'LC08', 'LC09' for specific Landsats -- adding 'PS' for PlanetScopee, 'S1' for Sentinel-1...)
 image_type: 'LS2'
@@ -600,16 +600,37 @@ segment:
     ## <segment:acc_id_col> is .txt file with first column called 'id' identifying random holdout chips to use for accuracy assessment
     region_id_file: "/home/scratch-cel/cnet/cnet_training_regions.txt"
     acc_id_file: "cnet_training_regions_holdout.txt"
-    ##<segment:pos_classes> is a list of positive classes for vectorization (e.g. crops in crop model) 
+    ## <segment:pos_classes> is a list of positive classes for vectorization (e.g. crops in crop model) 
     pos_classes: [1]
     target: 'crop'
 
 refine:
-    ##<refine:post_filter> is the post aggregation filter method (currently only available for 'smCrop')
-    post_filter: 'smCrop'
+    ## <refine:spatial_filter> is the post aggregation spatial context filter method (currently only available for 'smCrop')
+    spatial_filter: 'smCrop'
     ##<refine:buffer> is the distance to buffer polygons for post filters
     buffer: 20
-    ##<refine:sm_neighborhood> is the size of the neighborhood (pixel width) for moving window calculations for smallholder filters 
+    ## <refine:sm_neighborhood> is the size of the neighborhood (pixel width) for moving window calculations for smallholder filters 
     sm_neighborhood: 3
     ##<refine:neighborhood> is the size of the neighborhood (in pixels) for moving window calculations for other filters
     neighborhood: 100
+
+    ##<refine:mod_prescript> common begging of filenames for files to be included in final time series filter (before year)
+    mod_prescript: 'CELPyTile9_base4Poly6_bal200mix4'
+    ##<refine:mod_postscript> common ending of filenames files to be included in final time series filter (after year; do not include extension)
+    mod_postscript: 'filtsmh-sp'
+    ## <refine:stable_group> are classes that are theoretically stable through time (should not have short-term fluctuations) and need retouching in ts
+    ##   if the same type of class is listed more than once, (e.g. multiple forest types), class assignment will be prioritized in the order provided.
+    stable_group: ['shrub_for','palm_for','open_for','dense_for','wet','grass_Py36']
+    ## <refine:stable_regions> are regions/strata to apply stability filter to (e.g. 'shrub_forest' needs retouching in the Chaco (1) in Py.
+    ##   This is an array in same order as priority_classes. 0, 'NA' or 'All' indicates that there is no special regional treatment
+    stable_regions: [1,'All','All','All','All','All']
+    ## <refine:stable_region_file> is the file (raster) containing the regions/strata if stable_regions is defined. Should be in same crd as classified rasters. 
+    stable_region_file: '/home/downspout-cel/paraguay_lc/ancillary/forest_strata.tif'
+    ## <refine:illogical> = class combinations that frequently appear in illogical combinations together and warrent retouching 
+    illogical: ['sugar-palm','palm_for-grass','grass-forest','tree_plant-med_crop']
+    ## <refine:illogical_regions> = regions/strata to retouch illogical classes, provided as array in same order as the illogical classes. 
+    ##   0, 'NA' or 'All' indicates that there is no special regional treatment
+    illogical_regions: ['All',2,2,'All']
+    illogical_region_file: '/home/downspout-cel/paraguay_lc/ancillary/forest_strata.tif'
+    ## <refine:save_inter> whether to save intermediate files for testng/checking
+    save_inter: True

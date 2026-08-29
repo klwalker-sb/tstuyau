@@ -280,7 +280,11 @@ class SpecIndices(object):
     @staticmethod
     def mirbi(data,extra_param):
         idx = .2 * (10*data[1] -(9.8*data[0]) + 2)
-        return np.where(data[1] + data[0] == 0, 0, idx) 
+        has_nan = np.isnan(data[0]) | np.isnan(data[1])
+        is_zero = np.isclose(data[0], 0, atol=1e-5) & np.isclose(data[1], 0, atol=1e-5)
+        should_mask = has_nan | is_zero
+        #return np.where(data[1] + data[0] == 0, 0, idx) 
+        return np.where(should_mask, 0, idx)
 
     @staticmethod
     def bai(data,extra_param):

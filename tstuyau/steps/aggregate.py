@@ -142,14 +142,15 @@ def make_ts_composite_single(ppaths, params):
 
     if (len(si_vars) == 1):
         si_stat = si_vars[0].split('-')[0]
-        if 'Monthly' in si_vars[0] or 'monthly' in si_vars[0]:
+        if 'monthly' in si_vars[0].lower():
             logger.info(f'Making monthly {si_stat} composite')
+            ## convert single si_var to full list of monthly variables to compute
             all_months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
             offset = params['calendar']['first_mo'] - 1
             ## reorder so that band sequence will start at start_mo if making monthly composite
             reordered_months = all_months[offset:] + all_months[:offset]
             si_vars = [f'{si_stat}-{mon}' for mon in reordered_months]
-        elif 'Quarterly' in si_vars[0] or 'quarterly' in si_vars[0]:
+        elif 'quarterly' in si_vars[0].lower():
             logger.info(f'Making quarterly {si_stat} composite')
             si_vars = [f'{si_stat}-Q1',f'{si_stat}-Q2',f'{si_stat}-Q3',f'{si_stat}-Q4']
     
@@ -245,9 +246,11 @@ def make_ts_composite_single(ppaths, params):
                 logger.debug(f'the set of images being used for this band are from: {ds_stack}')
 
                 if params['feature_model']['use_pheno']:
+                    ## note the padding from <feature_model:pheno_pad_day> is already added to the time series during reconstruction, 
+                    ##      so ts_stack and ts_stack padded are the same. Need to access params to strip buffer from end product if desired.
                     comp_band_names,ras_list = prep_pheno_bands(var, ts_stack, ds_stack, ts_stack, ds_stack,tmpout_dir,model_yr,
                         season, start_doy, comp_band_names, ras_list, sigdif=sigdif, 
-                        basethresh_pre=basethresh_pre, basethresh_post=basethresh_post, imgbuf=imgbuf, **gw_args)
+                        basethresh_pre=basethresh_pre, basethresh_post=basethresh_post, imgbuf=imgbuf, params=params, **gw_args)
 
                 else:
                     comp_band_names,ras_list = prep_ts_variable_bands(

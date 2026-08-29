@@ -2,6 +2,7 @@ import sys
 import re
 from pathlib import Path
 import datetime
+from datetime import datetime, timedelta
 import rasterio as rio
 import numpy as np
 import geowombat as gw
@@ -9,6 +10,7 @@ import xarray as xr
 import pandas as pd
 #import bottleneck
 from ..handler import logger
+from .date_utils import doy_to_month_array_vals
 
 
 def add_var_to_stack(arr, var, attrs, out_dir, comp_band_names, ras_list, **gw_args):
@@ -133,8 +135,27 @@ def p95(data, axis=1):
 ##################################################################################################
 ### phenology functions
 ##################################################################################################
+
+
+def unpad_ts(temp, pad_days, start_yr, freq='doy'):
+    ts_doy_range = get_date_range(start_yr,temp,params,return_type='ymd',padded=False)
+
+    start_str, end_str = ts_doy_range
+    start_date = datetime.strptime(start_str, "%Y-%m-%d")
+    end_date = datetime.strptime(end_str, "%Y-%m-%d")
+
+    # shrink the range inward by pad_days on each side
+    padded_start = start_date + timedelta(days=pad_days[0])
+    padded_end = end_date - timedelta(days=pad_days[1])
+
+    if freq == 'doy':
+        start_doy = padded_start.timetuple().tm_yday
+        end_doy = padded_end.timetuple().tm_yday
     
-def get_sig_change(ts_stack, ds_stack, cng_thresh, basethresh_pre=[0,10000], basethresh_post=[0,10000], imgbuf=0, cng_freq='doy', normalize=None):
+    return start_doy, end_doy
+    
+def get_sig_change(ts_stack, ds_stack, cng_thresh, basethresh_pre=[0,10000], basethresh_post=[0,10000], 
+                   imgbuf=0, temp='yr', cng_freq='doy', normalize=None, params=None):
     '''
     Captures moment of significant change (above <cng_thresh>) in index, either as a drop (negatve <cng_thresh>) or spike (positive <cng_thresh>) 
     Returns change events formated based on <cng_freq>: 'bi' = 0/1, 'count', 'doy' (day-of-year of 1st occurance), or 'mo' (month of first occurance)
@@ -227,13 +248,19 @@ def get_sig_change(ts_stack, ds_stack, cng_thresh, basethresh_pre=[0,10000], bas
         logger.info(f"last doy: {nan_doy} being replaced as 0")
 
         cng_t0 = change_t.dt.dayofyear.fillna(0).astype('int16')
-        if cng_freq == 'doy': ## daily resolution, output is day-of-year
-            cng_t = cng_t0.where(cng_t0 != nan_doy, 0)
-        elif cng_freq == 'mo':  ## monthly resolution
+        cng_t = cng_t0.where(cng_t0 != nan_doy, 0)
+        ## strip out days that are within padding (if padding) to avoid double-counting
+        if params['feature_model']['pheno_pad_days']:
+            pad_days = params['feature_model']['pheno_pad_days']
+            actual_start_doy, actual_end_doy = unpad_ts(temp, pad_days, params['feature_model']['start_yr'])
+            if actual_start_doy < actual_end_doy:
+                cng_t = cng_t.where((cng_t >= actual_start_doy) & (cng_t <= actual_end_doy), 0)
+            else:
+                cng_t = cng_t.where((cng_t >= actual_start_doy) | (cng_t <= actual_end_doy), 0)
+        if cng_freq == 'mo':  ## output is month of first observation
             ## integer division rounds down, so reverse so that first values will be 1, not 0
-            #cgn_t =  -(-cng_t0 // 30).where(cng_t0 != nan_doy, 0)
-            cng_t = change_t.dt.month.astype('uint8')
-        
+            cgn_t = doy_to_month_array_vals(cng_t, params['feature_model']['start_yr'])
+    
     return cng_t, cng_v
     
 
@@ -396,7 +423,7 @@ def get_senescence(ts_stack, ds_stack, peak_time, method='step'):
     return eos, eosv
 
 def prep_pheno_bands(pheno_vars,ts_stack,ds_stack,ts_stack_padded, ds_stack_padded, out_dir,start_yr, temp,start_doy,comp_band_names, 
-                     ras_list,sigdif=None, basethresh_pre=None, basethresh_post=None, imgbuf=None,params=None, **gw_args):
+                     ras_list,sigdif=None, basethresh_pre=None, basethresh_post=None, imgbuf=None, params=None, **gw_args):
 
     logger.info('prepping pheno bands...')
     if isinstance(pheno_vars,str):
@@ -451,7 +478,8 @@ def prep_pheno_bands(pheno_vars,ts_stack,ds_stack,ts_stack_padded, ds_stack_padd
                     norm = None
 
             logger.info(f'calculating delta varaible {dv}...')
-            cng_d0, cng_v0 = get_sig_change(ts_stack, ds_stack, cng_thresh, basethresh_pre, basethresh_post, imgbuf,cng_freq=freq,normalize=norm)
+            cng_d0, cng_v0 = get_sig_change(ts_stack, ds_stack, cng_thresh, basethresh_pre, basethresh_post, 
+                                            imgbuf, temp, cng_freq=freq,normalize=norm, params=params)
 
             cng_d = cng_d0.persist()
             if (dv.startswith('sigcngv')) or ((dv.startswith('sigcng')) and (dv.split('.')[2] == 'v')):

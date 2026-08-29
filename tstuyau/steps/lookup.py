@@ -73,51 +73,99 @@ LC_FOCUS_DICT = {'smCrop':{'cats':['smallCrop','bigCrop', 'noCrop'],'lutcol':'LC
                  'clear_grass':{'cats':['allGrass','noGrass','clearGrass'],'lutcol':'LCgrass2'}
                 }
                             
-CROP_CATS_Py0 ={'smallcrop_main' : 35,
+LC_CATS_Py0 ={'smallcrop_main' : 35,
                 'sugar' : 38,
+                'rice' : 37,
+                'banana':43,
                 'smallcrops' : [23,24,25,26,32,34,35,36,39],
                 'bigcrops' : [22,31,33,37,38],
                 'med_crops' : [40,41,42,43,45,46,47,54],
                 'low_crops':  [*range(22,40)],
                 'all_crops' : [*range(22,48),54],
+                'first_veg' : 11,
                 'first_highveg' : 50,
                 'mixed_edge' : 18,
-                'crop_edge': 19 }
+                'crop_edge': 19,
+                'shrub': [*range(50,60)],
+                'shrub_main': 52,
+                'tree_plant':[60,66,56],
+                'young_treeplant':56,
+                'baby_treeplant':11,
+                'first_medveg':40,
+                'first_mature':60,
+                'dense_for': [80],
+                'open_for': [65],
+                'shrub_for': [64],
+                'palm_for': [68],
+                'gtmix': [51],
+                'wet':[7,17,57,77],
+                'tree_water_mix': 77,
+                'wet_grass': 17,
+                'wet_med':57,
+                'built':[3],
+                'wet_medveg': 57,
+                'forest_Py36':[64,65,68,80],
+                'forest_open_stable':[64,65],
+                'forest_nat':[64,65,68,80],
+                'allGrass':[12,13,17,18],
+                'grass_Py36':[12,13,17,18],
+                'water':[7]
+             }
 
-CROP_CATS={'smallcrop_main' : 137,
+LC_CATS={'smallcrop_main' : 137,
                 'sugar': 143,
+                'rice': 114,
+                'banana': 148,
                 'smallcrops' : [117,129,130,134,137,138,147],
                 'bigcrops' : [102,103,104,105,106,107,110,111,112,113,114,115,116,140,141,142,143,144,145,146],
                 'med_crops' : [148,150,151,152,153,155,156,157,158,159,191,192,193,194,196,197,198],
                 'low_crops': [*range(100,148)],
+                'noCrop':[98],
                 'all_crops': [*range(100,160),*range(191,199)],
+                'first_veg' : 50,
                 'first_highveg': 180,
-                'mixed_edge' : 86,
-                'crop_edge': 93}
-
-GRASS_CATS={'allGrass': [51,55,58,71,72,73,74,75,76,77,79,80,81,82,83,84,85,86,87,88,89,96,108],
-           'clearGrass': [51,55,58,71,73,75,76,77,79,80,81,82,83,84,85,87,88,89,108]}
+                'mixed_edge': 86,
+                'crop_edge': 93,
+                'allGrass': [51,55,58,71,72,73,74,75,76,77,79,80,81,82,83,84,85,86,87,88,89,96,108],
+                'clearGrass': [51,55,58,71,73,75,76,77,79,80,81,82,83,84,85,87,88,89,108],
+                'burn':[91,94,99,95,169],
+                'highBurn':[169],
+                'dryBurn':[99],
+                'wetBurn':[94],
+                'mgmtBurn':[91],
+                'noBurn':[255],
+                'shrub': [*range(160,170)],
+                'shrub_main':161,
+                'tree_plant':[207,187,217,202,203,205,206,208,209,216],
+                'young_treeplant':187,
+                'baby_treeplant':97,
+                'first_medveg':148,
+                'first_mature':200,
+                'dense_for': [220],
+                'open_for': [215],
+                'shrub_for':[226],
+                'palm_for':[221],
+                'generic_for':[220,215],
+                'gtmix': [176],
+                'wet':[40,74,164,184],
+                'tree_water_mix': 184,
+                'wet_grass': 74,
+                'wet_med':164,
+                'built':[3],
+                'wet_medveg':164,
+                'forest_Py36':[226,215,221,220],
+                'forest_open_stable':[226,221],
+                'forest_nat':[212,213,214,215,*range(218,224)],
+                'grass_Py36':[12,13,17,18],
+                'water':[40]
+                 
+        }
 
 MIXED_CROPS_Py0 = ["Crops-mix", "Crops-Mandioca", "Crops-Horticulture","Crops-Sesame","Crops-Tobacco"]
 MIXED_CROPS_Py1 = ["crop_mixed_small" ,"crop_cassava", "crop_horticulture", "crop_tobacco", "crop_sesame"]
 MIXED_NONCROPS_Py0  = ["Mixed-VegEdge", "Mixed-path", "Mixed-GrassEdge", "Mixed-FieldEdge"]
-
 MIXED_CROPS = ["crop_mixed_small" ,"crop_cassava", "crop_horticulture"]
 MIXED_NONCROPS = ["mixed_path", "grass_edge", "crop_edge", "riparian_mixed", "mixed_highNo", "mixed_highNoLow", "rd_trees", "tree_path"]
-
-
-LC_VALS_DICT = {'smallCrop': CROP_CATS['smallcrops'],
-                    'bigCrop': CROP_CATS['bigcrops'],
-                    'noCrop':[98],
-                    'burn':[91,94,99,95,169],
-                    'highBurn':[169],
-                    'dryBurn':[99],
-                    'wetBurn':[94],
-                    'mgmtBurn':[91],
-                    'noBurn':[255],
-                    'allGrass': GRASS_CATS['allGrass'],
-                    'clearGrass':GRASS_CATS['clearGrass']
-                   }
 
 mixed_classes = ["Mixed-VegEdge", "Mixed-path", "Crops-mix", "Mixed-GrassEdge", "Mixed-FieldEdge", 
                      "Crops-Mandioca", "Crops-Horticulture","Crops-Sesame","Crops-Tobacco"]
@@ -143,81 +191,6 @@ GEE_COLLECTIONS = ['COPERNICUS/S2',
                   ]
 ## * Note on Sentinel-2: After 2022-01-25, Sentinel-2 scenes with PROCESSING_BASELINE '04.00' or above have their DN (value) range shifted by 1000. 
 ##         The HARMONIZED collection shifts data in newer scenes to be in the same range as in older scenes
-'''
-## Examples from jgrss Southern Cone. No longer using here
-
-LABELS_DICT = {1: b'crp',
-               78: b'orc',
-               111: b'wtr',
-               124: b'dev',
-               131: b'bar',
-               138: b'plt',
-               144: b'trs',
-               152: b'shr',
-               176: b'grs',
-               195: b'wtl'}
-
-LABELS_DICT_str = {k: v.decode() for k, v in LABELS_DICT.items()}
-LABELS_DICT_r = {v: k for k, v in LABELS_DICT.items()}
-
-LABELS_DICT_EDGE = {1: b'edge', 2: b'nedge'}
-LABELS_DICT_EDGE_r = {v: k for k, v in LABELS_DICT_EDGE.items()}
-LABELS_DICT_EDGE_str = {k: v.decode() for k, v in LABELS_DICT_EDGE.items()}
-
-CLS_METADATA = {'class_1': 'crop (non-forestry)',
-                'class_111': 'open_water (perennial water bodies)',
-                'class_124': 'developed',
-                'class_131': 'barren (rock, bare soil, snow, ice)',
-                'class_138': 'agroforestry (e.g., pine plantations, orchards, vineyards)',
-                'class_144': 'tree (natural and forestry)',
-                'class_152': 'shrub (shrub, savanna, mixed grassland)',
-                'class_176': 'herbaceous (natural grassland and managed pastures)',
-                'class_195': 'wetland (seasonal water bodies)',
-                'color_1': '#e4a520',
-                'color_111': '#5990B1',
-                'color_124': '#ca1b1d',
-                'color_131': '#ccc0a3',
-                'color_138': '#9b42dd',
-                'color_144': '#4e6507',
-                'color_152': '#c7d79e',
-                'color_176': '#e8ffc0',
-                'color_195': '#7db0b0',
-                'resource': 'SESYNC computational cluster (https://cyberhelp.sesync.org/faq/What-is-the-SESYNC-cluster.html)',
-                'date_created': f'{dt_today.day} {dt_today.strftime("%B")} {dt_today.year}',
-                'description': 'Dominant land cover at 10m spatial resolution',
-                'format': 'GeoTiff',
-                'language': 'en',
-                'data_type': 'unsigned 8-bit',
-                'data_valid': '1,111,124,131,138,144,152,176,195',
-                'data_invalid': '0'}
-
-SEG_METADATA = {'class_1': 'crop (non-forestry)',
-                'class_111': 'open_water (perennial water bodies)',
-                'class_124': 'developed',
-                'class_131': 'barren (rock, bare soil, snow, ice)',
-                'class_138': 'agroforestry (e.g., pine plantations, orchards, vineyards)',
-                'class_144': 'tree (natural and forestry)',
-                'class_152': 'shrub (shrub, savanna, mixed grassland)',
-                'class_176': 'herbaceous (natural grassland and managed pastures)',
-                'class_195': 'wetland (seasonal water bodies)',
-                'color_1': '#e4a520',
-                'color_111': '#5990B1',
-                'color_124': '#ca1b1d',
-                'color_131': '#ccc0a3',
-                'color_138': '#9b42dd',
-                'color_144': '#4e6507',
-                'color_152': '#c7d79e',
-                'color_176': '#e8ffc0',
-                'color_195': '#7db0b0',
-                'resource': 'SESYNC computational cluster (https://cyberhelp.sesync.org/faq/What-is-the-SESYNC-cluster.html)',
-                'date_created': f'{dt_today.day} {dt_today.strftime("%B")} {dt_today.year}',
-                'description': 'Land cover segments',
-                'format': 'NetCDF',
-                'language': 'en',
-                'data_type': 'unsigned 8-bit;signed 16-bit',
-                'data_valid': '1,111,124,131,138,144,152,176,195',
-                'data_invalid': '0'}
-'''
 
 HGT_CONTINENT_DICT = {'South America': 'SouthAmerica',
                       'North America': 'NorthAmerica',

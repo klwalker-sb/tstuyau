@@ -18,7 +18,7 @@ from .aggregate import make_ts_composite
 from .mod_utils import getset_feature_model, get_train_yrs_str, get_class_col,  multiclass_mod, get_confusion_matrix
 from .mod_utils import get_holdout_scores, get_binary_holdout_score, prep_test_train, log_acc_results
 from .image_utils import clip_big_ras_to_small
-from .lookup import CROP_CATS_Py0, CROP_CATS, MIXED_CROPS_Py0, MIXED_CROPS, MIXED_NONCROPS_Py0, MIXED_NONCROPS, LC_FOCUS_DICT, LC_VALS_DICT
+from .lookup import LC_CATS_Py0, LC_CATS, MIXED_CROPS_Py0, MIXED_CROPS, MIXED_NONCROPS_Py0, MIXED_NONCROPS, LC_FOCUS_DICT
 from ..handler import logger
 
 
@@ -158,7 +158,7 @@ def balance_training_data(params, pixdf=None, stats_only=False, print_file=False
     
     if params['iter_models']['optimize_on'] == 'smCrop':
         if project_v == 'Py0':
-            CROP_CATS = CROP_CATS_Py0
+            LC_CATS = LC_CATS_Py0
             MIXED_CROPS = MIXED_CROPS_Py0
             MIXED_NONCROPS = MIXED_NONCROPS_Py0
     
@@ -379,11 +379,11 @@ def get_stable_holdout(params, df_in=None, overwrite=False):
                         if focus in LC_FOCUS_DICT.keys():
                             for cat in LC_FOCUS_DICT[focus]['cats']:
                                 if cat.startswith('no'):  ## currently only balancing the negative category
-                                    ho_no = ho.loc[ho['LC_UNQ'].isin(LC_VALS_DICT[cat])]
+                                    ho_no = ho.loc[ho['LC_UNQ'].isin(LC_CATS[cat])]
                                     logger.info(f'balancing {cat}. Originally has {len(ho_no)} records')
                                     hono_bal = balance_training_data(params, ho_no, stats_only=False, print_file=False, out_path=None)
                                     logger.info(f"there are {len(hono_bal)} pixels in the {cat} holdout \n")
-                            ho_other = ho.loc[~ho['LC_UNQ'].isin(LC_VALS_DICT[cat])]
+                            ho_other = ho.loc[~ho['LC_UNQ'].isin(LC_CATS[cat])]
                             ho_bal = pd.concat([ho_no,ho_other],axis=1)
                             ho_bal.to_csv(ho_bal_path)
                 
@@ -404,11 +404,11 @@ def get_stable_holdout(params, df_in=None, overwrite=False):
                             if focus in LC_FOCUS_DICT.keys():
                                 for cat in LC_FOCUS_DICT[focus]['cats']:
                                     if cat.startswith('no'):  ## currently only balancing the negative category
-                                        ho_no = ho.loc[ho['LC_UNQ'].isin(LC_VALS_DICT[cat])]
+                                        ho_no = ho.loc[ho['LC_UNQ'].isin(LC_CATS[cat])]
                                         logger.info(f'balancing {cat}. Originally has {len(ho_no)} records')
                                         hono_bal = balance_training_data(params, ho_no, stats_only=False, print_file=False, out_path=None)
                                         logger.info(f"there are {len(hono_bal)} pixels in the {cat} holdout \n")
-                            ho_other = ho.loc[~ho['LC_UNQ'].isin(LC_VALS_DICT[cat])]
+                            ho_other = ho.loc[~ho['LC_UNQ'].isin(LC_CATS[cat])]
                             ho_bal = pd.concat([ho_no,ho_other],axis=1)
                             ho_out_path_bal = ho_dir/ f"{feat_mod_name}_HOLDOUT_balno_{yrst}_ss{n}.csv"
                             ho_bal.to_csv(ho_out_path_bal)                  
@@ -427,7 +427,7 @@ def get_stable_holdout(params, df_in=None, overwrite=False):
         if (params['iter_models']['optimize_on'] == 'smCrops') & (
             Path(params['sample_model']['fixed_ho_dir']) / f'{feat_mod_name}_HOLDOUT_smallCrop_{trainyrs}.csv').is_file():
             ho_smallCrop = Path(params['sample_model']['fixed_ho_dir']) / f'{feat_mod_name}_HOLDOUT_smallCrop_{trainyrs}.csv'
-            ho_bigCrop = Path(params['sample_model']['fixed_ho_dir']) / f'{feat_mod_name}_HOLDOUT_bigCrop_{trainyrs}.csv'
+            ho_bigCrop = Path(params['sample_model']['fixed_ho_dir']) / f'{feat_mod_name}_HOLDOUT_bigCrops_{trainyrs}.csv'
             ho_noCrop = Path(params['sample_model']['fixed_ho_dir']) / f'{feat_mod_name}_HOLDOUT_noCrop_{trainyrs}.csv'
         '''
 
@@ -1068,7 +1068,7 @@ def make_and_score_model(params, df=None, out_dir=None):
     project_v = params['project_ver']
     ## legacy code for original CELPy maps:
     if project_v == 'Py0':
-        CROP_CATS = CROP_CATS_Py0
+        LC_CATS = LC_CATS_Py0
     
     ppaths=ProjectPaths(params)
     if not out_dir():
@@ -1239,13 +1239,13 @@ def make_and_score_model(params, df=None, out_dir=None):
             acccat = LC_FOCUS_DICT[focus][class_col]
             s_hos={}
             for cat in LC_FOCUS_DICT[focus]['cats']:
-                ho_cat = ho.loc[ho['LC_UNQ'].isin(LC_VALS_DICT[cat])]
+                ho_cat = ho.loc[ho['LC_UNQ'].isin(LC_CATS[cat])]
                 if focus == 'smCrops':  ## removing crop_edge from crop class, as this is ambiguous
                     if params['project_ver'] == 'Py0':
-                        ho['bigCrop'] = ho.loc[(ho['LC2'] == 30) & (ho['LC_UNQ'].isin(CROP_CATS['bigcrops']))]
+                        ho['bigCrop'] = ho.loc[(ho['LC2'] == 30) & (ho['LC_UNQ'].isin(LC_CATS['bigcrops']))]
                         ho['noCrop'] = ho.loc[(ho['LC2'] == 98) & (ho['LC_UNQ'] != 19)]
                     else:
-                        ho['bigCrop'] = ho.loc[(ho['LCcrop2'] == 100) & (ho['LC_UNQ'].isin(CROP_CATS['bigcrops']))]
+                        ho['bigCrop'] = ho.loc[(ho['LCcrop2'] == 100) & (ho['LC_UNQ'].isin(LC_CATS['bigcrops']))]
                         ho['noCrop'] = ho.loc[(ho['LCcrop2'] == 98) & (ho['LC_UNQ'] != 93)]  
                 score[f'recall_{cat}'] = get_binary_holdout_score(ho_cat, mod[0],out_dir,lut,project_v)
                 s_ho = get_holdout_scores(ho_cat,mod[0], acccat, out_dir, cat)[["pred","label","OID"]]

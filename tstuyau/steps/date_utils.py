@@ -1,5 +1,6 @@
 from pathlib import Path
 from datetime import datetime, timedelta
+import calendar
 from calendar import monthrange, month_abbr
 from collections import namedtuple
 import geowombat as gw
@@ -36,14 +37,18 @@ def get_date_range(year,period,params,return_type='ymd',padded=False):
         ## match month to month in calendar package to get date range info
         month1_num = list(month_abbr).index(period[:3])   ## gives index location (should = normal month num since sequence in calendar starts with a blank)
         if month1_num >= params['calendar']['first_mo']:
-            target_yr = year
+            start_yr = year
         else:
-            target_yr = year + 1
-        start_date = datetime(target_yr, month1_num, 1)
+            start_yr = year + 1
+        start_date = datetime(start_yr, month1_num, 1)
         ## if single month, end month is same as start month. But period can be range (e.g. 'JanMar') 
         end_month = month1_num if len(period) == 3 else list(month_abbr).index(period[-3:])
-        last_day = monthrange(year, end_month)[1]
-        end_date = datetime(target_yr, end_month, last_day)
+        if end_month >= params['calendar']['first_mo']:
+            end_yr = year
+        else:
+            end_yr = year + 1
+        last_day = monthrange(end_yr, end_month)[1]
+        end_date = datetime(end_yr, end_month, last_day)
     elif any (q in period for q in ['Q1','Q2','Q3','Q4']):
         quarter = int(period.split('Q')[1][0])
         qend = quarter * 91
@@ -118,6 +123,19 @@ def get_img_date(img, ts_type, img_type, data_source=None):
         #return YYYY, doy
     return ydoy
         
+def doy_to_month_array_vals(doy_array, year):
+    '''
+    input is a np array with values as integers representing day of year
+    converts to array with values as integers representing month that doy falls in
+    '''
+    is_leap = calendar.isleap(year)
+    days_in_month = [31, 29 if is_leap else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    # cumulative day-of-year at the END of each month
+    cum_days = np.cumsum(days_in_month)  # e.g. [31, 59, 90, ...]  or [31, 60, 91, ...]
+    ## get index of the first cumulative value that is >= doy -- add 1 to conver to month 1-12
+    month_array = np.searchsorted(cum_days, doy_array, side='left') + 1
+    
+    return month_array.astype('uint8')
 
 def query_frame_date(df_clip, year1, year2, params, method):
     return df_clip.query(f"(datetimes >= '{year1}-{params[method]['start']}') & (datetimes <= '{year2}-{params[method]['end']}')")

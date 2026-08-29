@@ -74,7 +74,7 @@ def reconstruct(params):
        output rasters are integers (val*10000) named YYYYdoy.tif stored in the time series directory for the cell (ppaths.ts) 
     If spec_index has 'raw': just calculates indices directly (no smoothing) and outputs rasters 
        for all input images in a defined time period into a scratch folder (ppaths.scratch)
-           the time period is defined based on the first variable set in params['feature_model']['si_vars'] (_yr, _wet, or _dry), 
+           the time period is defined based on the first variable set in params['feature_model']['si_vars'] (-yr, -wet, or -dry), 
            the calendar parameters to define the sesaons, and the model year (params['feature_model']['start_yr']).
         
     vegetation indices are defined in SpecIndices in spec_indices.py (called through TimeSeriesLoader) and io.py. 
@@ -339,8 +339,11 @@ def reconstruct(params):
 
                     start_dt = datetime.strptime(params['reconstruct']['start'], '%Y-%m-%d')
                     end_dt = datetime.strptime(params['reconstruct']['end'], '%Y-%m-%d')
-                    if not params['reconstruct']['skip_years']:
-                        params['reconstruct']['skip_years'] == 1
+
+                    skip_years = 1
+                    if params['reconstruct']['skip_years']:
+                        skip_years = params['reconstruct']['skip_years']
+                    
                     if 'raw' not in si:
                         # Iterate over each annual slice
                         unique_yrs = sorted(list(set([dt.year for dt in time_band_df.index.to_pydatetime()])))
@@ -348,7 +351,7 @@ def reconstruct(params):
                         unique_yrs = list(set([int(params['reconstruct']['start'][:4]),int(params['reconstruct']['end'][:4])])) 
                         logger.debug(f"unique yrs: are {unique_yrs} for {params['reconstruct']['start']} to {params['reconstruct']['end']}.")
                     
-                    for yidx in range(0, len(unique_yrs), params['reconstruct']['skip_years']):
+                    for yidx in range(0, len(unique_yrs), skip_years):
                         year = unique_yrs[yidx]
                         if year < start_pad_dt.year:
                             continue
@@ -362,18 +365,22 @@ def reconstruct(params):
                             start_pad_dt_slice = datetime.strptime(f'{year}-{start_pad_dt.month}-{start_pad_dt.day}', '%Y-%m-%d')
                         else:
                             start_pad_dt_slice = datetime.strptime(f'{year-1}-{start_pad_dt.month}-{start_pad_dt.day}', '%Y-%m-%d')
-                        
+
+                        add_yrs = 0
+                        if end_dt.year - start_dt.year > 0:
+                            add_yrs = skip_years
+                            
                         if end_pad_dt.month - end_dt.month >= 0:
-                            end_pad_dt_slice = datetime.strptime(f"{year+params['reconstruct']['skip_years']}-{end_pad_dt.month}-{end_pad_dt.day}", '%Y-%m-%d')
+                            end_pad_dt_slice = datetime.strptime(f"{year+add_yrs}-{end_pad_dt.month}-{end_pad_dt.day}", '%Y-%m-%d')
                         else:
-                            end_pad_dt_slice = datetime.strptime(f"{year+params['reconstruct']['skip_years']+1}-{end_pad_dt.month}-{end_pad_dt.day}", '%Y-%m-%d')
+                            end_pad_dt_slice = datetime.strptime(f"{year+add_yrs+1}-{end_pad_dt.month}-{end_pad_dt.day}", '%Y-%m-%d')
                         
                         if end_pad_dt_slice > end_pad_dt:
                             end_pad_dt_slice = end_pad_dt
                     
                         # Un-padded datetimes
                         start_dt_slice = datetime.strptime(f'{year}-{start_dt.month}-{start_dt.day}', '%Y-%m-%d')
-                        end_dt_slice = datetime.strptime(f"{year+params['reconstruct']['skip_years']}-{end_dt.month}-{end_dt.day}", '%Y-%m-%d')
+                        end_dt_slice = datetime.strptime(f"{year+add_yrs}-{end_dt.month}-{end_dt.day}", '%Y-%m-%d')
                         
                         time_band_df_slice = time_band_df.loc[start_pad_dt_slice:end_pad_dt_slice]
                         #imgs_used = time_band_df_slice['image_path'].apply(lambda x: Path(x).stem)
