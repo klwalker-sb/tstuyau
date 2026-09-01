@@ -66,16 +66,15 @@ def store_count(name, count_cache, compute_fn):
         count_cache[name] = compute_fn()
     return count_cache[name]
 
-def get_most_frequent_cat_in_timeseries(cat, ts_array, cat_dict=LC_CATS):
+def get_most_frequent_cat_in_timeseries(cats, ts, cat_dict=LC_CATS):
         '''
         takes a time series array opened in geowombat (or xarray?) and returns
         the most frequent observation from a set of choices <cat> defined in <cat_dict>
         to add a new set of choices, just add a new entry to lookup.LC_CATS (for CELPy classification) 
         or a custom dictionary for other products
         '''
-        logger.info(f'getting stable base for {cat}')
-        similar_cat_array = xr.DataArray(LC_CATS[cat], dims=["lc"], coords={"lc": similar_cats})
-
+        logger.info(f'getting stable base for {cats}')
+        similar_cat_array = xr.DataArray(cat_dict[cats], dims=["lc"], coords={"lc": cat_dict[cats]})
         cat_counts = (ts == similar_cat_array).sum(dim="time").astype('uint8')
         drop_dims = [d for d in cat_counts.dims if d != "lc" and cat_counts.sizes[d] == 1]
         cat_counts = cat_counts.squeeze(dim=drop_dims)

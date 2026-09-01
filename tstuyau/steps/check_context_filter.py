@@ -676,7 +676,9 @@ def get_stable_base(ts_files, ts_yrs, params, count_cache):
         meta.update(count=1, compress='LZW', tiled=True)
 
         for b in base_rasters.keys():
-            base_ras = Path(params['scratch_dir']) / f"tsfilters/{params['refine']['mod_prescript']}/{b}.tif"
+            base_dir = Path(params['scratch_dir']) / f"tsfilters/{params['refine']['mod_prescript']}"
+            base_dir.mkdir(parents=True, exist_ok=True)
+            base_ras = Path(base_dir) / f'{b}.tif'
             arr = np.squeeze(base_rasters[b])
             with rio.open(base_ras, 'w', **meta) as dst:
                 dst.write(arr, 1)
