@@ -31,7 +31,8 @@ optional complimentary packages:
 available commands = ['preprocess', 'move_nodata', 'mask', 'topo', 'fusion', 'reconstruct', 'reindex_si', 'reclassify_raster', 
                    'make_polygon_features', 'segment', 'make_ts_composite', 'make_var_stack', 'make_var_dataframe', 
                    'format_ptfeat_set', 'make_and_score_model', 'iterate_sample_model',  optimize_feature_model', 'iterate_all_model_components', 'classify_timestep', 'classify_CRF', 'mosaic', 'clean', 'assess', 
-                   'compress', 'sample_timeseries', 'plot_timeseries', 'pre_post_df', 'pre_post_separability', 'dl_check', 'status', 'version', 'make_thumbnails', 'vectorize_seg_results', 'segmentation_accuracy', 'prep_training_ts_for_segmentation']
+                   'compress', 'sample_timeseries', 'plot_timeseries', 'pre_post_df', 'pre_post_separability', 'dl_check', 'status', 'version', 'make_thumbnails', 'vectorize_seg_results', 'segmentation_accuracy', 
+                   'prep_training_ts_for_segmentation', 'post_aggregation_filter', 'ts_filter']
 
 ### Use a custom configuration file
 
