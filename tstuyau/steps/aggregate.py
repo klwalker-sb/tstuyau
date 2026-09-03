@@ -466,74 +466,127 @@ def make_ts_composite(params):
 
 def mosaic_cells(params, out_path=None):
     '''
-    Mosaics classified results for a set of cells defined with a list or path to a .csv file with a cell number on each line.
-    if a .csv file, the file basename will be start the basename of the output mosaic. 
+    Mosaics classified results for a set of cells or tiles
+    Cells are defined by <grids> as individual cells, defined with a list, a path to a .csv file, or an integer indicating a tile.
+       If mosaicking to a tile (or chunk of cells), a corresponding .csv file needs to be in <backup_path>/tiles named <project_prefix>TileX.csv
+       with each cell number in the tile on a new line. Can also use a custom list of cells with same format.
+    A set of tiles can be mosaicked into a final map by removing <grid> param and setting <classify:chunk_tiles> = True, 
+    
+    The output mosaic is saved to the 'classified' directory on the backup drive,
+          unless <classify:test> is set to true, in which case it will be saved to the scratch drive.
     The <classify:name> parameter is the common string in the filenmaes of the cell products to be mosaicked (usually the full model name)
-    and will comprise the rest of the output mosaic name. The output mosaic is saved to the 'classified' directory on the backup drive,
-    unless <classify:test> is set to true, in which case it will be saved to the scratch drive. 
+          and will comprise the rest of the output mosaic name. The output mosaic is saved to the 'classified' directory on the backup drive,
+          unless <classify:test> is set to true, in which case it will be saved to the scratch drive. 
+          If a .csv file, the file basename will be start the basename of the output mosaic. 
 
     If a buffer distance was used when creating data for each grid cell (<buffer> > 0), will unbuffer cells before mosaicking to remove edge effects
-      make sure <buffer> param is set to original value
+      make sure <buffer> param is set to original value. This does not apply to mosaics of tiles (chunks of cells).
     '''
     if out_path:
         out_dir = Path(out_path).parent
     elif params['classify']['test']:
         out_dir = Path(params['scratch_dir']) / 'classified'
     else:
-        out_dir = Path(params['backup_path']).parents[1] / 'mosaics'
+        out_dir = Path(params['backup_path']).parents[1] / 'outputs/mosaics'
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    if isinstance(params['grids'], int):
-        params['grids'] = [params['grids']]
-    if isinstance(params['grids'], list):
-        cells = params['grids']
-        if not out_path:
-            out_path = Path(out_dir) / f"{params['classify']['name']}_mosaic.tif"
-    elif params['grids'].endswith('.csv'):
-        if not out_path:
-            out_path = Path(out_dir) / f"{Path(params['grids']).stem}_{params['classify']['name']}.tif"
-        cells = []
-        with open(params['grids'], newline='') as cell_file:
-            for row in csv.reader(cell_file):
-                cells.append (row[0])
-    else:
-        logger.warning('cell_list needs to be a list or path to .csv file with list')
-
-    logger.debug(f"mosaicking cells:{cells}")
     ras_list = []
-    for cell in cells:
-        ppaths = ProjectPaths(params, grid=int(cell))
-        if params['classify']['comp_dir'] == 'input_dir':
-            comp_path = ppaths.ms.parent / 'comp'
-        elif params['classify']['comp_dir'] == 'backup':
-            comp_path = ppaths.comp / params['classify']['local_dir']
-        elif params['classify']['comp_dir'] == 'tmp':
-            comp_path = ppaths.scratch  / 'comp'
-        elif params['classify']['comp_dir'].is_dir():
-            comp_path = Path(params['classify']['comp_dir']).parent / f'{int(cell):06d}'
-        else: 
-            logger.warning("comp_dir must be main, backup, temp, or an actual directory. You put {params['classify']['comp_dir']}")
-        
-        logger.debug(f'Looking in {comp_path} for individual inputs')
-        if not comp_path.is_dir():
-            logger.warning(f"there is no comp folder {comp_path} for cell {cell}.")
-        else:
-            matches = glob.glob(str(comp_path) + f"/*{params['classify']['name']}*.tif")
-            if len(matches) == 0:
-                logger.warning(f"no raster was created for cell {cell} for model {params['classify']['name']}.")
-            elif len(matches) > 1:
-                logger.warning(f"more than one raster containing {params['classify']['name']} was found for cell {cell}. -- using first match")
-                ras_list.append(matches[0])
+    
+    prefix = ''
+    if params['project_prefix']:
+        prefix = params['project_prefix']
+                    
+    if params['grids']:
+        mosaic_cells = True
+        if isinstance(params['grids'], int):
+            params['grids'] = [params['grids']]
+        elif isinstance(params['grids'], list):
+            cells = params['grids']
+            if not out_path:
+                out_path = Path(out_dir) / f"{params['classify']['name']}_mosaic.tif"
+        elif isinstance(params['grids'], str):
+            if 'tile' in params['grids'].lower():
+                tilenum = int(params['grids'].lower().split('tile')[1].split('.')[0])
+                cell_list = Path(params['backup_path']).parents[1] / f"tiles/{prefix}Tile{tilenum}.csv"
+                out_path = Path(out_dir) / f"{prefix}Tile{tilenum}_{params['classify']['name']}.tif"
+            elif params['grids'].endswith('.csv'):
+                cell_list = params['grids']
+                if not out_path:
+                    out_path = Path(out_dir) / f"{Path(params['grids']).stem}_{params['classify']['name']}.tif"
             else:
-                ras_list.append(matches[0])
+                logger.warning("if using params['grids'], needs to be a list, a string like 'Tile9', or the path of a .csv file containing the cell list")
+            cells = []
+            with open(cell_list, newline='') as cell_file:
+                for row in csv.reader(cell_file):
+                    cells.append (row[0])
+    elif params['classify']['chunked_map']:
+        logger.info(f"chunk_tile = {params['classify']['chunk_tile']}")
+        try:
+            tilenum = int(params['classify']['chunk_tile'])
+        except (ValueError, TypeError):
+            mosaic_cells = False
+        else:
+            cell_list = Path(params['backup_path']) / f"tiles/{prefix}Tile{tilenum}.csv"
+            cells = []
+            with open(cell_list, newline='') as cell_file:
+                for row in csv.reader(cell_file):
+                    cells.append (row[0])
+            mosaic_cells = True
+        
+    if mosaic_cells == True:
+        logger.debug(f"mosaicking cells:{cells}")
+        
+        for cell in cells:
+            ppaths = ProjectPaths(params, grid=int(cell))
+            if params['classify']['comp_dir'] == 'input_dir':
+                comp_path = ppaths.ms.parent / 'comp'
+            elif params['classify']['comp_dir'] == 'backup':
+                comp_path = ppaths.comp / params['classify']['local_dir']
+            elif params['classify']['comp_dir'] == 'tmp':
+                comp_path = ppaths.scratch  / 'comp'
+            elif params['classify']['comp_dir'].is_dir():
+                comp_path = Path(params['classify']['comp_dir']).parent / f'{int(cell):06d}'
+            else: 
+                logger.warning("comp_dir must be main, backup, temp, or an actual directory. You put {params['classify']['comp_dir']}")
+        
+            logger.debug(f'Looking in {comp_path} for individual inputs')
+            if not comp_path.is_dir():
+                logger.warning(f"there is no comp folder {comp_path} for cell {cell}.")
+            else:
+                matches = glob.glob(str(comp_path) + f"/*{params['classify']['name']}*.tif")
+                if len(matches) == 0:
+                    logger.warning(f"no raster was created for cell {cell} for model {params['classify']['name']}.")
+                elif len(matches) > 1:
+                    logger.warning(f"more than one raster containing {params['classify']['name']} was found for cell {cell}. -- using first match")
+                    ras_list.append(matches[0])
+                else:
+                    ras_list.append(matches[0])
                 
+    else:
+        if isinstance(params['classify']['chunk_tile'], list):
+            tiles = params['classify']['chunk_tile']
+        elif 'to' in params['classify']['chunk_tile']:
+            start, end = params['classify']['chunk_tile'].split('to')
+            tiles = list(range(int(start), int(end) + 1))
+        params['buffer'] = None
+        ## in_dir will be whatever the out_dir was for the cell to tile mosaics
+        in_dir = out_dir
+        out_dir = Path(params['backup_path']) / 'outputs/mosaics'
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = Path(out_dir) / f"{prefix}All_{params['classify']['name']}.tif"
+        logger.info(f"mosaicking tiles:{tiles}")
+        
+        for n in tiles:
+            tile_path = Path(in_dir) / f"{prefix}Tile{n}_{params['classify']['name']}.tif"
+            ras_list.append(tile_path)
+        
     logger.debug(f' ras_list = {ras_list} \n')
     logger.info(f"mosaicking {len(ras_list)} images...\n")
         
     with rio.open(ras_list[0], 'r') as src_exmp:
         out_meta = src_exmp.meta.copy()
         band_names = src_exmp.descriptions
-    logger.debug(f"these are {src_exmp.meta['count']}-band rasters")
+    logger.debug(f"these arie {src_exmp.meta['count']}-band rasters")
             
     if params['buffer']:
         ## unbuffer to remove edge effects
@@ -587,7 +640,7 @@ def mosaic_cells(params, out_path=None):
         with rio.open(out_path, 'w', **out_meta) as m:
             m.write(mosaic)
             m.descriptions = band_names
-            logger.info(f"writing mosaic to: {out_path}")
+        logger.info(f"wrote mosaic to: {out_path}")
 
     else:
         logger.warning("OOPS -- Sorry -- this script has not been finished! - you can save the mosaic for now by setting classify:save_mosaic = True")

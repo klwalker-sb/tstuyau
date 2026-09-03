@@ -11,8 +11,12 @@ compare_res: False
 ## and ts folders will be in a folder named <procseq> or <imgtype>-<res>-<procseq>
 compare_procseq: False
 
+## <project_name> is the name that is used as the top directory for all files related to this project in each of the drives
 project_name: 'paraguay_lc'
 ## <main_path> is the path where the individual folders are found for each cell. The format is usually X/<project_name>/stac/grid
+## <project_prefix> is a prefix used in file names for final outputs
+project_prefix: 'CELPy'
+## <main_path> is the path to the directory that stores the directories for each cell to process 
 main_path: '/home/sandbox-cel/paraguay_lc/stac/grid'
 ## <backup_path> is the same as the main path but in a more permanant / secure location if available.
 backup_path: '/home/downspout-cel/paraguay_lc/stac/grids'
@@ -530,26 +534,32 @@ classify:
   ##    if None or '', <classify:mod_dir> = <backup_path>.parents[1]/classification
   mod_dir: ''
   out_yrs: [2022]
-  # <classify:comp_dir> = 'backup' | 'input_dir' | 'tmp'
+  ## <classify:comp_dir> = 'backup' | 'input_dir' | 'tmp'
   comp_dir: 'backup'
   local_dir: 'comp'
-  # <classify:overwrite_model> sets whether to overwrite the classifier (model) if it exists
+  ## <classify:overwrite_model> sets whether to overwrite the classifier (model) if it exists
   overwrite_model: False
-  # <classify:overwrite_image> sets whether to overwrite the classified image if it exists
+  ## <classify:overwrite_image> sets whether to overwrite the classified image if it exists
   overwrite_image: False
-  # <classify:n_est> is the number of estimators in the model. Number of trees for random forest or estimators for 
+  ## <classify:n_est> is the number of estimators in the model. Number of trees for random forest or estimators for 
   n_est: 100
-  # <classify:importance_method>: Permutation' | 'Impurity' | None
+  ## <classify:importance_method>: Permutation' | 'Impurity' | None
   importance_method: None
-# <classify:perm_seed>: Needed only if importance method is 'Permutation'
+  ## <classify:perm_seed>: Needed only if importance method is 'Permutation'
   perm_seed: 0
-  # <classify:existing_mod> is path to existing model name if different than default
+  ## <classify:existing_mod> is path to existing model name if different than default
   existing_mod: None
-  # <classify:test> sends product to scratch directory if =True
+  ## <classify:test> sends product to scratch directory if =True
   test: False
-  # <classify:name> is the common string for the final classified mosaic. This should be the model name, but can be reset here for flexibility. 
+  
+  ## <classify:name> is the common string for the final classified mosaic. This should be the model name, but can be reset here for flexibility. 
   name: None
   save_mosaic: True
+  ## <classify:chunked_map> True if the full map is chunked into blocks of cells
+  ##    if so, the cells in each chunk are defined in a .csv file in <backup_dir>/mosaics/lists/<classify:tile_prefix>/Tile<classify:chunk_tile>.csv
+  chunked_map: True
+  ## <classify:chunk_tile> is the number of the tile to process, or N-M (e.g. 1-10) if reaggragating chunks 
+  chunk_tile: 8
 
 vectorize:
     ## <vectorize:instance_method> is 'EO' | 'threshold' | 'water'
@@ -614,7 +624,7 @@ refine:
     ##<refine:neighborhood> is the size of the neighborhood (in pixels) for moving window calculations for other filters
     neighborhood: 100
 
-    ##<refine:mod_prescript> common begging of filenames for files to be included in final time series filter (before year)
+    ##<refine:mod_prescript> common beggining of filenames for files to be included in final time series filter (before year)
     mod_prescript: 'CELPyTile9_base4Poly6_bal200mix4'
     ##<refine:mod_postscript> common ending of filenames files to be included in final time series filter (after year; do not include extension)
     mod_postscript: 'filtsmh-sp'

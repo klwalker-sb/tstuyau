@@ -29,6 +29,7 @@ class ProjectPaths(object):
         self.test = params['main_path'].parents[1] / 'testing'
         self.figs = params['backup_path'].parents[1] /'outputs'/'visualizations'
         self.datasum = params['backup_path'].parents[1] /'outputs'/'summary_data'
+        self.tiles = params['backup_path'].parents[1] /'tiles'
         self.dldb = params['backup_path'].parents[1] / 'cell_processing_dl.csv'
         self.logfiles = params['backup_path'].parents[1] / 'archived_logfiles'
         self.tssigs = params['backup_path'].parents[1] / 'vector'/'sample_ts_signatures'

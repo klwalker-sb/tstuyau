@@ -40,9 +40,10 @@ EPSG=8858
 RES=10.0
 BUFFER=100
 ###################################################################
+export NUMEXPR_MAX_THREADS="${SLURM_CPUS_PER_TASK}"
+
 ### activate the virtual environment
 conda activate tstuyau_pipe
-export NUMEXPR_MAX_THREADS="${SLURM_CPUS_PER_TASK}"
 ###################################################################
 ###################################################################
 ### SHOULD NOT NEED TO MODIFY BELOW

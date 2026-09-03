@@ -10,7 +10,7 @@ import xarray as xr
 import pandas as pd
 #import bottleneck
 from ..handler import logger
-from .date_utils import doy_to_month_array_vals
+from .date_utils import get_date_range, doy_to_month_array_vals
 
 
 def add_var_to_stack(arr, var, attrs, out_dir, comp_band_names, ras_list, **gw_args):
@@ -137,7 +137,7 @@ def p95(data, axis=1):
 ##################################################################################################
 
 
-def unpad_ts(temp, pad_days, start_yr, freq='doy'):
+def unpad_ts(params, temp, pad_days, start_yr, freq='doy'):
     ts_doy_range = get_date_range(start_yr,temp,params,return_type='ymd',padded=False)
 
     start_str, end_str = ts_doy_range
@@ -252,7 +252,7 @@ def get_sig_change(ts_stack, ds_stack, cng_thresh, basethresh_pre=[0,10000], bas
         ## strip out days that are within padding (if padding) to avoid double-counting
         if params['feature_model']['pheno_pad_days']:
             pad_days = params['feature_model']['pheno_pad_days']
-            actual_start_doy, actual_end_doy = unpad_ts(temp, pad_days, params['feature_model']['start_yr'])
+            actual_start_doy, actual_end_doy = unpad_ts(params, temp, pad_days, params['feature_model']['start_yr'])
             if actual_start_doy < actual_end_doy:
                 cng_t = cng_t.where((cng_t >= actual_start_doy) & (cng_t <= actual_end_doy), 0)
             else:

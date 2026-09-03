@@ -2,27 +2,30 @@
 #
 #SBATCH -N 1 # number of nodes
 #SBATCH -n 1 # number of cores
-#SBATCH -t 0-01:00 # time (D-HH:MM)
+#SBATCH -t 0-02:00 # time (D-HH:MM)
 #SBATCH -p basic
 #SBATCH -o TStuyau_mosaic.%N.%a.%j.out # STDOUT
 #SBATCH -e TStuyau_mosaic.%N.%a.%j.err # STDERR
 #SBATCH --job-name="mosaic"
+#SBATCH --array=1-10
 ###################################################################
 
 ###################################################################
 ### Settables
 ### note CELLS can be a list of gridcells to mosaic or the path to a .csv file with a list of cells.
 ###     if a .csv file, the file basename will be start the basename of the output mosaic.
+###     If tiled chunks are already defined (.csv file in backup_path/tiles), CELLS can be 'TileX', where X is the tile number
 
 #CELLS="/home/downspout-cel/paraguay_lc/mosaics/lists/CELpy_DistrictSamp.csv"
-CELLS="/home/downspout-cel/paraguay_lc/mosaics/lists/CELPy_Tile2.csv"
-MOD="base4Poly6_bal200mix6_21_LC32_RF_2021"
+#CELLS="/home/downspout-cel/paraguay_lc/mosaics/lists/CELPy_Tile2.csv"
+CELLS='Tile${SLURM_ARRAY_TASK_ID}'
+MOD='base4Poly6_bal200mix4_LC36_1723_RF_2024'
 TESTING=False   ## if TESTING=True, will send output to scratch directory
 SAVEME=True
 COMP_DIR="input_dir"  ## 'input_dir' | 'backup' | 'tmp'  (which drive to look for the comp folder with the input images)
 ###################################################################
 ### Project settings
-
+PREFIX='CELPy'
 MAIN_DIR="/home/sandbox-cel"
 BK_DIR="/home/downspout-cel"
 SCRATCH_DIR="/home/scratch-cel"
@@ -46,6 +49,7 @@ scratch_dir:${SCRATCH_DIR}/${PROJECT}
 buffer:$BUF
 classify:comp_dir:$COMP_DIR
 classify:test:$TESTING
+classify:prefix:$PREFIX
 classify:name:$MOD
 classify:save_mosaic:$SAVEME"
 
