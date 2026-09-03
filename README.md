@@ -178,11 +178,17 @@ or script: scripts/bash_TStuyau_8_classify_image.sh
  -  cleans up other common misclassification of mixed vegetation as smallholder crop, such as borders between grasslands and high vegetation
  -  converts all low mixed veg that is not identified as smallholder crop to crop edge if it borders crop pixels and mixed grass otherwise 
 
-scripts/bash_TStuyau_9_post_filters.sh
+scripts/bash_TStuyau_9b_filter_context.sh
 ![alt](/images/post_filters.png)
 
 #### temporal filters:
-
+- gets majority vote across time series for classes not expected to fluctuate from year to year (e.g. forest type)
+- refines classification of some classes based on future observations (e.g. shrub crops to young tree plantation if observed as mature tree plantation later)
+- downgrades classification for illogically abrupt changes (tree changed to shrub if grass -> tree occurs in single year)
+- can correct for many predefined illogical sequences selected from list
+- option to apply regional filter to any correction
+   
+scripts/bash_TStuyau_9c_filter_ts.sh
 
 ## Spectral indices
 | Index | Formula | Uses | Source |
