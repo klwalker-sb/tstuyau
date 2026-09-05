@@ -141,7 +141,7 @@ LC_CATS={'smallcrop_main' : 137,
                 'baby_treeplant':97,
                 'first_medveg':148,
                 'first_mature':200,
-                'dense_for': [220],
+                'dense_for': [250],
                 'open_for': [215],
                 'shrub_for':[226],
                 'palm_for':[221],
@@ -156,7 +156,7 @@ LC_CATS={'smallcrop_main' : 137,
                 'forest_Py36':[226,215,221,220],
                 'forest_open_stable':[226,221],
                 'forest_nat':[212,213,214,215,*range(218,224)],
-                'grass_Py36':[12,13,17,18],
+                'grass_Py36':[],
                 'water':[40]
                  
         }

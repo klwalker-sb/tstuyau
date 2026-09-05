@@ -137,22 +137,25 @@ def p95(data, axis=1):
 ##################################################################################################
 
 
-def unpad_ts(params, temp, pad_days, start_yr, freq='doy'):
-    ts_doy_range = get_date_range(start_yr,temp,params,return_type='ymd',padded=False)
-
-    start_str, end_str = ts_doy_range
+def unpad_ts(params, temp, pad_days, start_yr, freq='doy', padded=False):
+    start_str, end_str = get_date_range(start_yr,temp,params,return_type='ymd',padded=padded)
+    logger.info(f'orig date range = {start_str} to {end_str}')
     start_date = datetime.strptime(start_str, "%Y-%m-%d")
     end_date = datetime.strptime(end_str, "%Y-%m-%d")
 
-    # shrink the range inward by pad_days on each side
-    padded_start = start_date + timedelta(days=pad_days[0])
-    padded_end = end_date - timedelta(days=pad_days[1])
-
+    if padded == True:
+        # shrink the range inward by pad_days on each side
+        unpadded_start = start_date + timedelta(days=pad_days[0])
+        unpadded_end = end_date - timedelta(days=pad_days[1])
+    else:
+        unpadded_start, unpadded_end = start_date, end_date
     if freq == 'doy':
-        start_doy = padded_start.timetuple().tm_yday
-        end_doy = padded_end.timetuple().tm_yday
+        unpadded_start = unpadded_start.timetuple().tm_yday
+        unpadded_end = unpadded_end.timetuple().tm_yday
     
-    return start_doy, end_doy
+    logger.info(f'unpadded date range = {unpadded_start} to {unpadded_end}')
+
+    return unpadded_start,unpadded_end
     
 def get_sig_change(ts_stack, ds_stack, cng_thresh, basethresh_pre=[0,10000], basethresh_post=[0,10000], 
                    imgbuf=0, temp='yr', cng_freq='doy', normalize=None, params=None):
@@ -229,9 +232,9 @@ def get_sig_change(ts_stack, ds_stack, cng_thresh, basethresh_pre=[0,10000], bas
 
     cng_v = pass6.max(dim="time").fillna(lowest).astype('int16')
     if cng_freq == 'bi': ## binary resolution: 1 if any significant change
-       cgn_t = xr.where(pass6 > lowest, 1, lowest).max(dim="time").fillna(lowest)
+       cng_t = xr.where(pass6 > lowest, 1, lowest).max(dim="time").fillna(lowest)
     elif cng_freq == 'count': ## returns number of significant changes observed
-       cgn_t = pass6.where(pass6 > lowest).count(dim="time").fillna(lowest)
+       cng_t = pass6.where(pass6 > lowest).count(dim="time").fillna(lowest)
     else:
         ## get day-of-year of significant change observations:
         ## need to fill nas with a valid date for min to work. passing a value in with timestamp or datetime.datetime does not work
@@ -252,6 +255,7 @@ def get_sig_change(ts_stack, ds_stack, cng_thresh, basethresh_pre=[0,10000], bas
         ## strip out days that are within padding (if padding) to avoid double-counting
         if params['feature_model']['pheno_pad_days']:
             pad_days = params['feature_model']['pheno_pad_days']
+            logger.info('removing ts padding from output...')
             actual_start_doy, actual_end_doy = unpad_ts(params, temp, pad_days, params['feature_model']['start_yr'])
             if actual_start_doy < actual_end_doy:
                 cng_t = cng_t.where((cng_t >= actual_start_doy) & (cng_t <= actual_end_doy), 0)
@@ -259,7 +263,7 @@ def get_sig_change(ts_stack, ds_stack, cng_thresh, basethresh_pre=[0,10000], bas
                 cng_t = cng_t.where((cng_t >= actual_start_doy) | (cng_t <= actual_end_doy), 0)
         if cng_freq == 'mo':  ## output is month of first observation
             ## integer division rounds down, so reverse so that first values will be 1, not 0
-            cgn_t = doy_to_month_array_vals(cng_t, params['feature_model']['start_yr'])
+            cng_t = doy_to_month_array_vals(cng_t, params['feature_model']['start_yr'])
     
     return cng_t, cng_v
     
