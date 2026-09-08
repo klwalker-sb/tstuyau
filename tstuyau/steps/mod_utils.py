@@ -194,7 +194,7 @@ def get_holdout_scores(holdoutpix, ml_model, class_col, out_dir,class_type=None,
         if project_v == 'Py0':
             holdout_fields = holdout_fields[(holdout_fields['label'] != 19)]
         else:
-            holdout_fields = holdout_fields[(holdout_fields['label'] != 93)]
+            holdout_fields = holdout_fields[(holdout_fields['label'] != 96)]
 
     ## Print to file
     if class_type:
@@ -214,15 +214,15 @@ def get_binary_holdout_score(ho_path, ml_model, out_dir, lut, class_type, projec
           (negative class needs to start with 'no' and value for that class should be 255 or added to neg_classes)
     '''
 
-    neg_classes = [98,255]  #(255 = noevent, 98 = nocrop)
-
     if class_type.lower().endswith('crop'):
         if project_v == 'Py0':
             lutcol = 'LC2'
             #posval = 30
+            neg_classes = [98,255]  #(255 = noevent, 98 = nocrop)
         else:
             lutcol = 'LCcrop2'
             #posval = 100
+            neg_classes = [-100,255]  #(255 = noevent, -100 = nocrop)
     elif class_type.lower().endswith('burn'):
         lutcol = 'LCburn2'
         #posval = 95
@@ -339,6 +339,7 @@ def prep_test_train(df_in, out_dir, class_col, mod_name, thresh=20, stable=True)
     if class_col in ['LC2','CropNoCrop']:
         df_in = df_in[(df_in[class_col] <= 100) & (df_in[class_col] > 0)]
     else:
+        ## TODO: fix the !=98 for newer versions. no crop is now -100, so will be removed here anyway, but 98 is a class
         df_in = df_in[(df_in[class_col] > 0) & (df_in[class_col] < 256) & (df_in[class_col] != 98)]
     logger.info(f'there are {df_in.shape[0]} sample points after removing those without clear class. \n')
     

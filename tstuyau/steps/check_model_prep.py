@@ -1246,7 +1246,7 @@ def make_and_score_model(params, df=None, out_dir=None):
                         ho['noCrop'] = ho.loc[(ho['LC2'] == 98) & (ho['LC_UNQ'] != 19)]
                     else:
                         ho['bigCrop'] = ho.loc[(ho['LCcrop2'] == 100) & (ho['LC_UNQ'].isin(LC_CATS['bigcrops']))]
-                        ho['noCrop'] = ho.loc[(ho['LCcrop2'] == 98) & (ho['LC_UNQ'] != 93)]  
+                        ho['noCrop'] = ho.loc[(ho['LCcrop2'] == -100) & (ho['LC_UNQ'] != 96)]  
                 score[f'recall_{cat}'] = get_binary_holdout_score(ho_cat, mod[0],out_dir,lut,project_v)
                 s_ho = get_holdout_scores(ho_cat,mod[0], acccat, out_dir, cat)[["pred","label","OID"]]
                 s_hos.append(s_ho)
