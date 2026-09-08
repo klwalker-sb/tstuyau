@@ -421,8 +421,18 @@ def post_classification_spatial_filter_smallholder(params, filter_set):
         
         for r in readers.values():
             r.close()
-    
+
+    logger.info(f'refining forest edges...')
+    with rio.open(filterfinal_path, 'r') as src:
+        profile = src.profile
+        final0 = src.read(1)
+    final1 = mark_forest_edges(final0, params)
+    final_forest_retouch = filterfinalpath.replace('.tif','_ForestEdge.tif')
+    with rio.open(final_forest_retouch, "w", **profile) as dst:
+        dst.write(final1, 1)
+        
     logger.info(f' ALL DONE! saved final output at: {filterfinal_path}')
+
 
 def post_aggregation_filter(params):
     '''

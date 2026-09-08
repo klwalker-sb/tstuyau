@@ -86,7 +86,7 @@ def get_most_frequent_cat_in_timeseries(cats, ts, cat_dict=LC_CATS):
 
 def mark_forest_edges(ts_single, params):
     '''reclassifies mature forest on forest edge as disturbed forest  
-       works on a single raster
+       works on a single raster (xarray.DataArray or numpy.ndarray)
     '''
     logger.info('retouching forest edge...')
     if params['project_ver'] == 'Py_0':
@@ -95,9 +95,12 @@ def mark_forest_edges(ts_single, params):
     open_forest_val =  LC_CATS['open_for'][0]
     mature_forest = LC_CATS['dense_for']
 
+    input_is_np = isinstance(ts_single, np.ndarray)
+    ts_da = xr.DataArray(ts_single) if input_is_np else ts_single
+
     forest_mask = xr.where(ts_single > int(first_mat_val), 1, 9)
     edge_values = maximum_filter(forest_mask.values, size=3)
     edge = xr.DataArray(edge_values, coords=forest_mask.coords, dims=forest_mask.dims)
     final = ts_single.where((~ts_single.isin(mature_forest)) | (edge == 1), open_forest_val)
 
-    return final
+    return final.values if input_is_np else final

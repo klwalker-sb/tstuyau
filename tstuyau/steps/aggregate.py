@@ -506,9 +506,10 @@ def mosaic_cells(params, out_path=None):
                 out_path = Path(out_dir) / f"{params['classify']['name']}_mosaic.tif"
         elif isinstance(params['grids'], str):
             if 'tile' in params['grids'].lower():
-                tilenum = int(params['grids'].lower().split('tile')[1].split('.')[0])
+                tilenum = int(params['grids'].lower().split('/')[-1].split('tile')[1].split('.')[0])
                 cell_list = Path(params['backup_path']).parents[1] / f"tiles/{prefix}Tile{tilenum}.csv"
-                out_path = Path(out_dir) / f"{prefix}Tile{tilenum}_{params['classify']['name']}.tif"
+                if not out_path:
+                    out_path = Path(out_dir) / f"{prefix}Tile{tilenum}_{params['classify']['name']}.tif"
             elif params['grids'].endswith('.csv'):
                 cell_list = params['grids']
                 if not out_path:
