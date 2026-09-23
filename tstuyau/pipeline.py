@@ -5,11 +5,14 @@ This code processes Landsat and Sentinel cubes
 
 1. Move or flag images with no data
 2. Co-register Sentinel images to Landsat
-3. Mask Landsat and Sentinel images
+3. Mask Landsat and Sentinel images (clouds and shaded terrain)
 4. (Optional) Fuse Landsat and Sentinel images with StarFM
 5. (Optional) topographic correction
 6. (Optional) Segment (SACFEI) the pan-sharpened images
 7. Generate feature stack for modelling
+8. Calibrate and optimize land cover models
+9. Produce wall-to-wall maps based on classification model
+10. Conduct post-model adjustments to reduce spatial and temporal inconsistencies
 """
 
 import os
@@ -114,10 +117,6 @@ class Tasks(Config):
         #self.move_no_data()
         self.coregister()
 
-    def masking(self):
-        logger.info('  Creating cloud masks ...')
-        self.mask_clouds()
-
     def move_nodata(self):
         logger.info('  Moving images with no data ...')
         steps.move_nodata(self.params)
@@ -126,9 +125,9 @@ class Tasks(Config):
         logger.info('  Co-registering images ....')
         steps.coregister(self.params)
 
-    def mask_clouds(self):
-        logger.info('  Making masks to remove clouds, etc ...')
-        steps.mask_clouds(self.params)
+    def mask_images(self):
+        logger.info('  Making masks to remove clouds or shaded terrain ...')
+        steps.mask_images(self.params)
 
     def topo(self):
         logger.info('  Normalizing topography ...')
@@ -300,7 +299,7 @@ def main():
         if task == 'move_nodata':
             tasks.move_nodata()
         elif task == 'mask':
-            tasks.masking()
+            tasks.mask_images()
         elif task == 'topo':
             tasks.topo()
         elif task == 'fusion':

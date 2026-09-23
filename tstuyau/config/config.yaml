@@ -24,41 +24,41 @@ backup_path: '/home/downspout-cel/paraguay_lc/stac/grids'
 scratch_dir: '/home/scratch-cel'
 ## srtm_path is path to srtm files for masks/topo. If None or '', srtm path is <main_path>.parents[1] /'data'/'srtm'
 srtm_path: ''
-# <project_ver> is for setting different LUTs and lookup values used in past.  'Py_0' is original (legacy) CELPy maps. 'CEL1' is first release
+## <project_ver> is for setting different LUTs and lookup values used in past.  'Py_0' is original (legacy) CELPy maps. 'CEL1' is first release
 project_ver: 'CEL1'
-# <dlmethod> is download method used: 'GEE' | 'STAC'
+## <dlmethod> is download method used: 'GEE' | 'STAC'
 dlMethod: 'STAC'
-# <grid_file> is a gpkg file defining the gridding structure
+## <grid_file> is a gpkg file defining the gridding structure
 grid_file: "/home/sandbox-cel/LUCinLA_grid_8858.gpkg"
-# <grid_size> is the width of a single grid cell, in meters
+## <grid_size> is the width of a single grid cell, in meters
 grid_size: 20000
-# <buffer> is extra distance (in m) added to each cell edge to avoid edge effects
+## <buffer> is extra distance (in m) added to each cell edge to avoid edge effects
 buffer: 100
 ################################################################################################################################
 
 ## <log_level> sets logging options for output message detail: DEBUG | INFO | WARNING
 log_level: 'INFO'
-# <grids> is a list of the grid cells to process
+## <grids> is a list of the grid cells to process
 grids:
   - 126
-# <res> is the input images. when res is passed to geowombat, the precision will determine the output datatype. 
-#      If rasters with 0-1 values are being processed, res needs a decimal or the output will be 0/1.
+## <res> is the input images. when res is passed to geowombat, the precision will determine the output datatype. 
+##      If rasters with 0-1 values are being processed, res needs a decimal or the output will be 0/1.
 res: 10.0
-# <nodata> is the image 'no data' value
+## <nodata> is the image 'no data' value
 nodata: 65535
-# <image_type> (currently 'LS2' for all Landsat & Sentinel-2, 'S2' for all Sentinel-2 only, 'L' for all Landsat only,
-#              or 'LT05', 'LE07', 'LC08', 'LC09' for specific Landsats -- adding 'PS' for PlanetScopee, 'S1' for Sentinel-1...)
+## <image_type> (currently 'LS2' for all Landsat & Sentinel-2, 'S2' for all Sentinel-2 only, 'L' for all Landsat only,
+##              or 'LT05', 'LE07', 'LC08', 'LC09' for specific Landsats -- adding 'PS' for PlanetScopee, 'S1' for Sentinel-1...)
 image_type: 'LS2'
 ## <procseq> is the processing sequence for the individual imagery (prior to time series handling)
 ##    cg=coregistration, br=brdf, mu= user qa to remove bad images (vs mml for machine-learning based masks & mf1 for...), tp=topo
 procseq: 'mu.br.cga'
-# <num_workers> is the number of parallel workers
+## <num_workers> is the number of parallel workers
 num_workers: 6
 
-#
-# Calendar variables: 
-#    <calendar:first_mo> is the first month of a mapping year (to not split critical seasons)
-#    <calendar:start_wet>, etc. is doy (1-365) and sets the seasons for calculation of seasonal variables
+##
+## Calendar variables: 
+##    <calendar:first_mo> is the first month of a mapping year (to not split critical seasons)
+##    <calendar:start_wet>, etc. is doy (1-365) and sets the seasons for calculation of seasonal variables
 calendar:
     first_mo: 6
     start_wet: 306 
@@ -66,7 +66,7 @@ calendar:
     start_dry: 183
     end_dry: 259
 
-# I/O
+## I/O
 io:
   n_chunks: 512
   gdal_cachemax: 512
@@ -168,18 +168,20 @@ status:
 #################################################################################
 #### Settings for optional steps to prepare input imagery 
 
-# Image masks
+## Image masks
 masking:
 ## <masking:maxval> is the maximum valid data value (inverse of scale_factor)
   maxval: 10000
-  ## <masking:method> can be 'ancillary' | 'CRF' | 's2cloudless' | 'native'   (if 'native', nothing is done with mask but note is added in db). 
+  ## <masking:method> can be 'terrain_shade' | 'ancillary' | 'CRF' | 's2cloudless' | 'native'  (if 'native', nothing is done with mask but note is added in db). 
   method: 's2cloudless'
-  # <masking:sat_sensors> is 'All' or "LS2' for all Sentinel-2 & Landsat, 'L' for all Landsat only, 'S2' for all Sentinel-2 only, or S2A,S2B,LT05,LE07,LC08,LC09
+  ## <masking:sat_sensors> is 'All' or "LS2' for all Sentinel-2 & Landsat, 'L' for all Landsat only, 'S2' for all Sentinel-2 only, or S2A,S2B,LT05,LE07,LC08,LC09
   sat_sensors: ['LS2']
+  ## <masking:exclude> is optional text at the end of image name (before suffix) that indicates that it should not be included in the masking process 
+  exclude: 'X'
   ## <masking:date range> can be [0] for all relevant images or [date,date] for limited range.
   ##      note: dates for GEE are written YYYY-MM-DD or YYYY-M-D -- no leading zeros
   date_range: [0]
-  # <masking:overwrite> sets Whether to overwrite existing mask files
+  ## <masking:overwrite> sets Whether to overwrite existing mask files
   overwrite: False
   ## <masking:reclass_LUT> used if method is 'ancillary'. sets dictionary with from:to value as key:value pair. 
   ##     OR csv with <from_vals> column and <to_vals> column
@@ -190,55 +192,55 @@ masking:
   mask_path: None
   ## <masking:gee_key> is needed only if <masking:method> is 'gee': need google-earth-engine account and info below 
   gee_key: '/home/<username>/.tstuyau/gee_key.json'
-  # <masking:gee_index_dir> is needed only if <masking:method> is 'gee'. Sets root directory for the GCP index files
+  ## <masking:gee_index_dir> is needed only if <masking:method> is 'gee'. Sets root directory for the GCP index files
   gee_index_dir: '/home/sandbox-cel/paraguay_lc/raster'
   ## if method=='CRF', need the following:
-  # <masking:min_mask> (for method = CRF) is the minimum clear value (all values greater than `min_mask` are non-clear)
+  ## <masking:min_mask> (for method = CRF) is the minimum clear value (all values greater than `min_mask` are non-clear)
   min_mask: 1
   deep_crf: False
   crf_cloud_model_name: 'clouds_l7-like_crf_log'
   crf_shadow_model_name: 'shadows_l7-like_crf_log'
   lgb_model_name: 'clouds_l7-like_lgb_log'
   lstm_model_name: 'clouds_l7-like_lstm_log'
-  # <masking:batch_size> (for method = CRF) Number of images to predict on
+  ## <masking:batch_size> (for method = CRF) Number of images to predict on
   batch_size: 7
-  # Resampling cell size
+  ## Resampling cell size
   sensor: 'l7'
   ref_res: 40.0
   chunks: 512
-  # <masking:resampling (for method = CRF) Resampling method. e.g. 'average'
+  ## <masking:resampling (for method = CRF) Resampling method. e.g. 'average'
   resampling: 'average'
-  # <masking:cloud_proba_thresh (for method = CRF) sets probability threshold for clouds (e.g. .25) -- Any value lower is set as 0
+  ## <masking:cloud_proba_thresh (for method = CRF) sets probability threshold for clouds (e.g. .25) -- Any value lower is set as 0
   cloud_proba_thresh: 0.25
-  # <masking:shadow_proba_thresh (for method = CRF) sets probability threshold for shadows (e.g. .25) -- Any value lower is set as 0
-  #        Shadows tend to be overestimated, so we use a conservative threshold
+  ## <masking:shadow_proba_thresh (for method = CRF) sets probability threshold for shadows (e.g. .25) -- Any value lower is set as 0
+  ##        Shadows tend to be overestimated, so we use a conservative threshold
   shadow_proba_thresh: 0.75
-  # clouds: b,c,d,v
+  ## clouds: b,c,d,v
   cloud_labels: ['b','c','d','v']
-  # shadows: b,d,s,v,wv
+  ## shadows: b,d,s,v,wv
   shadow_labels: ['b','d','s','v','wv']
   predict_labels: ['b','c','d','s','v','w','wv']
   band_names: ['blue','bsi','evi2','green','hot','kndvi','log_bg','log_bn','log_br','log_bs1','log_bs2','nbr','ndmi','ndsi','ndvi','ndwi','nir','red','shi','shi2','swir1','swir2']
 
-# Topographical correction
+## Topographical correction
 topo:
-  # <topo:si> is the index to base topographical correction on.
+  ## <topo:si> is the index to base topographical correction on.
   si: 'evi2'
-  # <topo:username> is the The NASA Earthdata username to download HGT SRTM files
-  #      can make account at https://urs.earthdata.nasa.gov/
-  #      <topo:key file> and <topo:code file> are paths to these items from the NASA Earthdata account associated with <topo:username>
+  ## <topo:username> is the The NASA Earthdata username to download HGT SRTM files
+  ##      can make account at https://urs.earthdata.nasa.gov/
+  ##      <topo:key file> and <topo:code file> are paths to these items from the NASA Earthdata account associated with <topo:username>
   username: '<username>'
   key_file: '/media/<username>/data/projects/global_fields/nasaearth.key'
   code_file: '/media/<username>/data/projects/global_fields/nasaearth.code'
   srtm_nodata: -32768
-  # <topo:slope_thresh> Any value less than this threshold is not adjusted
+  ## <topo:slope_thresh> Any value less than this threshold is not adjusted
   slope_thresh: 2
-  # <topo:method options> are 'c' | 'empirical-rotation'
+  ## <topo:method options> are 'c' | 'empirical-rotation'
   method: 'empirical-rotation'
 
-# Increasing resolution through fusion
+## Increasing resolution through fusion
 fusion:
-  # <fusion:si> is the index to base fusion on
+  ## <fusion:si> is the index to base fusion on
   si: 'evi2'
   res: 10.0
   overwrite: False
@@ -252,43 +254,43 @@ fusion:
   param_n: 2
   hres_uncert: 0.05
   mres_uncert: 0.05
-  # <fusion:wavelengths> The wavelengths to sharpen  TODO: check how this differes from si
+  ## <fusion:wavelengths> The wavelengths to sharpen  TODO: check how this differes from si
   wavelengths:
     - 'evi2'
 
 ###############################################################################
 ## Reconstructing time series (smoothing)
 reconstruct:
-  # <reconstruct:start_win> is window to start processing (usualy 1 unless an error occured previously)
+  ## <reconstruct:start_win> is window to start processing (usualy 1 unless an error occured previously)
   start_win: 1
-  # <reconstruct:rewrite_win>: whether to rewrite existing windows
+  ## <reconstruct:rewrite_win>: whether to rewrite existing windows
   rewrite_win: False
   win_batchsize: 1
-  # <reconstruct:use_masks>: Whether to use user-generated cloud/shadow masks
+  ## <reconstruct:use_masks>: Whether to use user-generated cloud/shadow masks
   use_masks: False
   nodata: 0
-  # Whether a new time-series will be created in sub folder so it can be merged with existing ts
+  ## Whether a new time-series will be created in sub folder so it can be merged with existing ts
   merge_ts: False
-  # <reconstruct:include> and <reconstruct:exclude> are strings in input image paths that indicate images to include in ts calcs
-  #      if include = '', include all images not in exclude
-  #      exclude is a single character at the end of the base path name (before the extension)
+  ## <reconstruct:include> and <reconstruct:exclude> are strings in input image paths that indicate images to include in ts calcs
+  ##      if include = '', include all images not in exclude
+  ##      exclude is a single character at the end of the base path name (before the extension)
   include: ''
   exclude: 'X'
   res: 10.0
-  # <reconstruct:si> = index to calculate. See options in SI_DICT in lookup.py
+  ## <reconstruct:si> = index to calculate. See options in SI_DICT in lookup.py
   si: 'evi2'
-  # <reconstruct:start> and <reconstruct:end> set the smoothing timeframe. format= 'yyyy-mm-dd'
+  ## <reconstruct:start> and <reconstruct:end> set the smoothing timeframe. format= 'yyyy-mm-dd'
   start: '1999-07-01'
   end: '2024-07-01'
-    # <reconstruct:start_pad> provide earlier dates and <reconstruct:end_pad> provides later dates to buffer ts. format= 'yyyy-mm-dd'
+  ## <reconstruct:start_pad> provide earlier dates and <reconstruct:end_pad> provides later dates to buffer ts. format= 'yyyy-mm-dd'
   start_pad: '1999-03-01'
   end_pad: '2024-11-01'
   
   skip_years: 1
-  # <reconstruct:load_on_cluster> :Whether to use dask and ray to load data
+  ## <reconstruct:load_on_cluster> :Whether to use dask and ray to load data
   load_on_cluster: False
   chunks: 256
-  # <reconstruc:overwrite>: wether to overwrite time series if it alreary exists
+  ## <reconstruc:overwrite>: wether to overwrite time series if it alreary exists
   overwrite: False
 
   smooth_kwargs:
@@ -363,7 +365,7 @@ feature_model:
   combo_bands: []
   ## <feature_model:diff_feats> is subset of si_vars to calculate difference for from previous year(s)
   diff_feats: []  
-  # <feature_model:treat_out> = 'archive' | 'tmp'
+  ## <feature_model:treat_out> = 'archive' | 'tmp'
   treat_out: 'archive'
   overwrite: False
   update_mod_dict: True
@@ -409,7 +411,7 @@ sample_model:
   fixed_ho: True
   ## <sample_model:overwrite_ho> = False unless intentionally trying to create a new holdout set
   overwrite_ho: False
-    ## <sample_model:test_thresh> is the %(int, 1-100) held out for fixed hold (or random if using jgrss multi-year classification model). If 0, no fixed ho.
+  ## <sample_model:test_thresh> is the %(int, 1-100) held out for fixed hold (or random if using jgrss multi-year classification model). If 0, no fixed ho.
   ## <sample_model:point_samp_dir> contains generated subsets of the global point file for a model optimization
   ##    if None or '', <sample_model:point_samp_dir> = <backup_path>.parents[1]/vector/pts_training/pt_subsets
   point_samp_dir: '' 
@@ -417,16 +419,16 @@ sample_model:
   test_thresh: 20
   ## <sample_model:ran_hold_seed> is a seed for the scipy test-train-split. 
   ran_hold_seed: 88
-   #<sample_model:name> is the name of the sample model to use
+  ## <sample_model:name> is the name of the sample model to use
   ##   <sample_model:name> should follow the format red<reduce>min<minsamp>upsamp<minbal> and is often constructed from these params
   name: 'min100'
   ## <sample_model:minsamp> is the minimum number of samples allowed for each class 
-  #    (regardless of the actual proportion of this class, this number of samples is included in the training set if available) 
+  ##    (regardless of the actual proportion of this class, this number of samples is included in the training set if available) 
   minsamp: 200
   ## <sample_model:minbal> is the representation of the minority class of interest (e.g. mixed) 
-  #    (0=no representation, 1=proportional representation, 2=2x normal proportion, etc.)
+  ##    (0=no representation, 1=proportional representation, 2=2x normal proportion, etc.)
   minbal: 1
-  # <sample_model:reduce> (0-1) is the percentage reduction of training dataset (for robustness checks) - 0 = no reduction
+  ## <sample_model:reduce> (0-1) is the percentage reduction of training dataset (for robustness checks) - 0 = no reduction
   reduce: 0 
   ## <sample_model:balance_col> is the column in the LUT with the class proportions for sample balancing
   balance_col: 'perLC32E'
@@ -511,9 +513,9 @@ explore:
  spectsdf_dir: ''
  ## <explore:sig_prefix> is prefix for signature files and graphs to give context. e.g. 'burn-prepost' 
  sig_prefix: ''
- ##<explore:maxobsgap_pre> is the maximum number of days between an event observation and the closest pre-even observation for it to be used
+ ## <explore:maxobsgap_pre> is the maximum number of days between an event observation and the closest pre-even observation for it to be used
  maxobsgap_pre: 30
-##<explore:maxobsgap_pre> is the maximum number of days between an event observation and the closest post-even observation for it to be used
+ ## <explore:maxobsgap_pre> is the maximum number of days between an event observation and the closest post-even observation for it to be used
  maxobsgap_post: 10
  
 ########## Classification ###########################################################################################
@@ -528,7 +530,7 @@ classify:
   vardf_base: "pixdf_base4Poly_min100_all_2021.csv"
   ## <classify:mod_type>  options are currently 'RF' for random forest or 'GB' for gradient boosting. "CRF" in development
   mod_type: 'RF'
-  # <classify:temp_mod> saves model to scratch_dir if =True
+  ## <classify:temp_mod> saves model to scratch_dir if =True
   temp_mod: False 
   ## <classify:mod_dir> is directory with files for classification models
   ##    if None or '', <classify:mod_dir> = <backup_path>.parents[1]/classification
@@ -589,7 +591,7 @@ segment:
         ## should start with 'cnetYY_' then can contain anything after
     seg_dir_mod: 'cnet4VIk'
     seg_train_polys: '/home/downspout-cel/paraguay_lc/Segmentations/00_digitizations/PyCropSeg_Polys_8858.shp'
-    ##<segment:seg_dir_products> is the directory with the final raster products from segmentation 
+    ## <segment:seg_dir_products> is the directory with the final raster products from segmentation 
     ##       (vector products are in <feature_model:poly_var_path>)
     seg_dir_products: '/home/downspout-cel/paraguay_lc/Segmentations/cnet4VIk/feats_EO_8pt5_2025'
     ## <segment:preface> is a preface inserted before normal file names to distinguish them from other projects.
@@ -600,7 +602,7 @@ segment:
     clip_imagery: True
     ## <segment:train_chip_size> is width of training chips in number of pixels 
     train_chip_size: 100
-    ##<segment:spec_indices> is list of spectral indices or bands used for segmenation only
+    ## <segment:spec_indices> is list of spectral indices or bands used for segmenation only
     spec_indices: ['kndvi','gcvi','wi','ndmi'] 
     ## <segment:temp_inputs>: If True, will look for input products for segmentation process in scratch dir
     temp_inputs: True
@@ -617,7 +619,7 @@ segment:
 refine:
     ## <refine:spatial_filter> is the post aggregation spatial context filter method (currently only available for 'smCrop')
     spatial_filter: 'smCrop'
-    ##<refine:buffer> is the distance to buffer polygons for post filters
+    ## <refine:buffer> is the distance to buffer polygons for post filters
     buffer: 20
     ## <refine:sm_neighborhood> is the size of the neighborhood (pixel width) for moving window calculations for smallholder filters 
     sm_neighborhood: 3

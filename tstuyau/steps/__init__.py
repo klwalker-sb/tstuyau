@@ -1,6 +1,6 @@
 from .check_nodata import move_nodata
 from .check_coreg import coregister
-from .check_masks import mask_clouds
+from .check_masks import mask_images
 from .check_topo import adjust_topo
 from .check_fusion import fuse_sensors
 from .check_reconstruction import reconstruct
