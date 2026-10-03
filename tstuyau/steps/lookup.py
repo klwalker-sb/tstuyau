@@ -27,7 +27,10 @@ SENSORS = {'Sentinel2':{'unq':'S2','matchstr':['S2','S2A','S2B','S2C'], 'sensor'
               'S2C':{'unq':'S2C','matchstr':['S2C'], 'sensor':'sentinel-2', 'name':'Sentinel-2C','color':'purple'},
               }
 
-
+MASKS = {'terrain_shade': {'maskname':'shademask', 'mask_dir':'terrain/shade_masks', 'db_col':'shade_mask', 'mask_val':1},
+        'cloud_CRF':{'maskname':'cloudCRF', 'mask_dir':'clouds/CRF_masks', 'db_col':'cloud_crf', 'mask_val':[]},
+         's2cloudless': {'maskname':'s2cloudless', 'mask_dir':'clouds/s2cloudless', 'db_col':'s2cloudless', 'mask_val':1},
+        }
 
 ## legacy for old pymaps:
 SCHEMATIC_MODS_leg={'pyall':'LC32',
@@ -101,8 +104,10 @@ LC_CATS_Py0 ={'smallcrop_main' : 35,
                 'wet':[7,17,57,77],
                 'tree_water_mix': 77,
                 'wet_grass': 17,
+                'dry_grass': [12,13]
                 'wet_med':57,
                 'built':[3],
+                 'bare':2,
                 'wet_medveg': 57,
                 'forest_Py36':[64,65,68,80],
                 'forest_open_stable':[64,65],
@@ -125,9 +130,10 @@ LC_CATS={'smallcrop_main' : 137,
                 'first_veg' : 50,
                 'first_highveg': 180,
                 'mixed_edge': 86,
-                'crop_edge': 91,
+                'crop_edge': 96,
                 'allGrass': [51,55,58,71,72,73,74,75,76,77,79,80,81,82,83,84,85,86,87,88,89,91,108],
                 'clearGrass': [51,55,58,71,73,75,76,77,79,80,81,82,83,84,85,87,88,89,108],
+                'grass_Py36':[74,75,80,91]
                 'burn':[93,94,99,95,169],
                 'highBurn':[169],
                 'dryBurn':[99],
@@ -150,13 +156,14 @@ LC_CATS={'smallcrop_main' : 137,
                 'wet':[40,74,164,184],
                 'tree_water_mix': 184,
                 'wet_grass': 74,
+                'dry_grass': [80,75]
                 'wet_med':164,
-                'built':[3],
+                'built':[30],
+                'bare':20,
                 'wet_medveg':164,
                 'forest_Py36':[226,215,221,220],
                 'forest_open_stable':[226,221],
                 'forest_nat':[212,213,214,215,*range(218,224)],
-                'grass_Py36':[74,75,80,96],
                 'water':[40]
                  
         }

@@ -23,6 +23,11 @@ MULTIYR=None
 ##   If OUT == 'tmp', final composites will be sent to a single 'comp' folder in the temp drive (to be mosaicked into a final product)
 OUT='tmp'
 
+#### Masking params only relevant if masks are to be applied to the individual images before index processing
+MASKING=False
+MASK_TYPE='terrain_shade'
+TREATMISS='Fail'
+
 ###  Pheno allows for extra padding around season and more complex statistics.
 ###    the following parameters only matter if PHENO=True
 PHENO=False
@@ -80,7 +85,7 @@ do
 	scratch_dir:${SCRATCH_DIR}/${PROJECT}/stackprods  
 	feature_model:ts_type:raw
     reconstruct:nodata:0
-    reconstruct:exclude:'X'
+    reconstruct:skip_flag:'X'
     reconstruct:chunks:${SM_CHUNKS}
     num_workers:${SLURM_CPUS_ON_NODE}
     io.n_chunks:${NCHUNKS}
@@ -104,9 +109,10 @@ do
     feature_model:pheno_basethresh_pre:$RANGE_PREEVENT
     feature_model:pheno_basethresh_post:$RANGE_POSTEVENT
     feature_model:pheno_imgbuf:$IMGBUF
-
+    reconstruct:use_masks:$MASKING
+    masking:method:$MASK_TYPE
+    masking:treat_missing:$TREATMISS
     "
-
 tuyau make_ts_composite --config-updates $CONFIG_UPDATES
 
 done

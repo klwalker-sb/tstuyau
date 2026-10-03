@@ -31,6 +31,9 @@ METHOD='STAC'
 IMGTYPE='LS2'
 RES=10.0
 PROCSEQ='mu.br.cga'
+SKIP_FLAG='X'
+KEEP='All'
+
 NCHUNKS=512
 SKIP_INTERVAL=7
 SKIP_YEARS=1
@@ -63,7 +66,6 @@ conda activate venv.tstuyau_pipe
 ### SHOULD NOT NEED TO MODIFY BELOW
 ###################################################################
 
-STEP="reconstruct"
 MERGE="True"
 ## COMP variables control naming of ts and brdf folders -- simpler naming if false
 COMPSEN=False
@@ -97,6 +99,8 @@ compare_imgtype:${COMPSEN}
 compare_res:${COMPRES}
 compare_procseq:${COMPPROC}
 reconstruct:merge_ts:${MERGE}
+reconstruct:keep_str:${KEEP}
+reconstruct:skip_flag:${SKIP_FLAG}
 reconstruct:start_pad:${START_PAD} 
 reconstruct:end_pad:${END_PAD} reconstruct:start:${START} reconstruct:end:${END} 
 reconstruct:skip_interval:${SKIP_INTERVAL} reconstruct:skip_years:${SKIP_YEARS}
@@ -112,7 +116,7 @@ reconstruct:smooth_kwargs:remove_outliers:${RMOUT}
 reconstruct:smooth_kwargs:smooth_method:${SMOOTH_METH}
 clean:remove_items:${REMOVE_ITEMS}"
 
-tuyau $STEP --config-updates $CONFIG_UPDATES
+tuyau reconstruct --config-updates $CONFIG_UPDATES
 
 done
 conda deactivate

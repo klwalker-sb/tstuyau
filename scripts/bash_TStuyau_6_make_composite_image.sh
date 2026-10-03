@@ -41,6 +41,11 @@ MULTIYR=None
 ##   If OUT == 'tmp', final composites will be sent to a single 'comp' folder in the temp drive (to be mosaicked into a final product)
 OUT='archive'
 
+#### Masking params only relevant if masks are to be applied to the individual images before index processing
+MASKING=False
+MASK_TYPE='terrain_shade'
+TREATMISS='Fail'
+
 ###  Pheno allows for extra padding around season and more complex statistics.
 ###    the following parameters only matter if PHENO=True
 PHENO=False
@@ -104,6 +109,9 @@ feature_model:pheno_sigdif:$SIGDIF
 compare_imgtype:${COMPSEN}
 compare_res:${COMPRES}
 compare_procseq:${COMPPROC}
+reconstruct:use_masks:$MASKING
+masking:method:$MASK_TYPE
+masking:treat_missing:$TREATMIS
 "
 
 tuyau make_ts_composite --config-updates $CONFIG_UPDATES

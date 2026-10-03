@@ -49,20 +49,19 @@ def reclass_small_fields(params, class_ras, poly_ras, area_ras, ras_out):
 def refine_polygon_area_ras(params, poly_area_in,poly_area_out,buf=0):
     '''
     Preps rasterized area polygons for neighborhood operation. Buffers if buf >0, Reduces area for badly split polygons 
-      and divides original output (100 ha) by 10 so that neighborhood results will not exceed dtype limits
+      and divides original output (original units = 100 ha) by 10 (1000 ha) so that neighborhood sums will not exceed dtype limits
       
     inputs: poly_area_in is path to rasterized polygons with field size
         expects files with same name but 'APrEf' in place of 'area' to break up polygons that did not segment well
             if APrEF >= 200, split area in half (two polygons). If APrEF > 400, split in 3 
             (if that file doesn't exist, this step will be skipped)
     '''
-    
     if buf == 0:
         ras1 = poly_area_out
     else:
         ras1 = Path(poly_area_out).parent/'poly_area_tmp.tif'
 
-    
+
     with rio.open(poly_area_in, 'r') as area_src:
         profile = area_src.profile
         polyarea = area_src.read(1)
@@ -94,7 +93,8 @@ def refine_polygon_area_ras(params, poly_area_in,poly_area_out,buf=0):
         with rio.open(poly_area_out, "w", **profile) as dst:
             dst.write(expanded_polyarea, 1)
         #make_polygon_features(params, in_path=ras1,  out_path=poly_area_out)
-            
+
+
 def get_avg_fieldsize_ras_from_polys(params, poly_area_in, nbhd_out, nbhd=100):
 
      with rio.open(poly_area_in, 'r') as size_src:
@@ -705,9 +705,10 @@ def filter_ts_rasters(ts_files, ts_yrs, base_rasters, params, count_cache):
             'sugar-palm', 'sugar-grass', 'banana-wet', 'palm_for-grass-aggressive', 'palm_for-wetgrass',
             'grass-forest-aggressive', 'tree_plant-med_crop', 'rice-water', 'rice-built',
             'forest-treeplant', 'forest-brieflow', 'grass-to-forest', 'grass-to-palmforest',
-            'twmix-medwet', 'noplant-plant',
+            'twmix-medwet', 'noplant-plant', 'wetgrass-built', 'wetgrass-crop', 'grass-built', 'grass-crop', 
+            'built-non-built','medcrop-wetshrub','medcrop-shrub', 'singleton-crop'
         ]
-        params['refine']['illogical_regions'] = [0, 0, [2,3], [2,3], 0, 0, 0, 0, 0, 0, 0, 0, [1, 4], 0, 0]
+        params['refine']['illogical_regions'] = [0, 0, [2,3], [2,3], 0, 0, 0, 0, 0, 0, 0, 0, [1, 4], 0, 0, 0, 0, 0, 0, 0, 0, 0, [2]]
         params['refine']['illogical_region_file'] = params['refine']['stable_region_file']
         params['refine']['group_suffix'] = 'Py36'
 
@@ -753,8 +754,24 @@ def filter_ts_rasters(ts_files, ts_yrs, base_rasters, params, count_cache):
 
     return ts
 
+def final_spatial_temporal_refine(ts_files, poly_area_in, orig_ts):
+    '''
+    resets pixels to original crop classification if in segmented polygon
+    inputs: poly_area_in is path to rasterized polygons with field size
+    '''
+    with gw.open(ts_files, time_names=ts_yrs, stack_dim='time') as ts:
+        attrs = ts.attrs.copy()
+    with gw.open(orig_ts, time_names=ts_yrs, stack_dim='time') as ots:
+        pass
 
-def ts_filter(params):
+    with rio.open(poly_area_in, 'r') as area_src:
+        profile = area_src.profile
+        polyarea = area_src.read(1)
+    
+    tsf = ots.where(polyarea > 0), ts)
+    return tsf
+
+def ts_filter(params, poly_area_in=None):
     '''
     Applies time-series filter to multiple years of classified data
     uses logical rules to stabilize certiain land cover classes
@@ -799,11 +816,12 @@ def ts_filter(params):
         count_cache = {}
         base_rasters = get_stable_base(ts_files, out_yrs, params, count_cache)
         refined_ts = filter_ts_rasters(ts_files,out_yrs,base_rasters,params, count_cache)
+        final_refine = (refined_ts, poly_area_in, ts_files)
 
         for y in out_yrs:
             logger.info(f'getting final raster for {y}...')
             out_file = Path(final_dir)/f'{prescript}_{y}_{postscript}-tsfilt.tif'
-            ts_single = refined_ts.sel(time=y).squeeze().fillna(0).astype('uint8')
+            ts_single = final_refine.sel(time=y).squeeze().fillna(0).astype('uint8')
             ts_single = mark_forest_edges(ts_single, params)
             with gw.config.update(ref_image=ts_files[0], nodata=0):
                 ts_single.gw.save(out_file,num_workers=params['num_workers'],compression='lzw',overwrite=True)

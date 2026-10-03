@@ -3,6 +3,7 @@ from datetime import datetime
 
 from ..handler import logger
 from ..db import TuyauDataBase
+from . import utils
 from .project import ProjectPaths
 from .web_utils import download_hgt
 
@@ -31,12 +32,7 @@ def adjust_topo(params):
 
     """
     Normalizes topographic effects
-
-    Args:
-        params (dict)
-
-    Returns:
-        None
+    Note this is specific to srtm data. TODO: update to work with Copirnicus
     """
 
     slope_kwargs = dict(format='MEM',
@@ -52,22 +48,23 @@ def adjust_topo(params):
 
     ppaths = ProjectPaths(params)
 
-    srtm_file = ppaths.srtm / 'srtm30m_bounding_boxes.gpkg'
-    samples_file = ppaths.calval / 'random_grids_v4_wgs84.gpkg'
-    # nations_file = ppaths.political / 'ne_50m_admin_0_countries.shp'
+    if params.demsource == 'srtm':
+        dem_file = ppaths.dem / 'srtm30m_bounding_boxes.gpkg'
+        samples_file = ppaths.calval / 'random_grids_v4_wgs84.gpkg'
+        # nations_file = ppaths.political / 'ne_50m_admin_0_countries.shp'
+        key_file = params['topo']['key_file']
+        code_file = params['topo']['code_file']
 
-    srtm_df = gpd.read_file(str(srtm_file))
+    dem_df = gpd.read_file(str(dem_file))
     samples_df = gpd.read_file(str(samples_file))
     # nations_df = gpd.read_file(str(nations_file))
 
     topo = Topo()
 
-    key_file = params['topo']['key_file']
-    code_file = params['topo']['code_file']
-
     db = TuyauDataBase(params['database'])
 
-    for grid in params['grids']:
+    cells = utils.get_cell_list_from_grid_param(params['grids'])
+    for grid in cells:
 
         ppaths = ProjectPaths(params, grid=grid)
 
@@ -151,35 +148,35 @@ def adjust_topo(params):
                                     band_names=['elev'],
                                     mosaic=mosaic,
                                     dtype='float64',
-                                    nodata=params['topo']['srtm_nodata'],
+                                    nodata=params['topo']['dem_nodata'],
                                     resampling='average',
-                                    **open_kwargs) as src_srtm:
+                                    **open_kwargs) as src_dem:
 
-                        bounds = src_srtm.gw.bounds_as_namedtuple
+                        bounds = src_dem.gw.bounds_as_namedtuple
 
-                        # Transform the SRTM to UTM @30m (i.e., native resolution)
-                        src_srtm_res = src_srtm.gw.transform_crs(dst_crs=src_srtm.crs,
+                        # Transform the dem to UTM @30m (i.e., native resolution)
+                        src_dem_res = src_dem.gw.transform_crs(dst_crs=src_dem.crs,
                                                                  dst_res=(30, 30),
                                                                  resampling='average',
                                                                  num_threads=params['num_workers'])
 
                         # Calculate slope and aspect
-                        slope_deg = calc_slope_delayed(src_srtm_res.squeeze().data, **slope_kwargs)
-                        slope_deg_fd = da.from_delayed(slope_deg, (src_srtm_res.gw.nrows, src_srtm_res.gw.ncols), dtype='float64')
-                        src_slope = delayed_to_xarray(slope_deg_fd, src_srtm_res)
+                        slope_deg = calc_slope_delayed(src_dem_res.squeeze().data, **slope_kwargs)
+                        slope_deg_fd = da.from_delayed(slope_deg, (src_dem_res.gw.nrows, src_dem_res.gw.ncols), dtype='float64')
+                        src_slope = delayed_to_xarray(slope_deg_fd, src_dem_res)
 
-                        aspect_deg = calc_aspect_delayed(src_srtm_res.squeeze().data, **aspect_kwargs)
-                        aspect_deg_fd = da.from_delayed(aspect_deg, (src_srtm_res.gw.nrows, src_srtm_res.gw.ncols), dtype='float64')
-                        src_aspect = delayed_to_xarray(aspect_deg_fd, src_srtm_res)
+                        aspect_deg = calc_aspect_delayed(src_dem_res.squeeze().data, **aspect_kwargs)
+                        aspect_deg_fd = da.from_delayed(aspect_deg, (src_dem_res.gw.nrows, src_dem_res.gw.ncols), dtype='float64')
+                        src_aspect = delayed_to_xarray(aspect_deg_fd, src_dem_res)
 
                         # Transform back to 10m
-                        src_slope = src_slope.gw.transform_crs(dst_crs=src_srtm.crs,
+                        src_slope = src_slope.gw.transform_crs(dst_crs=src_dem.crs,
                                                                dst_bounds=bounds,
                                                                dst_res=src.gw.celly,
                                                                resampling='average',
                                                                num_threads=params['num_workers'])
 
-                        src_aspect = src_aspect.gw.transform_crs(dst_crs=src_srtm.crs,
+                        src_aspect = src_aspect.gw.transform_crs(dst_crs=src_dem.crs,
                                                                  dst_bounds=bounds,
                                                                  dst_res=src.gw.celly,
                                                                  resampling='average',
@@ -190,7 +187,7 @@ def adjust_topo(params):
                         src.attrs = attrs
 
                         out = topo.norm_topo(src,
-                                             src_srtm,
+                                             src_dem,
                                              src_ang_slice.sel(band='sza'),
                                              src_ang_slice.sel(band='saa'),
                                              slope=src_slope,

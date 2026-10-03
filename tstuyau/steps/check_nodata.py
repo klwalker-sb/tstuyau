@@ -15,6 +15,7 @@ import geowombat as gw
 
 from ..handler import logger
 from .project import ProjectPaths
+from . import utils
 from .check_status import read_db
 
 
@@ -371,7 +372,8 @@ def move_nodata(params):
     """
     with gw.config.update(sensor='s2l7'):
         
-        for grid in params['grids']:
+        cells = utils.get_cell_list_from_grid_param(params['grids'])
+        for grid in cells:
             
             ppaths = ProjectPaths(params, grid=grid)
             

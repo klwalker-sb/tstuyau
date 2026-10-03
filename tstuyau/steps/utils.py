@@ -1,6 +1,6 @@
 import string
 import random
-
+import csv
 import numpy as np
 import cv2
 import geowombat as gw
@@ -8,6 +8,7 @@ from geowombat.core import ndarray_to_xarray
 from geowombat.radiometry import QAMasker
 import xarray as xr
 from affine import Affine
+from ..handler import logger
 
 def random_id(string_length):
 
@@ -19,7 +20,24 @@ def random_id(string_length):
 
     return ''.join(random.choice(letters_digits) for i in range(string_length))
 
+def get_cell_list_from_grid_param(grid_param):
+    """
+    accepts grid parameter in multiple forms and converts is to list for uniform use  
+    """
+    cells = []
+    if isinstance(grid_param, list):
+        cells = grid_param
+    elif isinstance(grid_param, str) and grid_param.endswith('.csv'): 
+        with open(grid_param, newline='') as cell_file:
+            for row in csv.reader(cell_file):
+                cells.append(row[0])
+    elif isinstance(grid_param, int) or isinstance(grid_param, str): # if runing individual cells as array via bash script
+        cells.append(grid_param) 
+    else:
+        logger.warning(f"ERR: Problem parsing input as cell list. Needs to be list, .csv, or single int or string")
 
+    return cells
+    
 def get_image_list(ipath, wildcard):
     return list(ipath.glob(wildcard))
 
@@ -28,7 +46,6 @@ def filter_list(image_list):
 
     image_list = [fn for fn in image_list if 'angles' not in fn.name]
     return [fn for fn in image_list if 'sharp' not in fn.name]
-
 
 def get_s2_list(ipath, pattern='*.nc'):
     return filter_list(get_image_list(ipath, f'L3*_S2{pattern}'))
@@ -50,14 +67,20 @@ def get_l9_list(ipath, pattern='*.nc'):
     return filter_list(get_image_list(ipath, f'L3*_LC09{pattern}'))
 
 
-def get_image_lists(ms_brdf_path):
+def get_landsat_list(ipath, pattern='*.nc'):
+    
+    l5_list = get_l5_list(ipath, pattern)
+    l7_list = get_l7_list(ipath, pattern)
+    l8_list = get_l8_list(ipath, pattern)
+    l9_list = get_l9_list(ipath, pattern)
 
-    s2_list = get_s2_list(ms_brdf_path)
-    l5_list = get_l5_list(ms_brdf_path)
-    l7_list = get_l7_list(ms_brdf_path)
-    l8_list = get_l8_list(ms_brdf_path)
+    return l5_list + l7_list + l8_list + l9_list
 
-    landsat_list = l5_list + l7_list + l8_list
+    
+def get_image_lists(brdf_path, pattern='*.nc'):
+
+    s2_list = get_s2_list(brdf_path, pattern)
+    landsat_list = get_landsat_list(brdf_path, pattern)
 
     return s2_list, landsat_list
 

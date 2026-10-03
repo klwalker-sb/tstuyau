@@ -15,8 +15,10 @@ import math
 #from shapely.geometry import box
 from .project import ProjectPaths, get_tsdir_name
 from ..handler import logger
+from . import utils
 from .date_utils import get_date_range
 from .check_reconstruction import reconstruct
+from .mask_utils import get_mask_kwargs
 from .pheno import prep_pheno_bands, prep_ts_variable_bands
 from .texture import make_glcm
 
@@ -187,10 +189,10 @@ def make_ts_composite_single(ppaths, params):
     else:
         ts_type = 'smooth'
 
-    ### DO THIS
+    ### TODO
     ###if __ == 'monthly'...
     ###    params['reconstruct']['overwrite']
-    
+        
     ras_list = []
     comp_band_names = []
     gw_args = {'verbose':1,'n_workers':4,'n_threads':1,'n_chunks':200, 'gdal_cache':64,'overwrite':True}
@@ -248,13 +250,13 @@ def make_ts_composite_single(ppaths, params):
                 if params['feature_model']['use_pheno']:
                     ## note the padding from <feature_model:pheno_pad_day> is already added to the time series during reconstruction, 
                     ##      so ts_stack and ts_stack padded are the same. Need to access params to strip buffer from end product if desired.
-                    comp_band_names,ras_list = prep_pheno_bands(var, ts_stack, ds_stack, ts_stack, ds_stack,tmpout_dir,model_yr,
-                        season, start_doy, comp_band_names, ras_list, sigdif=sigdif, 
-                        basethresh_pre=basethresh_pre, basethresh_post=basethresh_post, imgbuf=imgbuf, params=params, **gw_args)
+                    comp_band_names,ras_list = prep_pheno_bands(var, ts_stack, ds_stack, ts_stack, ds_stack,tmpout_dir,model_yr, season, start_doy,
+                                        comp_band_names, ras_list, sigdif=sigdif, basethresh_pre=basethresh_pre, basethresh_post=basethresh_post, 
+                                         imgbuf=imgbuf, params=params, **gw_args)
 
                 else:
-                    comp_band_names,ras_list = prep_ts_variable_bands(
-                        var, ts_stack, ds_stack, tmpout_dir,season,start_doy, comp_band_names, ras_list, nodata_in, ppaths, **gw_args)
+                    comp_band_names,ras_list = prep_ts_variable_bands( var, ts_stack, ds_stack, tmpout_dir,season,start_doy, 
+                                                comp_band_names, ras_list, nodata_in, ppaths, **gw_args)
 
     elif ts_type == 'smooth':
         ## get stack from images in smoothed time-series directory that match temporal period of interest
@@ -270,10 +272,11 @@ def make_ts_composite_single(ppaths, params):
             if params['feature_model']['use_pheno']:
                 comp_band_names,ras_list = prep_pheno_bands(annual_bands, ts_stack, ds_stack, ts_stack_padded, ds_stack_padded, 
                     tmpout_dir,model_yr,'yr', start_doy, comp_band_names, ras_list, sigdif=sigdif, basethresh_pre=basethresh_pre, 
-                    basethresh_post=basethresh_post, imgbuf=imgbuf, **gw_args)
+                    basethresh_post=basethresh_post, imgbuf=imgbuf,params=params, **gw_args)
+            
             else:
-                comp_band_names,ras_list = prep_ts_variable_bands(annual_bands, ts_stack, ds_stack, 
-                                                                  tmpout_dir,temp,start_doy, comp_band_names, ras_list, nodata_in, ppaths, **gw_args)
+                comp_band_names,ras_list = prep_ts_variable_bands(annual_bands, ts_stack, ds_stack, tmpout_dir,temp,start_doy, 
+                                            comp_band_names, ras_list, nodata_in, ppaths, **gw_args)
 
         all_months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
         offset = params['calendar']['first_mo'] - 1
@@ -289,12 +292,12 @@ def make_ts_composite_single(ppaths, params):
                 logger.info(f"calculating {temp} bands: {bands}...")
                 ts_stack, ds_stack, ts_stack_padded, ds_stack_padded = get_image_stack(params,temp, img_dir)
                 if params['feature_model']['use_pheno']:
-                    comp_band_names,ras_list = prep_pheno_bands(bands, ts_stack, ds_stack, ts_stack_padded, ds_stack_padded, 
-                        tmpout_dir,model_yr,temp, start_doy, comp_band_names, ras_list, sigdif=sigdif, basethresh_pre=basethresh_pre, 
-                        basethresh_post=basethresh_post, imgbuf=imgbuf, **gw_args)
+                    comp_band_names,ras_list = prep_pheno_bands(bands, ts_stack, ds_stack, ts_stack_padded, ds_stack_padded, tmpout_dir, model_yr,
+                        temp, start_doy, comp_band_names, ras_list, sigdif=sigdif, basethresh_pre=basethresh_pre, basethresh_post=basethresh_post, 
+                        imgbuf=imgbuf, params=params, **gw_argss)
                 else:
-                    comp_band_names,ras_list = prep_ts_variable_bands(bands, ts_stack, ds_stack, 
-                                                                  tmpout_dir,temp,start_doy, comp_band_names, ras_list, nodata_in, ppaths, **gw_args)
+                    comp_band_names,ras_list = prep_ts_variable_bands(bands, ts_stack, ds_stack,tmpout_dir,temp,start_doy, 
+                                            comp_band_names, ras_list, nodata_in, ppaths, **gw_args)
 
         ## to get an example image of each month (from the 20th), the SI variable is written with month first (as statistic) followed by -20 (e.g. Jan-20) 
         mo_bands = [b for b in si_vars if ("-" in b and b.split("_")[1] == '20') or ('-' in b and b.split("-")[1] == '20')]
@@ -369,9 +372,8 @@ def make_ts_composite(params):
     mod_yr = params['feature_model']['start_yr']
     logger.debug(f"si_vars = {si_vars0}")
     
-    if isinstance(params['grids'],int):
-        params['grids'] = [params['grids']]
-    for cell in params['grids']:
+    cells = utils.get_cell_list_from_grid_param(params['grids'])
+    for cell in cells:
         ppaths = ProjectPaths(params, grid=cell)
         if params['feature_model']['treat_out'] == 'archive':
             out_dir = ppaths.comp
@@ -410,18 +412,18 @@ def make_ts_composite(params):
                     else:
                         out_ras = f"{out_dir}/{int(cell):06d}_{mod_yr}_{si_full}_{'-'.join(comp_band_names)}.tif"
                         
-            ## Start writing output composite
-            with rio.open(ras_list[0]) as src0:
-                meta = src0.meta
-                meta.update(count = len(ras_list))
+                ## Start writing output composite
+                with rio.open(ras_list[0]) as src0:
+                    meta = src0.meta
+                    meta.update(count = len(ras_list))
 
-            with rio.open(out_ras, 'w', **meta) as dst:
-                for id, layer in enumerate(ras_list, start=1):
-                    with rio.open(layer) as src1:
-                        dst.write(src1.read(1),id)
-                    dst.descriptions = tuple(comp_band_names)
+                with rio.open(out_ras, 'w', **meta) as dst:
+                    for id, layer in enumerate(ras_list, start=1):
+                        with rio.open(layer) as src1:
+                            dst.write(src1.read(1),id)
+                        dst.descriptions = tuple(comp_band_names)
 
-            logger.info(f'final composite written to {out_ras}')
+                logger.info(f'final composite written to {out_ras}')
                 
         else:
             logger.info(f'making multi year composite for cell {cell}...')
@@ -498,6 +500,7 @@ def mosaic_cells(params, out_path=None):
                     
     if params['grids']:
         mosaic_cells = True
+        
         if isinstance(params['grids'], int):
             params['grids'] = [params['grids']]
         elif isinstance(params['grids'], list):

@@ -14,6 +14,7 @@ import tempfile
 from .project import ProjectPaths
 #from .mod_utils import get_train_yrs_str, get_class_col
 from ..handler import logger
+from . import utils
 
 
 def get_ran_pt_in_poly(polyg, seed):
@@ -219,16 +220,7 @@ def make_var_dataframe(params):
     '''
     
     all_pts = pd.DataFrame()
-    if isinstance(params['grids'], list):
-        cells = params['grids']
-    elif str(params['grids']).endswith('.csv'): 
-        cells = []
-        with open(params['grids'], newline='') as cell_file:
-            for row in csv.reader(cell_file):
-                cells.append (row[0])
-    else:
-        logger.warning('cell_list needs to be a list or path to .csv file with list \n')
-
+    cells = utils.get_cell_list_from_grid_param(params['grids'])
     for cell in cells:
         ppaths = ProjectPaths(params, grid=int(cell))
         if params['classify']['comp_dir'] == 'in_dir':

@@ -18,6 +18,7 @@ from .date_utils import get_date_range, get_img_date
 from .mod_utils import get_train_yrs_str
 from .spec_indices import calculate_raw_index, calculate_char_index, SI_DICT
 from .separability import get_separability
+from . import utils
 from .lookup import SENSORS
 from ..handler import logger
 
@@ -213,17 +214,8 @@ def sample_timeseries(params):
         else:
             pts = point_df
 
-    cells = []
-    if isinstance(grids, list):
-        cells = grids
-    elif isinstance(params['grids'], str) and grids.endswith('.csv'): 
-        with open(grids, newline='') as cell_file:
-            for row in csv.reader(cell_file):
-                cells.append(row[0])
-    elif isinstance(grids, int) or isinstance(grids, str): # if runing individual cells as array via bash script
-        cells.append(grids) 
-    
-    for cell in cells:
+    cells = utils.get_cell_list_from_grid_param(grids)
+    for grid in cells:
         ppaths = ProjectPaths(params, grid=int(cell))
         logger.info(f"working on cell {cell}")
         ts_stack = []
@@ -256,7 +248,11 @@ def sample_timeseries(params):
                 ts_type = 'raw'
                 cell_dir = ppaths.proc
                 matchstr = SENSORS[img_type]['matchstr']
-                for img in list(cell_dir.glob('*[!X].nc')):
+                skip_flag = None
+                if params['reconstruct']['skip_flag']:
+                    skip_flag = params['reconstruct']['skip_flag']
+                keeper_str = '*.nc' if  skip_flag is None else "*[!{skip_flag}].nc"
+                for img in list(cell_dir.glob(keeper_str)):
                         imgtyp = img.stem.split('_')[1][:4] if img.stem.split('_')[1].startswith('L') else img.stem.split('_')[1][:3]
                         if imgtyp in matchstr:
                             img_dt =  get_img_date(img.stem, 'raw', img_type)

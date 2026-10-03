@@ -5,6 +5,7 @@ import yaml
 
 from ..handler import logger
 from .. import errors
+from . import utils
 from .project import ProjectPaths
 from .image_utils import get_rbg_img
 from .constants import FILENAME_DATE_INDEX, FILENAME_DATE_INDEX_GEE
@@ -65,7 +66,8 @@ def precheck_classify(params):
         params (dict)
     """
 
-    for grid in params['grids']:
+    cells = utils.get_cell_list_from_grid_param(params['grids'])
+    for grid in cells:
 
         ppaths = ProjectPaths(params, grid=grid)
 
@@ -84,10 +86,12 @@ def make_thumbnail_batch(img_dir,thumbnail_dir,yr,params):
 
     gamma = params['plot']['gamma']
     reduct_factor = params['plot']['reduct_factor']
-    include = params['reconstruct']['include']
-    exclude=params['reconstruct']['exclude']
+    include = params['reconstruct']['keep_str']
+    if include.lower() == 'all':
+        include = ''
+    skip_flag=params['reconstruct']['skip_flag']
 
-    if exclude and (exclude != 'None' and exclude !=''):
+    if skip_flag and (skip_flag != 'None'):
         imgs0 = list(img_dir.glob(f'*{include}[!{exclude}].nc')) + list(img_dir.glob(f'*{include}[!{exclude}].tif'))
     else:
         imgs0 = list(img_dir.glob(f'*{include}.nc')) +  list(img_dir.glob(f'*{include}.tif'))

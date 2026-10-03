@@ -1,446 +1,80 @@
 from pathlib import Path
 from datetime import datetime
 import concurrent.futures
-
-from ..handler import logger
-from ..db import TuyauDataBase
-from .project import ProjectPaths
-from .mask_utils import mask_data
-from .gee_ingest import IngestFromGoogle
-from .constants import FILENAME_DATE_INDEX, FILENAME_DATE_INDEX_GEE, FILENAME_DATE_START_INDEX, FILENAME_DATE_END_INDEX
-from .lookup import SENSORS
 import numpy as np
 import pandas as pd
 import rasterio as rio
-from rasterio.enums import Resampling as RioResampling
-from rasterio.warp import reproject
-from scipy.ndimage import rotate as ndi_rotate
+from affine import Affine
+#from rasterio.enums import Resampling as RioResampling
+#from rasterio.warp import reproject
+from rasterio.transform import from_bounds
 import geowombat as gw
-import xarray as xr
-import xrspatial
 from geowombat.core import sort_images_by_date
+import xarray as xr
 import rastercrf as rcrf
 from tqdm import tqdm
 
-"""
-Computes a combined cast-shadow + self-shadow mask for each
-BRDF-corrected raster in a grid cell, using that cell's Copernicus
-DEM and the per-scene sun zenith/azimuth already stored in
-processing.info.
-
-Run as a standalone step, separate from the download/metadata
-pipeline. Does NOT yet apply the shiftX/shiftY co-registration
-offsets -- that's a follow-on step once masks are validated.
-"""
-
-def match_brdf_files(brdf_dir, processing_info, exclude=None):
-    """
-    Maps each BRDF .tif file to its processing.info scene id, via 'brdf_id' column -- 
-          a prefix of the actual filename, which may have extra text appended before '.tif'.
-    option to skip files with text that matches <exclude> (usually X)  at end of stem name 
-    """
-    brdf_dir = Path(brdf_dir)
-    candidates = [f for f in brdf_dir.glob('*.tif') if not f.name.endswith(f'{exclude}.tif')]
-
-    id_lookup = processing_info['brdf_id'].dropna()
-    id_lookup = id_lookup.loc[id_lookup.str.len().sort_values(ascending=False).index]
-
-    file_to_scene = {}
-    unmatched = []
-    for f in candidates:
-        match = next(
-            (scene_id for scene_id, bid in id_lookup.items() if f.stem.startswith(bid)),
-            None,
-        )
-        if match is None:
-            unmatched.append(f.name)
-            continue
-        file_to_scene[f] = match
-
-    if unmatched:
-        preview = unmatched[:5]
-        logger.warning(
-            f"{len(unmatched)} brdf files had no matching brdf_id: "
-            f"{preview}{'...' if len(unmatched) > 5 else ''}"
-        )
-
-    return file_to_scene
-
-
-def compute_cast_shadow(
-    dem: np.ndarray,
-    cellsize: float,
-    sun_zenith_deg: float,
-    sun_azimuth_deg: float,
-) -> np.ndarray:
-    """Boolean cast-shadow mask (True = in shadow), via a
-    rotate-and-scan horizon algorithm (Corripio 2003 style).
-
-    Rotates the DEM so the sun's azimuth direction aligns with the
-    row axis, then for each column marches from the sun-facing edge
-    outward, tracking the highest 'projected sun-ray height'
-    encountered so far. Any pixel lower than that projected height
-    is occluded.
-
-    CAVEAT: the rotation direction/sign convention and the
-    center-crop alignment after rotating back have NOT been verified
-    against a real scene. Validate visually (e.g. compare against a
-    simple hillshade for one known sun position) before trusting this
-    at scale -- getting azimuth sign/quadrant wrong is a common,
-    easy-to-miss bug in this kind of algorithm.
-    """
-    sun_elevation_deg = 90.0 - sun_zenith_deg
-    if sun_elevation_deg <= 0:
-        # Sun below the horizon -- everything is in shadow.
-        return np.ones(dem.shape, dtype=bool)
-
-    tan_e = np.tan(np.radians(sun_elevation_deg))
-
-    # Rotate so marching along increasing row index = marching away
-    # from the sun. scipy.ndimage.rotate's angle is counterclockwise;
-    # verify this against your actual azimuth convention (0=N,
-    # clockwise, as used by sun_azimuth in the metadata) before
-    # trusting the sign here.
-    rot_angle = sun_azimuth_deg
-    dem_rot = ndi_rotate(
-        dem, angle=rot_angle, reshape=True, order=1, mode='constant', cval=np.nan
-    )
-
-    nrows, ncols = dem_rot.shape
-    shadow_rot = np.zeros_like(dem_rot, dtype=bool)
-    horizon = np.full(ncols, -np.inf)
-
-    for r in range(nrows):
-        row = dem_rot[r, :]
-        valid = ~np.isnan(row)
-        shadow_rot[r, valid] = row[valid] < horizon[valid]
-        horizon[valid] = np.maximum(horizon[valid], row[valid])
-        horizon -= cellsize * tan_e
-
-    shadow_back = ndi_rotate(
-        shadow_rot.astype(np.uint8),
-        angle=-rot_angle,
-        reshape=True,
-        order=0,
-        mode='constant',
-        cval=0,
-    )
-    # Center-crop back to the original DEM shape (rotate w/
-    # reshape=True pads the array). Verify this crop is centered
-    # correctly for your actual array dimensions.
-    dh = (shadow_back.shape[0] - dem.shape[0]) // 2
-    dw = (shadow_back.shape[1] - dem.shape[1]) // 2
-    shadow = shadow_back[dh:dh + dem.shape[0], dw:dw + dem.shape[1]].astype(bool)
-
-    return shadow
-
-
-def compute_self_shadow(
-    dem: np.ndarray,
-    sun_zenith_deg: float,
-    sun_azimuth_deg: float,
-) -> np.ndarray:
-    """Boolean self-shadow mask (True = facet faces away from sun),
-    via the standard illumination-angle cosine test on slope/aspect.
-    """
-    dem_da = xr.DataArray(dem, dims=('y', 'x'))
-    slope = xrspatial.slope(dem_da).values       # degrees
-    aspect = xrspatial.aspect(dem_da).values     # degrees, 0=N clockwise
-
-    slope_r = np.radians(slope)
-    aspect_r = np.radians(aspect)
-    zenith_r = np.radians(sun_zenith_deg)
-    azimuth_r = np.radians(sun_azimuth_deg)
-
-    cos_i = (
-        np.cos(zenith_r) * np.cos(slope_r)
-        + np.sin(zenith_r) * np.sin(slope_r) * np.cos(azimuth_r - aspect_r)
-    )
-    return cos_i <= 0
-
-
-def align_dem_to_raster(dem_path: Path, ref_transform, ref_crs, ref_shape) -> np.ndarray:
-    """Returns the DEM as an array matched to the reference raster's
-    transform/CRS/shape, reprojecting only if they differ.
-    """
-    with rasterio.open(dem_path) as dsrc:
-        same_grid = (
-            dsrc.transform == ref_transform
-            and dsrc.crs == ref_crs
-            and (dsrc.height, dsrc.width) == ref_shape
-        )
-        if same_grid:
-            return dsrc.read(1).astype(np.float32)
-
-        dem = np.empty(ref_shape, dtype=np.float32)
-        reproject(
-            source=rasterio.band(dsrc, 1),
-            destination=dem,
-            src_transform=dsrc.transform,
-            src_crs=dsrc.crs,
-            dst_transform=ref_transform,
-            dst_crs=ref_crs,
-            resampling=RioResampling.bilinear,
-        )
-        return dem
-
-
-def make_shade_mask(
-    scene_tif: Path,
-    dem_path: Path,
-    sun_zenith_deg: float,
-    sun_azimuth_deg: float,
-    out_path: Path,
-) -> Path:
-    """Computes and saves a combined cast+self shadow mask for one
-    scene, matched to that scene's exact grid.
-    """
-    with rasterio.open(scene_tif) as src:
-        profile = src.profile
-        transform = src.transform
-        crs = src.crs
-        shape = (src.height, src.width)
-        cellsize = abs(transform.a)  # assumes square pixels
-
-    dem = align_dem_to_raster(dem_path, transform, crs, shape)
-
-    cast_shadow = compute_cast_shadow(dem, cellsize, sun_zenith_deg, sun_azimuth_deg)
-    self_shadow = compute_self_shadow(dem, sun_zenith_deg, sun_azimuth_deg)
-    shadow_mask = (cast_shadow | self_shadow).astype('uint8')
-
-    out_profile = profile.copy()
-    out_profile.update(dtype='uint8', count=1, nodata=255, compress='lzw')
-
-    with rasterio.open(out_path, 'w', **out_profile) as dst:
-        dst.write(shadow_mask, 1)
-
-    return out_path
-
-
-"""
-terrain_shadow.py
-
-Computes a combined cast-shadow + self-shadow mask for each
-BRDF-corrected raster in a grid cell, using that cell's Copernicus
-DEM and the per-scene sun zenith/azimuth already stored in
-processing.info.
-
-Run as a standalone step, separate from the download/metadata
-pipeline. Does NOT yet apply the shiftX/shiftY co-registration
-offsets -- that's a follow-on step once masks are validated.
-"""
-
-import logging
-import typing as T
-from pathlib import Path
-
-import numpy as np
-import pandas as pd
-import rasterio
-import xarray as xr
-import xrspatial
-from rasterio.enums import Resampling as RioResampling
-from rasterio.warp import reproject
-from scipy.ndimage import rotate as ndi_rotate
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-
-def match_brdf_files(brdf_dir: Path, processing_info: pd.DataFrame) -> T.Dict[Path, str]:
-    """Maps each BRDF .tif file to its processing.info scene id, via
-    the 'brdf_id' column -- a prefix of the actual filename, which
-    may have extra text appended before '.tif'.
-
-    Files ending in 'X.tif' are excluded (a different product type,
-    not an image to mask).
-    """
-    brdf_dir = Path(brdf_dir)
-    candidates = [f for f in brdf_dir.glob('*.tif') if not f.name.endswith('X.tif')]
-
-    id_lookup = processing_info['brdf_id'].dropna()
-    # Check longer ids first so a more specific id can't be shadowed
-    # by a shorter one that also happens to be a valid prefix.
-    id_lookup = id_lookup.loc[id_lookup.str.len().sort_values(ascending=False).index]
-
-    file_to_scene: T.Dict[Path, str] = {}
-    unmatched = []
-    for f in candidates:
-        stem = f.stem
-        match = next(
-            (scene_id for scene_id, bid in id_lookup.items() if stem.startswith(bid)),
-            None,
-        )
-        if match is None:
-            unmatched.append(f.name)
-            continue
-        file_to_scene[f] = match
-
-    if unmatched:
-        preview = unmatched[:5]
-        logger.warning(
-            f"{len(unmatched)} brdf files had no matching brdf_id: "
-            f"{preview}{'...' if len(unmatched) > 5 else ''}"
-        )
-
-    return file_to_scene
-
-
-def compute_cast_shadow(
-    dem: np.ndarray,
-    cellsize: float,
-    sun_zenith_deg: float,
-    sun_azimuth_deg: float,
-) -> np.ndarray:
-    """Boolean cast-shadow mask (True = in shadow), via a
-    rotate-and-scan horizon algorithm (Corripio 2003 style).
-
-    Rotates the DEM so the sun's azimuth direction aligns with the
-    row axis, then for each column marches from the sun-facing edge
-    outward, tracking the highest 'projected sun-ray height'
-    encountered so far. Any pixel lower than that projected height
-    is occluded.
-
-    CAVEAT: the rotation direction/sign convention and the
-    center-crop alignment after rotating back have NOT been verified
-    against a real scene. Validate visually (e.g. compare against a
-    simple hillshade for one known sun position) before trusting this
-    at scale -- getting azimuth sign/quadrant wrong is a common,
-    easy-to-miss bug in this kind of algorithm.
-    """
-    sun_elevation_deg = 90.0 - sun_zenith_deg
-    if sun_elevation_deg <= 0:
-        # Sun below the horizon -- everything is in shadow.
-        return np.ones(dem.shape, dtype=bool)
-
-    tan_e = np.tan(np.radians(sun_elevation_deg))
-
-    # Rotate so marching along increasing row index = marching away
-    # from the sun. scipy.ndimage.rotate's angle is counterclockwise;
-    # verify this against your actual azimuth convention (0=N,
-    # clockwise, as used by sun_azimuth in the metadata) before
-    # trusting the sign here.
-    rot_angle = sun_azimuth_deg
-    dem_rot = ndi_rotate(
-        dem, angle=rot_angle, reshape=True, order=1, mode='constant', cval=np.nan
-    )
-
-    nrows, ncols = dem_rot.shape
-    shadow_rot = np.zeros_like(dem_rot, dtype=bool)
-    horizon = np.full(ncols, -np.inf)
-
-    for r in range(nrows):
-        row = dem_rot[r, :]
-        valid = ~np.isnan(row)
-        shadow_rot[r, valid] = row[valid] < horizon[valid]
-        horizon[valid] = np.maximum(horizon[valid], row[valid])
-        horizon -= cellsize * tan_e
-
-    shadow_back = ndi_rotate(
-        shadow_rot.astype(np.uint8),
-        angle=-rot_angle,
-        reshape=True,
-        order=0,
-        mode='constant',
-        cval=0,
-    )
-    # Center-crop back to the original DEM shape (rotate w/
-    # reshape=True pads the array). Verify this crop is centered
-    # correctly for your actual array dimensions.
-    dh = (shadow_back.shape[0] - dem.shape[0]) // 2
-    dw = (shadow_back.shape[1] - dem.shape[1]) // 2
-    shadow = shadow_back[dh:dh + dem.shape[0], dw:dw + dem.shape[1]].astype(bool)
-
-    return shadow
-
-
-def compute_self_shadow(
-    dem: np.ndarray,
-    sun_zenith_deg: float,
-    sun_azimuth_deg: float,
-) -> np.ndarray:
-    """Boolean self-shadow mask (True = facet faces away from sun),
-    via the standard illumination-angle cosine test on slope/aspect.
-    """
-    dem_da = xr.DataArray(dem, dims=('y', 'x'))
-    slope = xrspatial.slope(dem_da).values       # degrees
-    aspect = xrspatial.aspect(dem_da).values     # degrees, 0=N clockwise
-
-    slope_r = np.radians(slope)
-    aspect_r = np.radians(aspect)
-    zenith_r = np.radians(sun_zenith_deg)
-    azimuth_r = np.radians(sun_azimuth_deg)
-
-    cos_i = (
-        np.cos(zenith_r) * np.cos(slope_r)
-        + np.sin(zenith_r) * np.sin(slope_r) * np.cos(azimuth_r - aspect_r)
-    )
-    return cos_i <= 0
-
-
-def align_dem_to_raster(dem_path: Path, ref_transform, ref_crs, ref_shape) -> np.ndarray:
-    """Returns the DEM as an array matched to the reference raster's
-    transform/CRS/shape, reprojecting only if they differ.
-    """
-    with rasterio.open(dem_path) as dsrc:
-        same_grid = (
-            dsrc.transform == ref_transform
-            and dsrc.crs == ref_crs
-            and (dsrc.height, dsrc.width) == ref_shape
-        )
-        if same_grid:
-            return dsrc.read(1).astype(np.float32)
-
-        dem = np.empty(ref_shape, dtype=np.float32)
-        reproject(
-            source=rasterio.band(dsrc, 1),
-            destination=dem,
-            src_transform=dsrc.transform,
-            src_crs=dsrc.crs,
-            dst_transform=ref_transform,
-            dst_crs=ref_crs,
-            resampling=RioResampling.bilinear,
-        )
-        return dem
-
-
-def make_shade_mask(
-    scene_tif: Path,
-    dem_path: Path,
-    sun_zenith_deg: float,
-    sun_azimuth_deg: float,
-    out_path: Path,
-) -> Path:
-    """Computes and saves a combined cast+self shadow mask for one
-    scene, matched to that scene's exact grid.
-    """
-    with rasterio.open(scene_tif) as src:
-        profile = src.profile
-        transform = src.transform
-        crs = src.crs
-        shape = (src.height, src.width)
-        cellsize = abs(transform.a)  # assumes square pixels
-
-    dem = align_dem_to_raster(dem_path, transform, crs, shape)
-
-    cast_shadow = compute_cast_shadow(dem, cellsize, sun_zenith_deg, sun_azimuth_deg)
-    self_shadow = compute_self_shadow(dem, sun_zenith_deg, sun_azimuth_deg)
-    shadow_mask = (cast_shadow | self_shadow).astype('uint8')
-
-    out_profile = profile.copy()
-    out_profile.update(dtype='uint8', count=1, nodata=255, compress='lzw')
-
-    with rasterio.open(out_path, 'w', **out_profile) as dst:
-        dst.write(shadow_mask, 1)
-
-    return out_path
-
+from .io import extract_ref_profile
+from ..handler import logger
+from ..db import TuyauDataBase
+from . import utils
+from .project import ProjectPaths
+from .mask_utils import compute_cloud_crf, compute_cast_shadow, compute_self_shadow, buffer_mask
+from .gee_ingest import IngestFromGoogle
+from .constants import FILENAME_DATE_INDEX, FILENAME_DATE_INDEX_GEE, FILENAME_DATE_START_INDEX, FILENAME_DATE_END_INDEX
+from .lookup import SENSORS, MASKS
+from .processing_tracker import match_brdf_files_to_record
+
+def update_db_mask_tracker(processing_db,image_id,mask_type):
     
-def mask_clouds_CRF(params, ppaths):
+    existing_masks = processing_db.loc[image_id, 'masking']
+    if pd.isna(existing_masks) or existing_masks == 'native masks only':
+        processing_db.loc[image_id, 'masking'] = mask_type
+    elif mask_type in existing_masks:
+        pass
+    else:
+        processing_db.loc[image_id, 'masking'] = processing_db.loc[image_id, 'masking'] + f';{mask_type}'
+
+    return processing_db
+
+
+def write_mask(arr, out_path, template=None, img_path=None, chunks=None,
+               open_kwargs=None, nodata_val=255, dtype='uint8'):
+    '''
+    Writes a single-band mask array to out_path, matched to
+    template's grid (crs, transform, width/height, block sizes).
+ 
+    Can pass a pre-built <template> -- a gw.open()'d DataArray (band already dropped) whose
+    crs, transform, and gw.ncols/nrows/col_chunks/row_chunks define the output grid/profile.
+    (so the scene is only opened once), 
+    or Can pass <img_path> (plus optional parameters to feed into gw
+    '''
+    if template is None:
+        if img_path is None:
+            logger.warning('write_mask needs either template or img_path')
+            return
+        open_kwargs = open_kwargs or {}
+        if chunks is not None:
+            open_kwargs = {'chunks': chunks, **open_kwargs}
+        with gw.open(img_path, **open_kwargs) as src:
+            template = src.isel(band=0, drop=True) if 'band' in src.dims else src
+            template = template.squeeze(drop=True)
+
+    out_profile = extract_ref_profile(template, count=1, nodata=nodata_val, dtype=dtype)
+    arr = arr.astype(dtype)
+ 
+    with rio.open(out_path, 'w', **out_profile) as dst:
+        dst.write(arr, 1)
+
+
+def mask_clouds_CRF(params, ppaths, processing_db):
     '''
     Method using conditional Random Fields trained on clouds, shadows, water, and clear land.
-    (original code from jgrss)
+    (original code from jgrss)  TODO: integrate this into other code. 
+    Currently saves masks with date names, so cannot be used along with individual images.  
     '''
+    mask_args = MASKS['cloud_CRF']
+    maskname = mask_args['maskname']
     
     # Setup the CRF object
     crf_clf_clouds = rcrf.CRFClassifier()
@@ -448,7 +82,6 @@ def mask_clouds_CRF(params, ppaths):
     # lgb_clf = rcrf.LGBMClassifier()
 
     if params['masking']['deep_crf']:
-
         lcrf_clf = rcrf.LSTMCRFClassifier(params['masking']['predict_labels'], params['masking']['batch_size'])
         lstm_model_name = str(rcrf.model_path(params['masking']['lstm_model_name']))
         lcrf_clf.from_file(lstm_model_name)
@@ -481,7 +114,7 @@ def mask_clouds_CRF(params, ppaths):
         date_pos=FILENAME_DATE_INDEX
         prepend_str=''
 
-    # Get a list of the co-registered images
+    # Get a list of the input images
     sensors = params['masking']['sat_sensors']
     if isinstance(sensors,list):
         if (any(s.startswith('S2') for s in sensors)) and (any(s.startswith('L') for s in sensors)):
@@ -491,20 +124,20 @@ def mask_clouds_CRF(params, ppaths):
     else:
         sensor = sensors
     
-    skip_flag = params['reconstruct']['exclude']  
+    skip_flag = params['masking']['skip_flag']  
     
     if (sensor == 'LS2') or (sensor == 'All'):
-        search_str = f"*[!{skip_flag}].nc"
+        search_str = f'*.nc' if skip_flag is None else f"*[!{skip_flag}].nc"
     else:
         senstr = SENSORS[sensor]['matchstr']
-        search_str = f"L3?_{senstr}*[!{skip_flag}].nc"
+        search_str = f'L3?_{senstr}*.nc' if skip_flag is None else f"L3?_{senstr}*[!{skip_flag}].nc"
         
     image_dict = sort_images_by_date(ppaths.ms,
-                                     search_str,
-                                        date_pos=date_pos,
-                                        date_start=0,
-                                        date_end=8,
-                                        prepend_str=prepend_str)
+                                    search_str,
+                                    date_pos=date_pos,
+                                    date_start=0,
+                                    date_end=8,
+                                    prepend_str=prepend_str)
 
     proc_names = list(image_dict.keys())
     #logger.info(f'image list = {proc_names}')
@@ -525,106 +158,81 @@ def mask_clouds_CRF(params, ppaths):
     pred_kwargs['height'] = src.gw.nrows
 
     def time_generator(rpath_mask, full_time_list, batch_size):
+        """This uses a sliding window of batch_size (with checks to ensure that same date images are together in a batch) to provide CRF model
+        temporal context when deciding whether pixels are cloud or not. TODO: fix bug of same-date images getting same name (causing several problems)
+        by using same naming convention as other methods.
 
+        Note, processing dictionary is passed in here, for consistency, but it is not used. TODO: update at end as with other masking methods
+        """
         for fidx in range(0, len(full_time_list)-batch_size):
-
             file_time_list = []
             image_dates = []
-
             yidx = 0
 
             # Fill the list until the number of unique items equals the batch size
             while len(list(set(image_dates))) < batch_size:
-
                 if fidx+yidx+1 >= len(full_time_list):
                     break
 
                 fn = full_time_list[fidx+yidx]
-
                 yidx += 1
-
                 try:
-
                     with gw.open(f'{fn}:swir2', chunks=params['masking']['chunks']) as src:
                         pass
-
                 except:
                     continue
-
                 # The image date
                 fn_dt = datetime.strptime(Path(fn).name.split('_')[3][:8], '%Y%m%d')
-
                 file_time_list.append(fn)
                 image_dates.append(fn_dt)
 
             # Continue to check the end for additional duplicates
             while True:
-
                 if fidx+yidx+1 >= len(full_time_list):
                     break
-
                 fn = full_time_list[fidx+yidx]
-
                 yidx += 1
-
                 try:
-
                     with gw.open(f'{fn}:swir2', chunks=params['masking']['chunks']) as src:
                         pass
-
                 except:
                     continue
-
                 fn_dt = datetime.strptime(Path(fn).name.split('_')[3][:8], '%Y%m%d')
-
                 if len(list(set(image_dates + [fn_dt]))) > batch_size:
                     break
-
                 file_time_list.append(fn)
                 image_dates.append(fn_dt)
-
             # Check if the files in the batch have been processed
-
             existing_files = []
             future_files = []
 
             for fn, fn_dt in zip(file_time_list, image_dates):
-
                 outfile = rpath_mask / f'{fn_dt.year}{fn_dt.month:02d}{fn_dt.day:02d}.tif'
-
+                outfile = rpath_mask / f'{Path(fn).stem}_{maskname}.tif'
                 existing_files.append(outfile.is_file())
                 future_files.append(outfile)
-
+            
             if not all(existing_files):
-                yield file_time_list, image_dates, sorted(list(set(future_files)))
+                yield file_time_list, image_dates, future_files
             else:
                 yield None, None, None
 
         bfidx = 0
-
         # Backfill the end
         while True:
-
             file_time_list_ = full_time_list[len(full_time_list)-batch_size-bfidx:len(full_time_list)]
             file_time_list = []
 
             for fn in file_time_list_:
-
                 try:
-
                     with gw.open(f'{fn}:swir2', chunks=params['masking']['chunks']) as src:
                         pass
-
                     file_time_list.append(fn)
-
                 except:
                     pass
-
             image_dates = [datetime.strptime(Path(fn).name.split('_')[3][:8], '%Y%m%d') for fn in file_time_list]
-
             if len(list(set(file_time_list))) == batch_size:
                 break
-
             bfidx -= 1
 
         existing_files = []
@@ -642,7 +250,7 @@ def mask_clouds_CRF(params, ppaths):
             future_files.append(outfile)
 
         if not all(existing_files):
-            yield file_time_list, image_dates, sorted(list(set(future_files)))
+            yield file_time_list, image_dates, future_files
         else:
             yield None, None, None
 
@@ -689,46 +297,202 @@ def mask_clouds_CRF(params, ppaths):
                     for f in tqdm(concurrent.futures.as_completed(futures), total=len(futures)):
                         res = f.result()
 
-                        
-def mask_images(params):
+def mask_clouds_s2cloudless(params, ppaths, grid, input_dir, processing_db, open_kwargs):
+    '''
+    Downloads s2cloudless masks from GEE and applies them to Sentinel-2 images.
+ 
+    processing_db/mask_info accepted for consistency with the other
+    masking functions; not yet used below since the thresholding
+    logic itself is still a TODO (unchanged from the original).
+    '''
+    logger.info(f'  first downloading s2cloudless masks from GEE ...')
+    mask_args = MASKS['s2cloudless']  ##TODO: use this
+    params['image_type'] = ['S2cp']
+    ig = IngestFromGoogle(verbose=1)
+    gee = ig.ingest_from_gee(params, grid, ppaths)
+    logger.info(f'  now applying masks to Sentinel images ...')
 
+    skip_flag = params['masking']['skip_flag']
+
+    db_col = mask_args['db_col']
+    maskname = mask_args['maskname']
+    out_dir = Path(input_dir).parent / mask_args['mask_dir']
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    file_to_scene = match_brdf_files_to_record(input_dir, processing_db, exclude=skip_flag, method=params['dlMethod'])
+    logger.info(f'preparing masks for {len(file_to_scene)} images')
+ 
+    n_ok, n_skip = 0, 0
+    '''
+    for img_path, scene_id in file_to_scene.items():
+        try:
+            with gw.open(img_path, chunks=chunks, **open_kwargs) as src:
+                template = src.isel(band=0, drop=True) if 'band' in src.dims else src
+                template = template.squeeze(drop=True)
+            arr=
+            # TODO: finish this here!
+            ## mask pixels >95? 60? (100 is max prob of cloud, 255 is nodata)
+            ## add s2cloudless_thresh in params
+            ## also, consider cloud shadows as per
+            ## https://towardsdatascience.com/creating-sentinel-2-truly-cloudless-mosaics-with-microsoft-planetary-computer-7392a2c0d96c/
+            write_mask(arr, out_path, template=template, nodata_val=255)
+   
+            n_ok += 1
+            processing_db.loc[scene_id, db_col] = str(out_path)
+            update_db_mask_tracker(processing_db,scene_id,s2coudless')
+
+            except Exception as e:
+                logger.warning(f'Failed to make shade mask for {img_path.name}: {e}')
+                n_skip += 1
+                # Rename the file that failed masking with the skip_flag at the end
+                p = Path(img_path)
+                p.rename(p.parent / f'{p.stem}_MASKFAIL{skip_flag}{p.suffix}')
+                processing_db.loc[scene_id, db_col] = 'ERROR'
+ 
+    logger.info(f'Shade masks: {n_ok} created, {n_skip} skipped -> {out_dir}')
+    '''
+
+def mask_shade(params, input_dir, processing_db, open_kwargs):
+    '''
+    Computes a combined cast-shadow + self-shadow mask for each BRDF scene in this grid cell, using the cell's DEM and the per-scene
+    sun zenith/azimuth already stored in processing_db (added by eostac).
+    '''
+    
+    mask_args = MASKS['terrain_shade']
+    db_col = mask_args['db_col']
+    maskname = mask_args['maskname']
+    out_dir = Path(input_dir).parent / mask_args['mask_dir']
+    out_dir.mkdir(parents=True, exist_ok=True)
+ 
+    res = params['res']
+    skip_flag = params['masking']['skip_flag']
+    
+    dem_path = Path(input_dir).parent / 'terrain' / 'dem.tif'
+    
+    file_to_scene = match_brdf_files_to_record(input_dir, processing_db, exclude=skip_flag, method=params['dlMethod'])
+    logger.info(f'preparing masks for {len(file_to_scene)} images')
+ 
+    n_ok, n_skip = 0, 0
+    for img_path, scene_id in file_to_scene.items():
+ 
+        row = processing_db.loc[scene_id]
+        zenith = row.get('sun_zenith')
+        azimuth = row.get('sun_azimuth')
+        if pd.isna(zenith) or pd.isna(azimuth):
+            logger.warning(f'No sun angles for {scene_id}; skipping {img_path.name}')
+            n_skip += 1
+            continue
+         
+        if 'coreg' in str(img_path):
+            out_path = out_dir / f"{img_path.stem.split('_coreg')[0]}_{maskname}.tif"
+        elif '_.nc' in str(img_path):
+             out_path = out_dir / f"{img_path.name.split('_.nc')[0]}_{maskname}.tif"
+        else: 
+            out_path = out_dir / f"{img_path.stem}_{maskname}.tif"
+            
+        try:
+            with gw.open(img_path, **open_kwargs) as src:
+                template = src.isel(band=0, drop=True) if 'band' in src.dims else src
+                template = template.squeeze(drop=True)
+                cellsize = float(res)
+
+            with gw.config.update(
+                ref_bounds=template.gw.bounds,
+                ref_crs=template.crs,
+                ref_res=res,
+                nodata=255,
+                ignore_warnings=True,
+             ):
+                with gw.open(dem_path, resampling='bilinear') as dem_src:
+                    dem_da = dem_src.squeeze(drop=True).load()
+                dem = dem_da.values.astype(np.float32)
+ 
+                cast_shadow = compute_cast_shadow(float(zenith), float(azimuth), dem=dem, cellsize=cellsize)
+                self_shadow = compute_self_shadow(float(zenith), float(azimuth), dem_da=dem_da)
+                shadow_mask = cast_shadow | self_shadow
+                shadow_mask = buffer_mask(shadow_mask, buffer_px=params['masking']['buffer_px'])
+                shadow_mask = shadow_mask.astype('uint8')
+
+                write_mask(shadow_mask, out_path, template=template, nodata_val=255)
+            
+            n_ok += 1
+            processing_db.loc[scene_id, db_col] = str(out_path)
+            update_db_mask_tracker(processing_db,scene_id,'shade')
+
+            
+        except Exception as e:
+            logger.warning(f'Failed to make shade mask for {img_path.name}: {e}')
+            n_skip += 1
+            # Rename the file that failed masking with the skip_flag at the end
+            p = Path(img_path)
+            p.rename(p.parent / f'{p.stem}_MASKFAIL{skip_flag}{p.suffix}')
+            processing_db.loc[scene_id, db_col] = 'ERROR'
+ 
+    logger.info(f'Shade masks: {n_ok} created, {n_skip} skipped -> {out_dir}')
+
+                        
+def make_masks(params):
     """
-    Masks clouds (and cloud shadows) or shaded terrain
+    Creates masks for clouds (and cloud shadows) or shaded terrain
 
     if <params.masking.method> is 'CRF", uses Conditional Random Field method above to mask clouds and cloud shadows. 
     if <params.masking.method> is 's2cloudless", uses s2cloudless masks from GEE to mask clouds and cloud shadows.
-    if <params.masking.method> is 'terrain_shade' uses...
+    if <params.masking.method> is 'terrain_shade' Computes a combined cast-shadow + self-shadow mask based on a DEM file and the 
+            per-scene sun zenith/azimuth already stored in processing.info (from processes in eostac)
     otherwise, uses native masks (does nothing here) and adds 'native masks only' to 'masking' field in Processing info.
     """   
-    for grid in params['grids']:
+
+    mask_method = params['masking']['method']
+    
+    input_img_dir = 'brdf'
+    if params['masking']['img_dir']:
+        if (params['masking']['img_dir'] !='brdf') & (params['masking']['img_dir'] !='None'):
+            input_img_dir = params['masking']['img_dir']    
+    else:
+        params['masking']['img_dir'] = 'brdf'
+
+    n_chunks = 512
+    if params['reconstruct']['chunks']:
+        params['reconstruct']['chunks']
+    
+    open_kwargs = (
+        {'engine': 'h5netcdf', 'chunks': {'band': -1, 'y': n_chunks, 'x': n_chunks}} 
+        if input_img_dir == 'brdf' 
+        else {'chunks': {'band': 1, 'y': n_chunks, 'x': n_chunks}}
+    )
+                
+    cells = utils.get_cell_list_from_grid_param(params['grids'])
+    for grid in cells:
 
         ppaths = ProjectPaths(params, grid=grid)
+        if input_img_dir == 'brdf':
+            img_dir = ppaths.ms
+        else:
+            img_dir = ppaths.ms.parent/input_img_dir
 
         processing_db = pd.read_pickle(ppaths.ms.parent/'processing.info')
-        if params['masking']['method'] == 'terrain_shade':
-            if 'shade_mask' not in processing_db:  ## This is the master db that tracks the progress of each individual image
-                processing_db['masking'] = np.nan
-        elif 'masking' not in processing_db: ## This is the master db that tracks the progress of each individual image
-             processing_db['masking'] = np.nan
+        db_col = MASKS[mask_method]['db_col']
+        if db_col not in processing_db:  ## This is the master db that tracks the progress of each individual image
+                processing_db[db_col] = np.nan
+        if 'masking' not in processing_db:
+            processing_db['masking'] = np.nan
 
         ## This is a general process db that tracks what processes have been run for each cell
         db = TuyauDataBase(str(ppaths.ms.parent / f'{int(grid):06d}.db'))
+
+        check_download_db = params['status']['check_downloads']
         
-        msensors = params['masking']['sat_sensors']
-        if isinstance(msensors, str):
-            msensors = [msensors] 
-        if any (s in msensors for s in ['All', 'AllRaw', 'LS2']):
-            msensors = ['S2','S2cp','LT05','LE07','LC08','LC09']
-        elif 'L' in msensors:
-            msensors = ['LT05','LE07','LC08','LC09']
-        elif 'S' in msensors:
-            msensors = ['S2']
-
-        check_download_db = False
-        if not params['status']['check_downloads']:
-            check_download_db = True
-
         if check_download_db:
+            msensors = params['masking']['sat_sensors']
+            if isinstance(msensors, str):
+                msensors = [msensors] 
+            if any (s in msensors for s in ['All', 'AllRaw', 'LS2']):
+                msensors = ['S2','S2cp','LT05','LE07','LC08','LC09']
+            elif 'L' in msensors:
+                msensors = ['LT05','LE07','LC08','LC09']
+            elif 'S' in msensors:
+                msensors = ['S2']
+            
             ## Check downloads TODO: update for stac method
             for sen in msensors:
                 senlab = SENSORS[sen]['sensor']
@@ -780,61 +544,29 @@ def mask_images(params):
             continue
 
         logger.info(f'  Masks being created for grid {grid} ...')
+        
+        if not img_dir.is_dir():
+            logger.warning(f' Directory: {str(img_dir)} for grid {grid} does not exist.')
+            continue
+        
+        if params['masking']['retry_masks'] == True:
+            logger.info(f'resetting file names in {str(img_dir)} to retry masking')
+            failed_masks = list(img_dir.glob('*MASKFAILX*.nc'))
+            for f in failed_masks:
+                clean_name = f.name.replace("_MASKFAILX", "")
+                f.rename(f.with_name(clean_name))
+            
+        if mask_method == 'cloud_CRF':    
+            mask_clouds_CRF(params, ppaths, processing_db)
 
-        if params['dlMethod'] == 'GEE':
-            date_pos=FILENAME_DATE_INDEX_GEE
-            prepend_str='netcdf:'
+            mask_clouds_s2cloudless(params, ppaths, grid, img_dir, processing_db, open_kwargs)
+        
+        elif mask_method == 'terrain_shade':
+            mask_shade(params, img_dir, processing_db, open_kwargs)
+
         else:
-            date_pos=FILENAME_DATE_INDEX
-            prepend_str=''
-
-        if params['masking']['method'] == 'CRF':    
-            if not ppaths.ms.is_dir():
-                logger.warning(f' The BRDF directory for grid {grid} does not exist.')
-                continue
-                        
-            mask_clouds_CRF(params)
-
-        elif params['masking']['method'] == 's2cloudless':
-            logger.info(f'  first downloading s2cloudless masks from GEE ...')
-            params['image_type'] = ['S2cp']
-            ig = IngestFromGoogle(verbose=1)
-            gee = ig.ingest_from_gee(params, grid, ppaths)
-            logger.info(f'  now applyting masks to Sentinel images ...')
-
-            #TODO: finish this here!
-            ## mask pixels >95? 60? (100 is max prob of cloud, 255 is nodata)
-            ## add s2cloudless_thresh in params
-            ## add shadow masks eg: 
-            ## https://towardsdatascience.com/creating-sentinel-2-truly-cloudless-mosaics-with-microsoft-planetary-computer-7392a2c0d96c/
-        
-        elif params['masking']['method'] == 'terrain_shade':
-            logger.info(f'  Creating cast+self shadow masks ...')
-            dem_path = ppaths.ms.parent / 'terrain' / 'dem.tif'
-            out_dir = ppaths.ms.parent / 'terrain' / 'shade_masks'
-                out_dir.mkdir(parents=True, exist_ok=True)
-        
-            file_to_scene = match_brdf_files(ppaths.ms, processing_db, exclude=params['masking']['exclude'])
-
-            n_ok, n_skip = 0, 0
-            for tif_path, scene_id in file_to_scene.items():
-                row = processing_db.loc[scene_id]
-                zenith = row.get('sun_zenith')
-                azimuth = row.get('sun_azimuth')
-                if pd.isna(zenith) or pd.isna(azimuth):
-                    logger.warning(f"No sun angles for {scene_id}; skipping {tif_path.name}")
-                    n_skip += 1
-                    continue
-
-                out_path = out_dir / f"{tif_path.stem}_shademask.tif"
-                try:
-                    make_shade_mask(tif_path, dem_path, float(zenith), float(azimuth), out_path)
-                    n_ok += 1
-                    row['shade_mask']=out_path
-                except Exception as e:
-                    logger.warning(f"Failed to make shade mask for {tif_path.name}: {e}")
-                    n_skip += 1
-
-            logger.info(f"Shade masks: {n_ok} created, {n_skip} skipped -> {out_dir}")
-    
+            logger.warning(f'ERROR: unrecognized mask method: {mask_method}') 
+            
+        processing_db['masking'] = processing_db['masking'].fillna('native masks only')
+        pd.to_pickle(processing_db, ppaths.ms.parent / 'processing.info')
         db.update(grid, 'mask')

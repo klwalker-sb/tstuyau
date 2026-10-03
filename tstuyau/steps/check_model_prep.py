@@ -20,6 +20,7 @@ from .mod_utils import get_holdout_scores, get_binary_holdout_score, prep_test_t
 from .image_utils import clip_big_ras_to_small
 from .lookup import LC_CATS_Py0, LC_CATS, MIXED_CROPS_Py0, MIXED_CROPS, MIXED_NONCROPS_Py0, MIXED_NONCROPS, LC_FOCUS_DICT
 from ..handler import logger
+from . import utils
 
 
 def prioritize_row(row, lccol, project_v=None, focus='All'):
@@ -452,12 +453,23 @@ def separate_field_level_holdout(training_pix_path, holdout_field_pix_path, out_
     ##TODO: add print option 
 
     return training_pix_path, holdout_field_pix_path
-   
+    
+def make_multiyr_ho(ho_dir,feature_model,years):
+    full_fixed_ho = Path(ho_dir) / f"{feature_model}_HOLDOUT_all_{str(years[0])[-2:]}{str(years[-1])[-2:]}.csv"
+    if not full_fixed_ho.is_file():
+        hos=[]
+        for y in range(years[0],years[1]+1):
+            ho = pd.read_csv(Path(ho_dir) / f'{feature_model}_HOLDOUT_all_{str(y)[-2:]}.csv')
+            ho['year']=y
+            hos.append(ho)
+        allhos = pd.concat(hos)
+        pd.DataFrame.to_csv(allhos, full_fixed_ho)
+        
 def format_ptfeat_set(params):
     '''
     Filters the full set of points and features to fit a smaller point and feature sample.
-    Formats the pt-feature set for final modeling, includind making sure all bands are in the same 
-    order as they appear in the model (as read from the band_names attribute of the model in the <feature_mod_dict>).
+    Formats the pt-feature set for final modeling, includind making sure all bands are in the same order
+       as they appear in the model (as read from the band_names attribute of the model in the <feature_mod_dict>).
     If multiple training years set in <'sample_model':'train_yrs'>, will make a multi-year df as well as the individuals.
     
     This assumes that all features in the feature model have already been calculated for all sample points
@@ -498,7 +510,7 @@ def format_ptfeat_set(params):
     keep_vars = [f"var_{v.split('_', 1)[1]}" if v.startswith('sing') else f"var_{v}" for v in model_bands]
     logger.info(f'model bands from dict: {keep_vars}: \n')
 
-    ## these parameters are all used her to get the model name
+    ## these parameters are all used here to get the model name
     ##     and later in the function to make a new sample model if it does not already exist
     class_mod_name = get_class_col(params['schematic_model']['lc_mod'], params['schematic_model']['lut'])[0]
     focus_geo = params['sample_model']['focus_area']  ## use if a geographical subset of the model is being built
@@ -575,6 +587,8 @@ def format_ptfeat_set(params):
 
         if isinstance(trainyrs, int):
             yrlist = [trainyrs]
+        elif (len(trainyrs) == 2) and (trainyrs[0]==trainyrs[1]):
+            yrlist = [trainyrs][0]
         elif (len(trainyrs) == 2) and (trainyrs[0]<trainyrs[1]):
             yrlist = list(range(trainyrs))
         else:
@@ -603,10 +617,6 @@ def format_ptfeat_set(params):
             if 'var_poly_area' in list(mod_feats.columns):
             ## hacky fix for issue of numbers over signed 16-bit max being converted to negative in var dataframe 
                 mod_feats['var_poly_area'] = np.where(mod_feats['var_poly_area']<0,32767,mod_feats['var_poly_area'])
-            #if 'OID_' in mod_feats.columns.tolist():
-            #    mod_feats = pd.merge(mod_feats,pt_key[['OID_','PID']],left_on='OID_',right_on='OID_', how='left')
-            #else:
-            #    mod_feats = pd.merge(mod_feats,pt_key[['OID_','PID']],left_index=True,right_on='OID_', how='left')
 
             ## reduce the full feature set by the sample model
             pt_set = Path(ptsamp_dir) / f'{sampmod}.csv'
@@ -673,6 +683,9 @@ def format_ptfeat_set(params):
         if len(allyrs_vardfs > 1):     
             ## print final multiyr var_df
             pd.DataFrame.to_csv(allyr_vardf, multiyr_vardf_path, index=False)
+
+        if fixed_ho & (len(yrlist) > 1): 
+            make_multiyr_ho(params['sample_model']['fixed_ho_dir'],feat_mod,trainyrs)
     
         return allyr_vardf
 
@@ -723,79 +736,6 @@ def apply_smalls(pixdf,lut,outpath=None, project_v='Py0'):
     
     return pixdf
 
-
-def make_multiyr_pixdf(params,yrs,feature_model=None,sample_model=None,class_mod=None):
-    '''
-    TODO: fix or remove -- this is already implemented within format_ptfeat_set()
-    '''
-    df_list = []
-    if feature_model:
-        params['feature_model']['name'] = feature_model
-    else:
-        feature_model = params['feature_model']['name']
-        
-    if sample_model:
-        params['sample_model']['name'] = sample_model
-    else:
-        sample_model = params['sample_model']['name']
-
-    if class_mod:
-        params['schematic_model']['lc_mod'] = class_mod
-    else:
-        class_mod = params['schematic_model']['lc_mod']
-
-    ptsamp_dir = params['sample_model']['point_samp_dir']
-    if not ptsamp_dir:
-        ppaths=ProjectPaths(params)
-        ptsamp_dir = ppaths.trainptsets
-    fset_dir = params['sample_model']['ptsfeat_dir']
-    if not fset_dir:
-        ppaths=ProjectPaths(params)
-        fset_dir = ppaths.trainptsets
-    vardf_dir = params['sample_model']['vardf_dir']
-    if not vardf_dir:
-        ppaths=ProjectPaths(params)
-        vardf_dir = ppaths.fulltrainsets
-
-    if isinstance(yrs, int):
-        yrlist = [yrs]
-    elif (len(yrs) == 2) and (yrs[0]<yrs[1]):
-        yrlist = list(range(yrs))
-    else:
-        yrlist = yrs
-
-    for y in yrlist:
-        yrst = get_train_yrs_str(y)
-        logger.info(f'finding pixdf for year {y}')
-        model_name = f"{feature_model}_{sample_model}_{y}_{class_mod}"
-        pixdf_path = Path(vardf_dir) / f"pixdf_{model_name}.csv"
-        if not pixdf_path.is_file():
-            (params)
-        pixdf = pd.read_csv(pixdf_path)
-        pixdf['year']=y
-        vardf = pixdf.filter(regex='var_')
-        nancols = vardf.columns[vardf.isna().any()].tolist()
-        if len(nancols) > 0:
-            logger.warning('ERROR -- NaNs in:', nancols)
-        df_list.append(pixdf)
-    
-    allpix = pd.concat(df_list)
-    model_name_all = model_name.replace(str(yrs[1])[-2:],str(yrs[0])[-2:]+str(yrs[-1])[-2:])
-    allpix_path = Path(vardf_dir) /f"pixdf_{model_name_all}.csv"
-    pd.DataFrame.to_csv(allpix, allpix_path)
-    logger.info(f'new vardf has {allpix.shape[0]} samples')
-
-def make_multiyr_ho(ho_dir,feature_model,years):
-    full_fixed_ho = Path(ho_dir) / f"{feature_model}_HOLDOUT_all_{str(years[0])[-2:]}{str(years[-1])[-2:]}.csv"
-    if not full_fixed_ho.is_file():
-        hos=[]
-        for y in range(years[0],years[1]+1):
-            ho = pd.read_csv(Path(ho_dir) / f'{feature_model}_HOLDOUT_all_{str(y)[-2:]}.csv')
-            ho['year']=y
-            hos.append(ho)
-        allhos = pd.concat(hos)
-        pd.DataFrame.to_csv(allhos, full_fixed_ho)
-
 def make_variable_stack(params):
     '''
     Creates stack of all features variables for each cell in cell list.
@@ -808,18 +748,8 @@ def make_variable_stack(params):
     # get model paramaters if model already exists in dict. Else create new dict entry for this model
     getset_feature_model(params)
   
-    cells = []
-    if isinstance(params['grids'], list):
-        cells = params['grids']
-    elif str(params['grids']).endswith('.csv'): 
-        with open(params['grids'], newline='') as cell_file:
-            for row in csv.reader(cell_file):
-                cells.append (row[0])
-    elif isinstance(params['grids'], int) or isinstance(params['grids'], str): # if runing individual cells as array via bash script
-        cells.append(params['grids']) 
-    else:
-        logger.warning(f"ERR: Problem parsing input as cell list. Needs to be list, .csv, or single int or string")
-        
+    cells = utils.get_cell_list_from_grid_param(params['grids'])
+    
     for cell in cells:
         ppaths = ProjectPaths(params, grid=int(cell))
         logger.info(f"working on cell: {cell}.... \n")

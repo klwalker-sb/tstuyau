@@ -21,6 +21,7 @@ umask 002
 ###################################################################
 ### Settables:
 
+SENSORS='LS2'
 FILETYPE='.tif'
 L7STOPYR=2017
 BUFFER=100
@@ -86,7 +87,7 @@ do
 		TIMESTAMP=`date "+%Y-%m-%d %H:%M:%S"`
 		echo $TIMESTAMP >&2
 
-		eostac download --start-date $START_DATE --end-date $END_DATE --bounds $GRID_FILE --bounds-query UNQ==$GRID_ID --out-path $OUT_DIR --epsg $EPSG --bounds-buffer $BUFFER --l7-stop_year $L7STOPYR --max-items -1 -w 4 -t 2
+		eostac download --sensors $SENSORS --start-date $START_DATE --end-date $END_DATE --bounds $GRID_FILE --bounds-query UNQ==$GRID_ID --out-path $OUT_DIR --epsg $EPSG --bounds-buffer $BUFFER --l7-stop_year $L7STOPYR --max-items -1 -w 4 -t 2
 	
 	done
 	YEAR=$(($YEAR+1))

@@ -3,7 +3,7 @@ from pathlib import Path
 
 from ..handler import logger
 from .project import ProjectPaths
-
+from . import utils
 import geowombat as gw
 
 
@@ -19,7 +19,8 @@ def compress(params):
         None
     """
 
-    for grid in params['grids']:
+    cells = utils.get_cell_list_from_grid_param(params['grids'])
+    for grid in cells:
 
         logger.info(f'  Compressing files for grid {grid} ...')
 

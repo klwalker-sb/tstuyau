@@ -161,15 +161,7 @@ def classify_timestep(params):
     model_name_train = f'{feat_mod_name}_{samp_mod_name}_{class_col}_{trainyrs}_{mod_type}'
     model_name_class = f'{feat_mod_name}_{samp_mod_name}_{class_col}_{trainyrs}_{mod_type}_{out_yrs}'
     
-    cells = []
-    if isinstance(params['grids'], list):
-        cells = params['grids']
-    elif isinstance(params['grids'], str) and params['grids'].endswith('.csv'): 
-        with open(params['grids'], newline='') as cell_file:
-            for row in csv.reader(cell_file):
-                cells.append(row[0])
-    elif isinstance(params['grids'], int) or isinstance(params['grids'], str): # if runing individual cells as array via bash script
-        cells.append(params['grids']) 
+    cells = utils.get_cell_list_from_grid_param(params['grids'])
     
     for cell in cells:
         ppaths = ProjectPaths(params, grid=cell)

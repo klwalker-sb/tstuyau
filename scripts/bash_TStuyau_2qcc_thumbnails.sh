@@ -50,8 +50,8 @@ plot:gamma:${GAMMA}
 plot:reduct_factor:${REDUCT}
 reconstruct:start:${START}
 reconstruct:end:${END}
-reconstruct:include:${INCLUDE}
-reconstruct:exclude:${EXCLUDE}
+reconstruct:keep_str:${INCLUDE}
+reconstruct:skip_flag:${EXCLUDE}
 image_type:${IMGTYPE}
 main_path:${MAIN_DIR}/${PROJECT}/stac/grid
 backup_path:${BACKUP_DIR}/${PROJECT}/stac/grid

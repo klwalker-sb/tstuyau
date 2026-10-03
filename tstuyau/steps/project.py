@@ -25,7 +25,7 @@ class ProjectPaths(object):
 
         ## note: main path and backup path for cell directories are usually <project>/stac/grids
         ##  so shared files will be in grandparent directory (parents[1]. If file dept changes, this needs to be changed here)
-        self.srtm = params['main_path'].parents[1] /'data'/'srtm'
+        self.dem = params['main_path'].parents[1] /'terrain'/'dem'
         self.test = params['main_path'].parents[1] / 'testing'
         self.figs = params['backup_path'].parents[1] /'outputs'/'visualizations'
         self.datasum = params['backup_path'].parents[1] /'outputs'/'summary_data'

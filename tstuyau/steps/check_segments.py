@@ -13,6 +13,7 @@ from osgeo import gdal, ogr, gdal_array
 from ..handler import logger
 from .project import ProjectPaths
 from .date_utils import get_date_range
+from . import utils
 #from .image_utils import img_to_bbox_offsets
 #######################################################################################################################################
 ### Culltionet prep
@@ -268,16 +269,7 @@ def prep_training_ts_for_segmentation(params):
         with open(class_dict_file, "w", encoding='utf-8') as f:
             json.dump(class_dict, f, indent=4)
     
-    cells = []
-    if isinstance(params['grids'], list):
-        cells = params['grids']
-    elif isinstance(params['grids'], str) and params['grids'].endswith('.csv'): 
-        with open(params['grids'], newline='') as cell_file:
-            for row in csv.reader(cell_file):
-                cells.append(row[0])
-    elif isinstance(params['grids'], int) or isinstance(params['grids'], str): # if runing individual cells as array via bash script
-        cells.append(params['grids']) 
-    
+    cells = utils.get_cell_list_from_grid_param(params['grids'])
     for cell in cells:
         logger.info(f'working on cell {cell}... \n')
         ppaths = ProjectPaths(params, grid=cell)

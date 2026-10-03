@@ -11,7 +11,7 @@ import pandas as pd
 #import bottleneck
 from ..handler import logger
 from .date_utils import get_date_range, doy_to_month_array_vals
-
+from .mask_utils import open_masks_with_time_series
 
 def add_var_to_stack(arr, var, attrs, out_dir, comp_band_names, ras_list, **gw_args):
     logger.info(f'adding var {var} at last position in stack: {comp_band_names}')
@@ -426,8 +426,8 @@ def get_senescence(ts_stack, ds_stack, peak_time, method='step'):
     eosv = postpeak1.sel(time=eos, method='nearest').astype('int16')
     return eos, eosv
 
-def prep_pheno_bands(pheno_vars,ts_stack,ds_stack,ts_stack_padded, ds_stack_padded, out_dir,start_yr, temp,start_doy,comp_band_names, 
-                     ras_list,sigdif=None, basethresh_pre=None, basethresh_post=None, imgbuf=None, params=None, **gw_args):
+def prep_pheno_bands(pheno_vars,ts_stack,ds_stack,ts_stack_padded, ds_stack_padded, out_dir,start_yr, temp,start_doy,comp_band_names, ras_list,
+        sigdif=None, basethresh_pre=None, basethresh_post=None, imgbuf=None, params=None, **gw_args):
 
     logger.info('prepping pheno bands...')
     if isinstance(pheno_vars,str):
@@ -435,7 +435,7 @@ def prep_pheno_bands(pheno_vars,ts_stack,ds_stack,ts_stack_padded, ds_stack_padd
     logger.info(f'...bands to prep: {pheno_vars}  for temp: {temp}')
     with gw.open(ts_stack, time_names = ds_stack) as src:
         attrs = src.attrs.copy()
-        
+    
     mmed = src.where(src > 0).median(dim='time',skipna=True).astype('int16')
     if f'med-{temp}' in pheno_vars:
         add_var_to_stack(mmed,f'med-{temp}',attrs,out_dir,comp_band_names,ras_list,**gw_args)
@@ -675,19 +675,25 @@ def prep_pheno_bands(pheno_vars,ts_stack,ds_stack,ts_stack_padded, ds_stack_padd
     return comp_band_names,ras_list
     
 
-def prep_ts_variable_bands(si_vars, ts_stack,ds_stack, out_dir,temp,start_doy,comp_band_names,ras_list,nodata_in,ppaths,**gw_args):
+def prep_ts_variable_bands(si_vars, ts_stack,ds_stack, out_dir,temp,start_doy,comp_band_names,
+                           ras_list,nodata_in,ppaths, **gw_args):
     
     ## sort images by date just in case, but if coming from smoothed time series, should be in order already
     sts_stack = [ts for ds, ts in sorted(zip(ds_stack, ts_stack))]
     sds_stack = [ds for ds, ts in sorted(zip(ds_stack, ts_stack))]
-    
+
     with gw.open(sts_stack, time_names = sds_stack) as src0:
         attrs = src0.attrs.copy()
 
     #replace nodata_in with np.nan   
     logger.debug(f'replacing nodata values of {nodata_in} with Nan')
-    src = src0.where((src0 != int(nodata_in)) & (src0 != 10000))
+    valid = (src0 != int(nodata_in)) & (src0 != 10000)
 
+    if masking:
+        mask = open_masks_with_time_series(ppaths, ts_stack, ds_stack, **mask_args)
+        valid = valid & (~mask)
+    src = src0.where(valid)
+        
     ## remove glcm portion of variables in case it exists. For glcms, the underlying variable will be processed, then the glcm after.
     if isinstance(si_vars,str):
         si_vars = [si_vars]

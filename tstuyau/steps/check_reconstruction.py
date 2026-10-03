@@ -11,7 +11,9 @@ from .constants import FILENAME_DATE_INDEX, FILENAME_DATE_START_INDEX, FILENAME_
 from .lookup import SENSORS
 from .spec_indices import SI_DICT
 from .date_utils import get_date_range
+from .mask_utils import get_mask_kwargs, apply_masks_to_images
 from . import prechecks
+from . import utils
 
 import geowombat as gw
 from geowombat.core import sort_images_by_date
@@ -79,6 +81,9 @@ def reconstruct(params):
         
     vegetation indices are defined in SpecIndices in spec_indices.py (called through TimeSeriesLoader) and io.py. 
         any new index need to be added to the SI_DICT as well as SpecIndices methods.
+
+    Option to apply masks at this stage with params<reconstruction><use_masks>. A mask must already exist for each image with the 
+        same base name (anything before _coreg) as the image to be masked. If masks do not exist, run make_masks() first.
     """
 
     si = params['reconstruct']['si']
@@ -96,15 +101,16 @@ def reconstruct(params):
             params['reconstruct']['end_pad'] = params['reconstruct']['end']
         logger.info(f"calculating index for images from {params['reconstruct']['start_pad']} to {params['reconstruct']['end_pad']}")
 
-    for grid in params['grids']:
+    cells = utils.get_cell_list_from_grid_param(params['grids'])
+    for grid in cells:
         ppaths = ProjectPaths(params, grid=grid)
         db = TuyauDataBase(str(ppaths.ms.parent / f'{int(grid):06d}_tuyau.db'))
 
-        if params['reconstruct']['use_masks']:
+        #if params['reconstruct']['use_masks']:
             # Check if the step is complete
-            if not db.is_complete(grid, 'mask'):
-                logger.warning(f'  The cloud mask step is not complete.')
-                continue
+            #if not db.is_complete(grid, 'mask'):
+            #    logger.warning(f'  The mask step is not complete.')
+            #    continue
 
         # Check if other pre-processing steps are complete
         if not db.is_complete(grid, 'preprocess'):
@@ -115,8 +121,8 @@ def reconstruct(params):
             logger.warning(f'  The input directory for grid {grid} does not exist.')
             continue
 
-        if params['reconstruct']['use_masks']:
-            prechecks.precheck_reconstruct(grid, ppaths, params)
+        #if params['reconstruct']['use_masks']:
+        #    prechecks.precheck_reconstruct(grid, ppaths, params)
 
         ## Set directory to store output ts data 
         ## root folder name is <img_type>-<res>-<procseq> if comparative models are being run, but parts are dropped for simplicity if not
@@ -168,8 +174,10 @@ def reconstruct(params):
             date_pos=FILENAME_DATE_INDEX
             prepend_str=''
 
-        ## exclude should include 'X' but can add other letters. Will exclude anything ending with ANY letter in this string
-        skip_flag = params['reconstruct']['exclude']  
+        ## skip_flag is usually 'X' but can add other letters. Will exclude anything ending with ANY letter in this string
+        skip_flag = None
+        if params['reconstruct']['skip_flag']:
+            skip_flag = params['reconstruct']['skip_flag']  
         sensors = params['image_type']
         if isinstance(sensors,list):
             if (any(s.startswith('S2') for s in sensors)) and (any(s.startswith('L') for s in sensors)):
@@ -178,13 +186,14 @@ def reconstruct(params):
                 sensor = sensors[0]
         else:
             sensor = sensors
-        
+
         if (sensor == 'LS2') or (sensor == 'All'):
-            search_str = f"*[!{skip_flag}].nc"
+            search_str = f'*.nc' if skip_flag is None else f'*[!{skip_flag}].nc' 
         else:
             senstr = SENSORS[sensor]['matchstr']
-            search_str = f"L3?_{senstr}*[!{skip_flag}].nc"
+            search_str = f'L3?_{senstr}*.nc' if skip_flag is None else f'L3?_{senstr}*[!{skip_flag}].nc'
 
+        
         image_dict = sort_images_by_date(
             getattr(ppaths, 'proc'),
             search_str,
@@ -198,6 +207,7 @@ def reconstruct(params):
         logger.debug(f' ALL valid images in directory (not yet filtered to date): {img_names}')
         img_times = list(image_dict.values())
 
+        ## this is just a template for gw_open
         l8_image = [str(fn) for fn in img_names if 'LC08' in Path(fn).name][-1]
 
         # Window padding for moving window smoothing
@@ -225,6 +235,47 @@ def reconstruct(params):
             logger.warning(f"  Model does not recognize {sidx}. Supported spectral indices are {SI_DICT.keys()}")
             raise NameError
 
+        if params['reconstruct']['use_masks']:
+            '''Apply masks to all images and save with same names in temp folder, then move to chunked reading
+            must be done at this stage to preserve 1:1 mask:image matching prior to merging images from same dates.
+            Can be done simultaneously during the chunked read in the case of cloud masks (TOOD: reinstate this option),
+            but terrain masks need to see a larger landsacpe and are better run on the full image.
+            '''
+            logger.info('applying masks to raw images...')
+            
+            mask_args = get_mask_kwargs(ppaths.ms, params)
+            
+            mask_dir = ppaths.ms.parent / mask_args['mask_dir']
+            
+            if not mask_dir.is_dir():
+                logger.warning(f'  There is no directory with masks called {mask_dir} for cell {grid}. Check masking params and/or run make_masks()')
+                continue
+                
+            masked_img_dir = ppaths.scratch / 'masked'
+            masked_img_dir.mkdir(parents=True, exist_ok=True)
+            start_date = datetime.strptime(params['reconstruct']['start_pad'], '%Y-%m-%d') 
+            end_date = datetime.strptime(params['reconstruct']['end_pad'], '%Y-%m-%d') 
+            filtered_images = {
+                name: dt
+                for name, dt in image_dict.items()
+                if start_date <= dt <= end_date
+            }
+            logger.info(f'applying masks to {len(filtered_images)} images')
+            apply_masks_to_images(filtered_images, getattr(ppaths,'proc'), masked_img_dir, mask_args, params)
+            
+            image_dict = sort_images_by_date(
+                masked_img_dir,
+                search_str,
+                date_start=FILENAME_DATE_START_INDEX,
+                date_end=FILENAME_DATE_END_INDEX,
+                date_pos=date_pos,
+                prepend_str=prepend_str
+            )
+
+            img_names = list(image_dict.keys())
+            logger.debug(f' ALL valid images in directory (not yet filtered to date): {img_names}')
+            img_times = list(image_dict.values())
+                
         with rio.Env(GDAL_CACHEMAX=params['io']['gdal_cachemax']):
             with gw.open(
                         l8_image,
@@ -314,24 +365,6 @@ def reconstruct(params):
                                                 index=img_times,
                                                 columns=['image_path'])
                     logger.debug(f'time_band_df for valid all images in directory (not yet filtered to date):\n {time_band_df}')
-
-                    if params['reconstruct']['use_masks']:
-
-                        # Get the potential mask images from the image dates
-                        mask_images = sorted(list(set([str(ppaths.masks.joinpath(f'{fn_dt.year}{fn_dt.month:02d}{fn_dt.day:02d}.tif'))
-                                                       for fn_dt in img_times])))
-
-                        # Get existing mask files
-                        mask_images = [fn for fn in mask_images if Path(fn).is_file()]
-
-                        # Get the mask date from the filename
-                        mask_times = [datetime.strptime(Path(fn).stem, '%Y%m%d') for fn in mask_images]
-
-                        time_mask_df = pd.DataFrame(
-                            data=mask_images,
-                            index=mask_times,
-                            columns=['image_path']
-                        )
 
                     # Get the padding datetime
                     start_pad_dt = datetime.strptime(params['reconstruct']['start_pad'], '%Y-%m-%d')

@@ -7,7 +7,7 @@ from ..db import TuyauDataBase
 from . import utils
 from .project import ProjectPaths
 from .lookup import SENSORS
-
+from .processing_tracker import reconstruct_db
 import geowombat as gw
 
 import xarray as xr
@@ -44,63 +44,36 @@ def expand_time(dataset):
 
 
 def coregister(params):
-
     """
-    Co-registers images
-
-    Args:
-        params (dict)
-
-    Returns:
-        None
+    Co-registers images in 'brdf' folder using AROSICS (https://pypi.org/project/arosic) via geowombat wrapper. 
+    will exclude images with <params:reconstruct:skip_flag> str at end of file name before suffix (usually 'X'). Default is None.
+              note: <params:reconstruct:skip_flag> can be multiple letters but names ending in any of them will be excluded
+    Creates reference image from Landsat 8 and 9 images (temporal median) and coregisters Landsat 5, 7 & Sentinel2 images to this.
+    Does not move Landsat 8 & 9 images (assumes they are all correctly aligned).
+    Original image is sent to 's2_nocoreg' folder, and shifted image is put in the 'brdf' folder with same name but with 'coreg' appended
+    Images that fail coreg are marked with an <params:reconstruct:skip_flag> (usually 'X') at the end of the file name 
+         and the error is registered in the processing database 'coreg_error' column.
+    Pixel shift (shift_x and shift_y) are added to the processing database for each image for future use (if need to shift cloud masks etc.)
+    Can change AROSICS max_shift parameter (maximum shift distance before fail) with <params:coreg:max_shift> maximum shift. Default is 5 pixels
     """
 
-    for grid in params['grids']:
-
+    cells = utils.get_cell_list_from_grid_param(params['grids'])
+    for cell in cells:
         ppaths = ProjectPaths(params, grid=grid)
 
-        processing_db = pd.read_pickle(ppaths.ms.parent/'processing.info')
+        ## procssing_db is the full processing database tracking info about each image processed and steps taken
+        processing_db_path = ppaths.ms.parent/'processing.info'
+        if not is_file(processing_db_path):
+            logger.warning(f'processing.info does not exist for cell {cell}. Making new db...')
+            reconstruct_db(cell)
+        processing_db = pd.read_pickle(processing_db_path)
         if 'coreg' not in processing_db:
              processing_db['coreg'] = np.nan
              processing_db['shift_x'] = np.nan
              processing_db['shift_y'] = np.nan
              processing_db['coreg_error'] = np.nan
 
-        db = TuyauDataBase(str(ppaths.ms.parent / f'{int(grid):06d}.db'))
-
-        if not params['status']['check_downloads']:
-            check_download_db = False
-        else:
-            check_download_db = True
-
-        msensors = params['image_type']
-        if isinstance(msensors, str):
-            msensors = [msensors] 
-        if any (s in msensors for s in ['All', 'AllRaw', 'LS2']):
-            msensors = ['S2','S2cp','LT05','LE07','LC08','LC09']
-        elif 'L' in msensors:
-            msensors = ['LT05','LE07','LC08','LC09']
-        elif ('S' in msensors) or ('S2' in msensors):
-            msensors = ['S2','S2cp']
-        
-        if check_download_db:
-            ## Check downloads
-            for sen in msensors:
-                senlab = SENSORS[sen]['sensor']
-                senpath = SENSORS[sen]['GEE']
-                if not db.eosvault_is_complete(senlab, senpath):
-                    logger.warning(f'  The {senlab} {senpath} downloads for grid {grid} are incomplete.')
-                    continue
-
-            ## Check post-processing
-            if ppaths.gee.is_dir():
-                for sen in msensors:
-                    senunq = SENSORS[sen]['GEEunq']
-                    if list(ppaths.gee.glob(f"{senunq}*[!s].nc")):
-                        logger.warning(f'  The {senunq} post-processing for grid {grid} is incomplete.')
-                        continue
-
-        ## Open the `tstuyau` database
+        ## db is a simple cell-level processing database tracking which cells have been run (this is an sqlite db)
         db = TuyauDataBase(str(ppaths.ms.parent / f'{int(grid):06d}_tuyau.db'))
 
         if not db.table_exists:
@@ -108,11 +81,43 @@ def coregister(params):
             db.create(exists_ok=True)
             db.insert(grid)
 
+        check_download_db = False
+        if params['status']['check_downloads']:
+            check_download_db = True
+
+        if check_download_db: ## NOTE-- this only works for dlMethod='GEE' currently
+            msensors = params['image_type']
+            if isinstance(msensors, str):
+                msensors = [msensors] 
+            if any (s in msensors for s in ['All', 'AllRaw', 'LS2']):
+                msensors = ['S2','S2cp','LT05','LE07','LC08','LC09']
+            elif 'L' in msensors:
+                msensors = ['LT05','LE07','LC08','LC09']
+            elif ('S' in msensors) or ('S2' in msensors):
+                msensors = ['S2','S2cp']
+        
+            ## Check downloads
+            ## No longer tracking sensor downloads in tuyau db. TODO: update or remove
+            #for sen in msensors:
+            #    senlab = SENSORS[sen]['sensor']
+            #    senpath = SENSORS[sen]['GEE']
+            #    if not db.eosvault_is_complete(senlab, senpath):
+            #        logger.warning(f'  The {senlab} {senpath} downloads for grid {grid} are incomplete.')
+            #        continue
+
+            ## Check post-processing   NOTE-- this only works for dlMethod='GEE' currently
+            if ppaths.gee.is_dir():
+                for sen in msensors:
+                    senunq = SENSORS[sen]['GEEunq']
+                    if list(ppaths.gee.glob(f"{senunq}*[!s].nc")):
+                        logger.warning(f'  The {senunq} post-processing for grid {grid} is incomplete.')
+                        continue
+
         if params['status']['reset_db']:
             db.reset(grid, 'preprocess')
 
         if not ppaths.ms.is_dir():
-            logger.warning(f'  The BRDF directory for grid {grid} does not exist.')
+            logger.warning(f'  The BRDF directory for cell {grid} does not exist.')
             continue
 
         nocoreg_path = ppaths.ms.parent.joinpath('s2_nocoreg')
@@ -122,15 +127,22 @@ def coregister(params):
         ref_path = Path(ref_dir) / '_tmp_reference.tif'
         
         ## Get all images to coreg (sentinel + landsat 5 & 7)
-        ##  Do not include files with basenames ending in 's' (in case angles files in dir) or 'X' (in case some cleaning has been done)
-        ##    note: angles files end in s.nc. but only in brdf folder if <dl_method> is 'gee'
-        s2_list = utils.get_s2_list(ppaths.ms, pattern='*[!sX].nc')
-        l5_list = utils.get_l5_list(ppaths.ms, pattern='*[!sX].nc')
-        l7_list = utils.get_l7_list(ppaths.ms, pattern='*[!sX].nc')
+        ##  Do not include files with basenames ending in <params:reconstruct:skip_flag> (in case some cleaning has been done)
+        skip_flag = None
+        if params['reconstruct']['skip_flag']:
+            skip_flag = params['reconstruct']['skip_flag']
+        ## angles files (ending in s.nc) should also be excluded, . but these are only in brdf folder if <dl_method> is 'gee'
+        if params['dlMethod'] == 'GEE':
+            skip_flag = (skip_flag or []) + ['s']
+            
+        match_str = f'*.nc' if skip_flag is None else f'*[!{skip_flag}].nc'
+        s2_list = utils.get_s2_list(ppaths.ms, pattern=match_str)
+        l5_list = utils.get_l5_list(ppaths.ms, pattern=match_str)
+        l7_list = utils.get_l7_list(ppaths.ms, pattern=match_str)
         image_list = s2_list + l5_list + l7_list
 
         if not image_list:
-            logger.warning(f'  No images found for grid {grid}.')
+            logger.warning(f'  No images found for cell {grid}.')
             continue
 
         logger.info(f'  Checking grid {grid} ...')
@@ -139,8 +151,8 @@ def coregister(params):
             logger.info('making reference image...')
             ref_path = str(ref_path)
             ## Get the median over all Landsat 8 and 9 images
-            l8_list = utils.get_l8_list(ppaths.ms, pattern='*[!sX].nc')
-            l9_list = utils.get_l9_list(ppaths.ms, pattern='*[!sX].nc')
+            l8_list = utils.get_l8_list(ppaths.ms, pattern=match_str)
+            l9_list = utils.get_l9_list(ppaths.ms, pattern=match_str)
             landsat_list = sorted(l8_list + l9_list)
 
             landsat_refs = [str(fn) for fn in landsat_list]
@@ -221,8 +233,12 @@ def coregister(params):
                             ## This converts nodata values to nan
                             target = target.where(lambda x: x != target.nodatavals[0])
                             reference = reference.where(lambda x: x != reference.nodatavals[0])
-
                             ## The fillna below converts nans to 0
+                            
+                            max_shift = 5
+                            if params['coreg']['max_shift']:
+                                max_shift = params['coreg']['max_shift']
+                            
                             try:
                                 data = gw.coregister(
                                     target=target.fillna(0).assign_attrs({'crs': target.crs}),
@@ -232,7 +248,7 @@ def coregister(params):
                                     ws=(256, 256),
                                     r_b4match=1,
                                     s_b4match=REFERENCE_BAND_POSITION,
-                                    max_shift=params['coreg']['max_shift'],
+                                    max_shift=max_shift,
                                     resamp_alg_deshift='nearest',
                                     resamp_alg_calc='cubic',
                                     out_gsd=[target.gw.celly, reference.gw.celly],
@@ -265,6 +281,7 @@ def coregister(params):
                         )
                         processing_db.loc[processing_db['brdf_id'].eq(fn.name),'coreg']= True
                         try:
+                            ## shift_x and shift_y are coordinate shits of the coreged raster in pixels (to use if matching cloud masks later)
                             processing_db.loc[processing_db['brdf_id'].eq(fn.name),'shift_x']= data.attrs['x_shift_px']
                             processing_db.loc[processing_db['brdf_id'].eq(fn.name),'shift_y']= data.attrs['y_shift_px']
                         except:
@@ -273,7 +290,7 @@ def coregister(params):
                     else:
                         ## Rename the file that failed to coregister with an X at the end:
                         p = Path(tar_image)
-                        p.rename(Path(p.parent, f"{p.stem}_X{p.suffix}"))
+                        p.rename(Path(p.parent, f"{p.stem}_{params['reconstruct']['skip_flag']}{p.suffix}"))
 
         pd.to_pickle(processing_db, ppaths.ms.parent/'processing.info')
         db.update(grid, 'preprocess')

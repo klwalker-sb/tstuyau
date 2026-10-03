@@ -158,7 +158,7 @@ def download_hgt(params, ppaths, dataframe, hgt_url, key_file, code_file):
 
         zip_file = f"NASADEM_HGT_{dfn.split('.')[0].lower()}.zip"
 
-        srtm_zip_file = ppaths.srtm / zip_file
+        srtm_zip_file = ppaths.dem / zip_file
         srtm_hgt_file = srtm_zip_file.parent.joinpath(f"{srtm_zip_file.name.replace('.zip', '').split('_')[-1]}.hgt")
 
         if srtm_zip_file.exists() or srtm_hgt_file.is_file():

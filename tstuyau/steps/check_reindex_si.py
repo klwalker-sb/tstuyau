@@ -1,6 +1,7 @@
 from ..handler import logger
 from ..db import TuyauDataBase
 from .project import ProjectPaths
+from . import utils
 
 import yaml
 
@@ -17,7 +18,8 @@ def reindex_si(params):
         None
     """
 
-    for grid in params['grids']:
+    cells = utils.get_cell_list_from_grid_param(params['grids'])
+    for grid in cells:
 
         ppaths = ProjectPaths(params, grid=grid)
 

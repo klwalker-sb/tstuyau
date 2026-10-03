@@ -19,7 +19,7 @@ import os
 from pathlib import Path
 import argparse
 from . import __version__
-from .handler import logger
+from .handler import logger, set_log_level
 from . import steps
 
 
@@ -103,6 +103,8 @@ class Tasks(Config):
                     except:
                         self.params[items[0]][items[1]][items[2]] = items[3]
 
+        set_log_level(self.params.get('log_level', 'INFO'))
+        
         main_path = self.params['main_path']
         self.params['main_path'] = Path(main_path)
 
@@ -125,9 +127,9 @@ class Tasks(Config):
         logger.info('  Co-registering images ....')
         steps.coregister(self.params)
 
-    def mask_images(self):
+    def make_masks(self):
         logger.info('  Making masks to remove clouds or shaded terrain ...')
-        steps.mask_images(self.params)
+        steps.make_masks(self.params)
 
     def topo(self):
         logger.info('  Normalizing topography ...')
@@ -299,7 +301,7 @@ def main():
         if task == 'move_nodata':
             tasks.move_nodata()
         elif task == 'mask':
-            tasks.mask_images()
+            tasks.make_masks()
         elif task == 'topo':
             tasks.topo()
         elif task == 'fusion':

@@ -24,7 +24,7 @@ umask 002
 IMGTYPE='LS2'
 NCHUNKS=512
 RERUN="True"
-
+EXCLUDE="X"
 ## NEW_REF is whether to remake the reference image if it already exists. 
 ##    should be False if a small subset is being run relative to the full sequence
 NEW_REF="True"
@@ -44,18 +44,13 @@ conda activate venv.tstuyau_pipe
 ###################################################################
 # SHOULD NOT NEED TO MODIFY BELOW
 ###################################################################
-
-#############################################
-# Turn off NumPy parallelism and rely on dask
-#############################################
-export OPENBLAS_NUM_THREADS=1
-export MKL_NUM_THREADS=1
-# This should be sufficient for OpenBlas and MKL
-export OMP_NUM_THREADS=1
+## Co-reg uses numpy arrays as intermediate products and can thus not use Dask. 
+## Keep Numpy parallelism
 export NUMEXPR_MAX_THREADS="${SLURM_CPUS_ON_NODE}"
-################################################
+
 
 CONFIG_UPDATES="grids:[${GRIDS}] res:${REF_RES} crs:${REF_CRS} 
+dlMethod:'stac'
 image_type:$IMGTYPE
 status:reset_db:${RERUN}
 main_path:"${MAIN_DIR}/${PROJECT}/stac/grid"
@@ -64,6 +59,7 @@ num_workers:${SLURM_CPUS_ON_NODE}
 io:n_chunks:${NCHUNKS}
 coreg:overwrite_ref:${NEW_REF}
 coreg:max_shift:${MAX_SHIFT}
+reconstruct:skip_flag:$EXCLUDE
 "
 
 tuyau preprocess --config-updates $CONFIG_UPDATES

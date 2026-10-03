@@ -20,6 +20,7 @@ import fiona
 #from rasterstats import zonal_stats
 from .project import ProjectPaths
 from ..handler import logger
+from . import utils
 from .mask_utils import apply_binary_mask, combine_binary_masks
 from .date_utils import get_date_range
 from .check_sample import get_polygons_in_grid
@@ -290,16 +291,7 @@ def get_ts_stats_within_polys(params, in_path=None, out_path=None):
     tmp_out_dir.mkdir(parents=True, exist_ok=True)
 
     ## saving raster grids with polygon features, using standard gridded procedures
-    cells = []
-    if isinstance(params['grids'], list):
-        cells = params['grids']
-    elif isinstance(params['grids'], str) and params['grids'].endswith('.csv'): 
-        with open(params['grids'], newline='') as cell_file:
-            for row in csv.reader(cell_file):
-                cells.append(row[0])
-    elif isinstance(params['grids'], int) or isinstance(params['grids'], str): # if runing individual cells as array via bash script
-        cells.append(params['grids']) 
-    
+
     if params['feature_model']['ancillary_vars']:
         if in_path:
             var_path = in_path
@@ -327,7 +319,8 @@ def get_ts_stats_within_polys(params, in_path=None, out_path=None):
         stat = siv.split('-')[2]
         year = int(params['sample_model']['train_yrs']) ## should be single year here
         use_dates = get_date_range(year,season,params,return_type='doy',padded=False)
-    
+
+    cells = utils.get_cell_list_from_grid_param(params['grids'])
     for cell in cells:
         logger.info(f'working on cell {cell}...\n')
         ppaths = ProjectPaths(params, grid=cell)
@@ -421,8 +414,8 @@ def get_ts_stats_within_polys(params, in_path=None, out_path=None):
                 stack = []
                 with rio.open(rasts[0]) as src0:
                     out_meta = src0.meta.copy()
-                    new_gt = src_meta['transform']
-                    out_shape = (src_meta['height'], src_meta['width'])
+                    new_gt = out_meta['transform']
+                    out_shape = (out_meta['height'], out_meta['width'])
                 logger.debug(f'out meta for ts features is: {out_meta}')
                 out_meta.update(count=1, dtype=np.int16, compress="lzw", tiled=True)
                 

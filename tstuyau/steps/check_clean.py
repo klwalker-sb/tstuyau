@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 import os
+from . import utils
 from ..handler import logger
 from .project import ProjectPaths
 from .constants import FILENAME_DATE_INDEX, FILENAME_DATE_INDEX_GEE
@@ -95,7 +96,8 @@ def clean(params):
        such that it will reprocess if the process is run again. If the intention is to flag the file to be reprocessed specifically, 'prep-rerun' is used.
     """
 
-    for grid in params['grids']:
+    cells = utils.get_cell_list_from_grid_param(params['grids'])
+    for grid in cells:
 
         logger.info(f'  Cleaning directory for grid {grid} ...')
 

@@ -22,8 +22,8 @@ main_path: '/home/sandbox-cel/paraguay_lc/stac/grid'
 backup_path: '/home/downspout-cel/paraguay_lc/stac/grids'
 ## <scratch_dir> is the base path to a scratch space for files that can be deleted after use
 scratch_dir: '/home/scratch-cel'
-## srtm_path is path to srtm files for masks/topo. If None or '', srtm path is <main_path>.parents[1] /'data'/'srtm'
-srtm_path: ''
+## dem_path is path to dem files for masks/topo. If None or '', dem path is <main_path>.parents[1] /'terrain'/'dem'
+dem_path: ''
 ## <project_ver> is for setting different LUTs and lookup values used in past.  'Py_0' is original (legacy) CELPy maps. 'CEL1' is first release
 project_ver: 'CEL1'
 ## <dlmethod> is download method used: 'GEE' | 'STAC'
@@ -172,17 +172,40 @@ status:
 masking:
 ## <masking:maxval> is the maximum valid data value (inverse of scale_factor)
   maxval: 10000
-  ## <masking:method> can be 'terrain_shade' | 'ancillary' | 'CRF' | 's2cloudless' | 'native'  (if 'native', nothing is done with mask but note is added in db). 
-  method: 's2cloudless'
-  ## <masking:sat_sensors> is 'All' or "LS2' for all Sentinel-2 & Landsat, 'L' for all Landsat only, 'S2' for all Sentinel-2 only, or S2A,S2B,LT05,LE07,LC08,LC09
+  ## <masking:method> can be 'terrain_shade' | 'ancillary' | 'CRF' | 's2cloudless' | 'custom' | 'native'  
+  ##        (if 'native', nothing is done with mask but note is added in db). 
+  method: None
+  ## <masking:sat_sensors> is 'All' or "LS2' for all Sentinel-2 & Landsat, 'L' for all Landsat only, 
+  ##    'S2' for all Sentinel-2 only, or S2A,S2B,LT05,LE07,LC08,LC09
   sat_sensors: ['LS2']
-  ## <masking:exclude> is optional text at the end of image name (before suffix) that indicates that it should not be included in the masking process 
-  exclude: 'X'
+  ## <masking:skip_flag> is optional text at the end of image name (before suffix) that indicates that it should 
+  ##     not be included in the masking process (if multiple letters, each is evaluated seperately - not as word)
+  skip_flag: 'X'
+  ## <masking><buffer_px> is number of pixels to expand mask after creation
+  buffer_px: 1
   ## <masking:date range> can be [0] for all relevant images or [date,date] for limited range.
-  ##      note: dates for GEE are written YYYY-MM-DD or YYYY-M-D -- no leading zeros
+  ##    note: dates for GEE are written YYYY-MM-DD or YYYY-M-D -- no leading zeros
   date_range: [0]
   ## <masking:overwrite> sets Whether to overwrite existing mask files
   overwrite: False
+  ## masking_mask_dir> is the directory for each mask, in the cell's main directory (ms.parent/X). 
+  ##   only needed in mask is not in MASKS dict in lookup.py
+  mask_dir: None
+  ## masking_mask_val> is the value that is to be masked out. Can be an integer or a list. 
+  ##   if list, the mask will be from the first to last value.
+  ## masking:img_dir is the directory for the images to be masked. If None, defaults to brdf directory.
+  img_dir: None 
+  ##   only needed in mask is not in MASKS dict in lookup.py
+  mask_val: None
+  ## masking:masknamer> is the name of each mask, appended to the main scene name (beofre the suffix). 
+  ##   only needed in mask is not in MASKS dict in lookup.py
+  maskname: None
+  ## <masking:retry_masks> resets file names so they can be retried
+  retry_masks: False
+  ## <masking:treat_missing> 'Fail' | 'Skip'  If "Fail', will stop whole process if all images do not have a corresponding mask.
+  ##     if 'Skip', will drop the image in question.
+  treat_missing: 'Fail'
+  
   ## <masking:reclass_LUT> used if method is 'ancillary'. sets dictionary with from:to value as key:value pair. 
   ##     OR csv with <from_vals> column and <to_vals> column
   ancillary_ras:
@@ -194,6 +217,7 @@ masking:
   gee_key: '/home/<username>/.tstuyau/gee_key.json'
   ## <masking:gee_index_dir> is needed only if <masking:method> is 'gee'. Sets root directory for the GCP index files
   gee_index_dir: '/home/sandbox-cel/paraguay_lc/raster'
+  
   ## if method=='CRF', need the following:
   ## <masking:min_mask> (for method = CRF) is the minimum clear value (all values greater than `min_mask` are non-clear)
   min_mask: 1
@@ -224,15 +248,19 @@ masking:
 
 ## Topographical correction
 topo:
-  ## <topo:si> is the index to base topographical correction on.
-  si: 'evi2'
-  ## <topo:username> is the The NASA Earthdata username to download HGT SRTM files
+  ## topo:demsource:  type of dem file used for topo calculations. Currently 'srtm' or 'Copernicus'
+  demsource: 'srtm'
+  ## the following are only needed if demsource == 'srtm':
+  ##      <topo:username> is the The NASA Earthdata username to download HGT SRTM files
   ##      can make account at https://urs.earthdata.nasa.gov/
   ##      <topo:key file> and <topo:code file> are paths to these items from the NASA Earthdata account associated with <topo:username>
   username: '<username>'
   key_file: '/media/<username>/data/projects/global_fields/nasaearth.key'
   code_file: '/media/<username>/data/projects/global_fields/nasaearth.code'
-  srtm_nodata: -32768
+  ## dem_nodata is nodata value in original dem. Usually -32768 for srtm and 255 for Copernicus
+  dem_nodata: -32768
+  ## <topo:si> is the index to base topographical correction on.
+  si: 'evi2'
   ## <topo:slope_thresh> Any value less than this threshold is not adjusted
   slope_thresh: 2
   ## <topo:method options> are 'c' | 'empirical-rotation'
@@ -271,11 +299,12 @@ reconstruct:
   nodata: 0
   ## Whether a new time-series will be created in sub folder so it can be merged with existing ts
   merge_ts: False
-  ## <reconstruct:include> and <reconstruct:exclude> are strings in input image paths that indicate images to include in ts calcs
-  ##      if include = '', include all images not in exclude
-  ##      exclude is a single character at the end of the base path name (before the extension)
-  include: ''
-  exclude: 'X'
+  ## <reconstruct:keep_str> and <reconstruct:skip_flag> are strings in input image paths that indicate images to include and exclude in ts calcs
+  ##      if keep_str = '', include all images not marked with skip_flag. Otherwise, keeps only images containing indicated string.
+  ##      skip_flag is a single character at the end of the base path name (before the extension) -- can be multiple characters, but files ending
+  ##         in ANY of these characters will be excluded (so don't use a word intended to be read as a word)
+  keep_str: ''
+  skip_flag: 'X'
   res: 10.0
   ## <reconstruct:si> = index to calculate. See options in SI_DICT in lookup.py
   si: 'evi2'

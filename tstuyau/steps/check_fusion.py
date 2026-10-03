@@ -30,7 +30,8 @@ def fuse_sensors(params):
         None
     """
 
-    for grid in params['grids']:
+    cells = utils.get_cell_list_from_grid_param(params['grids'])
+    for grid in cells:
 
         ppaths = ProjectPaths(params, grid=grid)
 

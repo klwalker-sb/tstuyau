@@ -112,7 +112,54 @@ class ImageIO(object):
 
         return res_k_data
 
+def extract_ref_profile(src, count=1, nodata=0, dtype=None):
+    """Builds a rasterio-style profile dict (GeoTIFF creation options)
+    from a gw.open()'d DataArray's own gw accessor attributes
+    (gw.affine/gw.crs_to_pyproj/gw.ncols/nrows/col_chunks/row_chunks)
+    """
+    
+    return dict(
+        driver='GTiff',
+        dtype=dtype if dtype is not None else src.dtype,
+        count=count,
+        nodata=nodata,
+        tiled=True,
+        compress='lzw',
+        crs=src.gw.crs_to_pyproj.to_wkt(),
+        transform=src.gw.affine,
+        width=src.gw.ncols,
+        height=src.gw.nrows,
+        blockxsize=src.gw.col_chunks,
+        blockysize=src.gw.row_chunks,
+    )
 
+def extract_profile_geotif(ref_image, band_names=None, n_chunks=512):
+    """Builds a rasterio-style profile (GeoTIFF creation options) from a
+    reference image, for use as the output profile when writing images as .tif.
+    """
+    img_type = Path(ref_image).suffix.lower().replace('.', '')
+    img_open_kwargs = (
+        {'engine': 'h5netcdf', 'chunks': {'band': -1, 'y': n_chunks, 'x': n_chunks}} 
+        if img_type == 'nc' 
+        else {'chunks': {'band': 1, 'y': n_chunks, 'x': n_chunks}}
+    )
+    if band_names:
+        img_open_kwargs['band_names'] = band_names
+        
+    with gw.open(ref_image, **img_open_kwargs) as src:
+        ref_profile = extract_ref_profile(src)
+       
+    return ref_profile
+    
+def default_profile_netcdf(params=None):
+    netcdf_encoding = {
+        'dtype': 'uint16',          
+        '_FillValue': 32768,       
+        'zlib': True,               
+        'complevel': 5              
+        }
+    return netcdf_encoding
+    
 def read_nc(filename, band_names, slicer, nodata, spec_index, extra_param=None):
     """
     Reads a single NetCDF file

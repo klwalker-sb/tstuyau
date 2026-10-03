@@ -273,7 +273,7 @@ def make_glcm(base_img, params=None, si_var=None, win=None, covals=None, th=None
         if out_path == None:
             cell = params['grids']
             ppaths = ProjectPaths(params, grid=cell) 
-            out_dir =  ppaths.comp / si
+            out_dir =  ppaths.comp / f"{si_var.split('_')[0]}"
         else:
             out_dir = out_path.parent
 
@@ -302,7 +302,7 @@ def make_glcm(base_img, params=None, si_var=None, win=None, covals=None, th=None
         num_bands = in_ras.count
         profile = in_ras.profile.copy()
     if num_bands > 2:
-        if rgb == True:
+        if rgb:
             #transform multiband image to single intensity with rgb bands
             with rio.open(base_img) as in_ras:
                 raster = in_ras.read()
@@ -311,10 +311,11 @@ def make_glcm(base_img, params=None, si_var=None, win=None, covals=None, th=None
             b = raster[2,:,:]
             # Transform RGB to intensity (or lightness) of the HSL color scales
             # Preserves distances and angles from the geometry of the RGB cube
-            ing_in = imresize( (0.2989 * r) + (0.5870 * g) + (0.1140 * b), 100 )
+            ## TODO: uncomment if using
+            #ing_in = imresize( (0.2989 * r) + (0.5870 * g) + (0.1140 * b), 100 )
         else:
             with rio.open(base_img) as in_ras:
-                img_in = in_ras.read(band)
+                img_in = in_ras.read(1)
                 profile = in_ras.profile.copy()
     else:
         with rio.open(base_img) as in_ras:
