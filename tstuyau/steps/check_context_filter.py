@@ -754,24 +754,20 @@ def filter_ts_rasters(ts_files, ts_yrs, base_rasters, params, count_cache):
 
     return ts
 
-def final_spatial_temporal_refine(ts_files, poly_area_in, orig_ts):
+def override_edits_in_segmented_polys(ts_files, poly_area_files, ts_yrs, orig_ts):
     '''
     resets pixels to original crop classification if in segmented polygon
     inputs: poly_area_in is path to rasterized polygons with field size
     '''
     with gw.open(ts_files, time_names=ts_yrs, stack_dim='time') as ts:
         attrs = ts.attrs.copy()
-    with gw.open(orig_ts, time_names=ts_yrs, stack_dim='time') as ots:
-        pass
-
-    with rio.open(poly_area_in, 'r') as area_src:
-        profile = area_src.profile
-        polyarea = area_src.read(1)
+        with gw.open(orig_ts, time_names=ts_yrs, stack_dim='time') as ots:
+            with gw.open(poly_area_files, time_names=ts_yrs, stack_dim='time') as polyaea:
     
-    tsf = ots.where(polyarea > 0), ts)
+                tsf = ots.where(polyarea > 0, ts)
     return tsf
 
-def ts_filter(params, poly_area_in=None):
+def ts_filter(params):
     '''
     Applies time-series filter to multiple years of classified data
     uses logical rules to stabilize certiain land cover classes
@@ -816,8 +812,11 @@ def ts_filter(params, poly_area_in=None):
         count_cache = {}
         base_rasters = get_stable_base(ts_files, out_yrs, params, count_cache)
         refined_ts = filter_ts_rasters(ts_files,out_yrs,base_rasters,params, count_cache)
-        final_refine = (refined_ts, poly_area_in, ts_files)
 
+        tmp_comp_dir = Path(params['scratch_dir']) /'comp/comp'
+        poly_files = [f"{tmp_comp_dir}/polyarea{yr}-majority.tif" for yr in out_yrs]        
+        final_refine = override_edits_in_segmented_polys(refined_ts, poly_files, out_yrs, ts_files)
+        
         for y in out_yrs:
             logger.info(f'getting final raster for {y}...')
             out_file = Path(final_dir)/f'{prescript}_{y}_{postscript}-tsfilt.tif'

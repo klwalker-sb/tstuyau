@@ -105,7 +105,8 @@ def _retouch_rice_built(ts, idx, ctx: FilterTsArgs):
 def _retouch_wetgrass_crop(ts, idx, ctx: FilterTsArgs):
     logger.info("removing very brief crop blips with wet grass on either side...")
     ## fill crop blips: if a pixel is wetgrass at time t-1 and t+1 but low crop inbetween, fill with wetgrass
-    crop_blip_cond = ts.isin(ctx.LC_CATS['low_crops']) &
+    crop_blip_cond = (
+        ts.isin(ctx.LC_CATS['low_crops']) &
         (ts.shift(time=1).fillna(0)==(ctx.LC_CATS['wet_grass'])) &
         (ts.shift(time=-1).fillna(0)==ctx.LC_CATS['wet_grass'])
     )
@@ -118,7 +119,8 @@ def _retouch_grass_crop(ts, idx, ctx: FilterTsArgs):
     ## fill crop blips: if a pixel is mostly grass across the time series and grass at time t-1 or t+1 but low crop inbetween, fill with grass
     ##    Note: will retouch after to retain crop in segmented polys
     ngrass = store_count('grass', ctx.count_cache, lambda: (ts.isin(ctx.LC_CATS['allGrass'])).sum(dim="time").astype('uint8'))
-    crop_blip_cond = ts.isin(ctx.LC_CATS['low_crops']) &
+    crop_blip_cond = (
+        ts.isin(ctx.LC_CATS['low_crops']) &
         (ngrass >=4) &
         ((ts.shift(time=1).fillna(0)==(ctx.LC_CATS['grass_Py36'])) |
         (ts.shift(time=-1).fillna(0)==ctx.LC_CATS['grass_Py36']))
@@ -129,7 +131,8 @@ def _retouch_grass_crop(ts, idx, ctx: FilterTsArgs):
 def _retouch_wetgrass_built(ts, idx, ctx: FilterTsArgs):
     logger.info("removing very brief built blips with wet grass on either side...")
     ## fill built blips: if a pixel is wetgrass at time t-1 and t+1 but built inbetween, fill with wetgrass
-    built_blip_cond = ts.isin(ctx.LC_CATS['built']) &
+    built_blip_cond = (
+        ts.isin(ctx.LC_CATS['built']) &
         (ts.shift(time=1).fillna(0)==(ctx.LC_CATS['wet_grass'])) &
         (ts.shift(time=-1).fillna(0)==ctx.LC_CATS['wet_grass'])
     )
@@ -139,7 +142,8 @@ def _retouch_wetgrass_built(ts, idx, ctx: FilterTsArgs):
 def _retouch_medcrop_wetshrub(ts, idx, ctx: FilterTsArgs):
     logger.info("fixing medium crop that is probably actually wet shrub...")
     ## reclass medium crop to wet shrub if wet shrub or wet grass at time t+1 and t-1. Note: will retouch after to retain crop in segmented polys
-    unlikely_medcrop_cond = ts.isin(ctx.LC_CATS['med_crops']) &
+    unlikely_medcrop_cond = (
+        ts.isin(ctx.LC_CATS['med_crops']) &
         ((ts.shift(time=1).fillna(0)==(ctx.LC_CATS['wet_medveg'])) | (ts.shift(time=1).fillna(0)==(ctx.LC_CATS['wet_grass']))) &
         ((ts.shift(time=-1).fillna(0)==ctx.LC_CATS['wet_medveg']) | (ts.shift(time=-1).fillna(0)==ctx.LC_CATS['wet_grass']))
     )
@@ -149,9 +153,10 @@ def _retouch_medcrop_wetshrub(ts, idx, ctx: FilterTsArgs):
 def _retouch_medcrop_shrub(ts, idx, ctx: FilterTsArgs):
     logger.info("fixing medium crop that is probably actually other shrub...")
     ## reclass medium crop to shrub if dry grass at time t+1 and t-1. Note: will retouch after to retain crop in segmented polys
-    unlikely_medcrop_cond = ts.isin(ctx.LC_CATS['med_crops']) &
+    unlikely_medcrop_cond = (
+        ts.isin(ctx.LC_CATS['med_crops']) &
         ((ts.shift(time=1).fillna(0).isin(ctx.LC_CATS['dry_grass'])) | (ts.shift(time=1).fillna(0)==(ctx.LC_CATS['shrub_main']))) &
-        ((ts.shift(time=-1).fillna(0).isin(ctx.LC_CATS['dry_grass']) | (ts.shift(time=-1).fillna(0)==ctx.LC_CATS['shrub_main']))
+        ((ts.shift(time=-1).fillna(0).isin(ctx.LC_CATS['dry_grass']) | (ts.shift(time=-1).fillna(0)==ctx.LC_CATS['shrub_main'])))
     )
     return apply_condition_to_timeseries(ts, unlikely_medcrop_cond, ctx.LC_CATS['shrub_main'],
                                        idx, ctx.ts_files[0], ctx.params,region_key='illogical_regions', region_file_key='illogical_region_file')
@@ -159,17 +164,20 @@ def _retouch_medcrop_shrub(ts, idx, ctx: FilterTsArgs):
 def _retouch_single_crop_blip(ts, idx, ctx: FilterTsArgs):
     logger.info("removing time-series crop specs...")
     ## reclass crop to grass if only crop once in time series.  Note, will retouch after to retain crops within segmented polygons.
+    ## analysis WARNING: this means that new crops in the last year will not be seen as crops unless in polygons 
+    ##    (so true smallholder area may be reduced) Recommend running only in problem regions (e.g. 2 in Py) 
     ncrop = store_count('low_crops', ctx.count_cache, lambda: (ts == ctx.LC_CATS['low_crops']).sum(dim="time").astype('uint8'))
-    crop_spec_cond = ts.isin(ctx.LC_CATS['low_crops']) & (ncrop == 1)
-    )
+    crop_spec_cond = ( 
+        ts.isin(ctx.LC_CATS['low_crops']) & (ncrop == 1))
     return apply_condition_to_timeseries(ts, crop_spec_cond, ctx.LC_CATS['dry_grass'][0],
                                        idx, ctx.ts_files[0], ctx.params,region_key='illogical_regions', region_file_key='illogical_region_file')
     
-def retouch_grass_built(ts, idx, ctx: FilterTsArgs):
+def _retouch_grass_built(ts, idx, ctx: FilterTsArgs):
     logger.info("removing very brief crop blips where grass dominates time series and is on at least side...")
     ## fill built blips: if a pixel is classified as built but is dominantly grass in the time series and is grass at time t-1 or t+1, fill with bare 
     ngrass = store_count('grass', ctx.count_cache, lambda: (ts.isin(ctx.LC_CATS['allGrass'])).sum(dim="time").astype('uint8'))
-    built_blip_cond = ts.isin(ctx.LC_CATS['built']) &
+    built_blip_cond = (
+        ts.isin(ctx.LC_CATS['built']) &
         (ngrass >=4) &
         ((ts.shift(time=1).fillna(0)==(ctx.LC_CATS['grass_Py36'])) |
         (ts.shift(time=-1).fillna(0)==ctx.LC_CATS['grass_Py36']))
@@ -177,17 +185,16 @@ def retouch_grass_built(ts, idx, ctx: FilterTsArgs):
     return apply_condition_to_timeseries(ts, built_blip_cond, ctx.LC_CATS['bare'],
                                        idx, ctx.ts_files[0], ctx.params,region_key='illogical_regions', region_file_key='illogical_region_file')
 
-
 def _retouch_built_non_built(ts, idx, ctx: FilterTsArgs):
- logger.info("filling in built gaps...")
+    logger.info("filling in built gaps...")
     ## fill built gaps: if a pixel is classified as built at time t-1 and t+1, it should be built at time t
-    built_gap_cond = ~ts.isin(ctx.LC_CATS['built']) &
+    built_gap_cond = (
+        ~ts.isin(ctx.LC_CATS['built']) &
         (ts.shift(time=1).fillna(0).isin(ctx.LC_CATS['built'])) &
         (ts.shift(time=-1).fillna(0).isin(ctx.LC_CATS['built']))
     )
     return apply_condition_to_timeseries(ts, built_gap_cond, ctx.LC_CATS['built'][0],
                                        idx, ctx.ts_files[0], ctx.params,region_key='illogical_regions', region_file_key='illogical_region_file')
-
     
 def _retouch_forest_treeplant(ts, idx, ctx: FilterTsArgs):
     logger.info("removing switches from tree-plantation to forest and vice-versa")
@@ -294,8 +301,6 @@ def _retouch_noplant_plant(ts, idx, ctx: FilterTsArgs):
     )
     return apply_condition_to_timeseries(ts, baby_plant_cond, ctx.LC_CATS['baby_treeplant'],
                                        idx, ctx.ts_files[0], ctx.params,region_key='illogical_regions', region_file_key='illogical_region_file')
-
-
 
 
 CORRECTIONS = {

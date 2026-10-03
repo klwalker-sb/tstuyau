@@ -85,6 +85,8 @@ def apply_masks_to_images(images, img_dir, masked_img_dir, mask_args={}, params=
     <mask_args> is a dictionary built from input masking parameters of MASKS dictionary. If None, needs params passed to build.
 
     Outputs a masked image with same name and format as the original in the  <masked_img_dir>
+    Returns a list of images to process, which is usually the same list as the input <images> unless some images are missing masks and
+        params:masking:treat_missing> is set to 'skip'
     """
 
     if not mask_args:
@@ -124,9 +126,18 @@ def apply_masks_to_images(images, img_dir, masked_img_dir, mask_args={}, params=
         mask_path = mask_dir / f"{im_base}_{mask_args['maskname']}.tif"
         if not mask_path.is_file():
             missing.append(im)
+            
     if missing:
-        logger.warning(f"{len(missing)} of {len(image_names)} scenes have no {mask_args['maskname']} file in {mask_args['mask_dir']}: {missing[:5]}{'...' if len(missing) > 5 else ''}. ")
+        logger.warning(f"{len(missing)} of {len(image_names)} scenes have no {mask_args['maskname']} file in {mask_args['mask_dir']}:")
+        logger.warning(f"Missing items: {missing[:5]}{'...' if len(missing) > 5 else ''}. ")
         if params['masking']['treat_missing'].lower() == 'fail':
+            logger.warning(f"try running the masks before running this step")
+            return
+        elif params['masking']['treat_missing'].lower() == 'skip':
+            image_names = [item for item in image_names if item not in missing]
+            logger.warning(f"skipping these images -- image stack has been reduced to {len(image_names)} images")
+        else:
+            logger.warning("need to set parameter masking:treat_missing to 'skip' or 'fail'")
             return
 
     ref_image = image_names[-1]
@@ -177,8 +188,9 @@ def apply_masks_to_images(images, img_dir, masked_img_dir, mask_args={}, params=
                     ## gw.to_netcdf requires a name for the array
                     masked_img.name = 'masked_data'
                     masked_img.gw.to_netcdf(out_path, overwrite=True, **profile_kwargs)
-            
-    
+
+    return image_names
+        
 def open_masks_with_time_series(ppaths, ts_stack, ds_stack, **mask_args):
     """Opens each scene's mask, matched 1:1 to ts_stack by filename as a single time-stacked boolean DataArray aligned to ds_stack.
     Returns a (time, y, x) DataArray, True where a pixel is in should be excluded, aligned to the same time coordinate as ts_stack itself.
