@@ -22,7 +22,7 @@ pip install git+https://github.com/klwalker-sb/tstuyau
 - https://github.com/jgrss/eostac
 
 ### Usage
-The features of tstuyau are maximized when chained directly to eostac, which applies atmospheric and BRDF corrections during STAC imagery ingestion. Utilizing eostac streamlines the pipeline by enforcing specific file structures and naming. Eostac also initiates a database that is picked up by tstuyau to track ingested imagery and processing steps per grid cell, ensuring seamless downstream feature generation and optimization.  
+The features of tstuyau are maximized when chained directly to eostac, which applies atmospheric and BRDF corrections during STAC imagery ingestion. Utilizing eostac streamlines the pipeline by enforcing specific file structures and naming. eostac also initiates a database that is picked up by tstuyau to track ingested imagery and processing steps per grid cell, ensuring seamless downstream feature generation and optimization.  
 
 optional complimentary packages:
 - hpchelpers (https://github.com/klwalker-sb/hpchelpers): tools for interacting with data on high performance computing environment 
@@ -50,9 +50,11 @@ tuyau preprocess --config-updates grids:[7,126] num_workers:4
 #### Image preprocessing ('no data' checks, co-registration, masks)
 
 ##### 1. Masking
-Preliminary 'no data' check to remove images with no non-zeros values (which are common with gridded processing)
+-- Preliminary 'no data' check to remove images with no non-zeros values (which are common with gridded processing)
 
-Cloud and shadow masks are applied via the following options: 
+-- Terrain shade masks can be created by downloading DEM and applying scene-level azimuth and zenith
+
+-- Cloud and shadow masks are applied via the following options: 
 * Option 0: Use native cloud masks,
 * Option 1: Download and apply S2cloudless masks from Google Earth Engine for Sentinel-2 images (recommended, and applied in eostac)
 * Option 2: Use Conditional Random Fields trained on clouds, shadows, water, and clear land. -- requires additional input data
