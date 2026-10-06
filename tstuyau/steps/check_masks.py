@@ -15,18 +15,14 @@ from tqdm import tqdm
 from ..db import TuyauDataBase
 from ..handler import logger
 from . import utils
-from .constants import (
-    FILENAME_DATE_END_INDEX,
-    FILENAME_DATE_INDEX,
-    FILENAME_DATE_INDEX_GEE,
-    FILENAME_DATE_START_INDEX,
-)
+from .constants import FILENAME_DATE_INDEX, FILENAME_DATE_INDEX_GEE
 from .gee_ingest import IngestFromGoogle
 from .io import extract_ref_profile
 from .lookup import MASKS, SENSORS
 from .mask_utils import buffer_mask, compute_cast_shadow, compute_self_shadow
 from .processing_tracker import match_brdf_files_to_record
 from .project import ProjectPaths
+from .utils import mask_data
 
 
 def update_db_mask_tracker(processing_db,image_id,mask_type):
@@ -197,7 +193,7 @@ def mask_clouds_CRF(params, ppaths, processing_db):
                 fn = full_time_list[fidx+yidx]
                 yidx += 1
                 try:
-                    with gw.open(f'{fn}:swir2', chunks=params['masking']['chunks']) as src:
+                    with gw.open(f'{fn}:swir2', chunks=params['masking']['chunks']):
                         pass
                 except Exception:
                     continue
@@ -229,7 +225,7 @@ def mask_clouds_CRF(params, ppaths, processing_db):
 
             for fn in file_time_list_:
                 try:
-                    with gw.open(f'{fn}:swir2', chunks=params['masking']['chunks']) as src:
+                    with gw.open(f'{fn}:swir2', chunks=params['masking']['chunks']):
                         pass
                     file_time_list.append(fn)
                 except Exception as e:
@@ -297,7 +293,7 @@ def mask_clouds_CRF(params, ppaths, processing_db):
                         futures.append(f)
 
                 for f in tqdm(concurrent.futures.as_completed(futures), total=len(futures)):
-                    res = f.result()
+                    _res = f.result()
 
 def mask_clouds_s2cloudless(params, ppaths, grid, input_dir, processing_db, open_kwargs):
     '''

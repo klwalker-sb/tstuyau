@@ -59,13 +59,13 @@ class Tasks(Config):
                         try:
                             eval_items = eval_items[1:-1].split(',')
                             eval_items = list(map(int, eval_items))
-                        except:
+                        except Exception:
                             pass
                     elif ',' in eval_items:
                         try:
                             eval_items = eval_items.split(',')
                             eval_items = list(map(str, eval_items))
-                        except:
+                        except Exception:
                             pass
                     return eval_items
                 
@@ -86,21 +86,21 @@ class Tasks(Config):
 
                     try:
                         self.params[items[0]] = eval(items[1])
-                    except:
+                    except Exception:
                         self.params[items[0]] = items[1]
 
                 elif len(items) == 3:
 
                     try:
                         self.params[items[0]][items[1]] = eval(items[2])
-                    except:
+                    except Exception:
                         self.params[items[0]][items[1]] = items[2]
 
                 elif len(items) == 4:
 
                     try:
                         self.params[items[0]][items[1]][items[2]] = eval(items[3])
-                    except:
+                    except Exception:
                         self.params[items[0]][items[1]][items[2]] = items[3]
 
         set_log_level(self.params.get('log_level', 'INFO'))
