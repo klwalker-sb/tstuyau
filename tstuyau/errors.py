@@ -3,7 +3,7 @@ class MaskError(Exception):
     """Raised when a time series mask does not exist"""
 
     def __init__(self, mask_file):
-        self.message = f'Mask file {str(mask_file)} does not exist.'
+        self.message = f'Mask file {mask_file!s} does not exist.'
         super().__init__(self.message)
 
     def __str__(self):
@@ -27,7 +27,7 @@ class TrainingGridsError(Exception):
     """Raised when the training grids list is incomplete"""
 
     def __init__(self, grid_path):
-        self.message = f'No training grids were found in {str(grid_path)}.'
+        self.message = f'No training grids were found in {grid_path!s}.'
         super().__init__(self.message)
 
     def __str__(self):

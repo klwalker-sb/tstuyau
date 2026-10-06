@@ -1,11 +1,14 @@
 from pathlib import Path
-import pandas as pd
-import numpy as np
+
 #from rasterio.features import shapes
 import geopandas as gpd
+import numpy as np
+import pandas as pd
+
 #from rasterstats import zonal_stats, point_query
 from ..handler import logger
 from .project import ProjectPaths
+
 #from . import date_utils
 
 
@@ -16,7 +19,7 @@ def chip_acc(predpoly_dir, pred_prefix, refshp, acc_id_file, out_acc_dir, class_
     regions = sorted(refpolys['region'].to_list())
     chips_w_target=[]
     chips_no_target=[]
-    for region in sorted(list(set(regions))):
+    for region in sorted(set(regions)):
         refpoly_gdf = refpolys[refpolys["region"]==int(region)] 
         refpoly_gdf = refpoly_gdf[refpoly_gdf[class_col].isin(pos_classes)]
         if len(refpoly_gdf) >= 1:
@@ -96,13 +99,13 @@ def chip_acc(predpoly_dir, pred_prefix, refshp, acc_id_file, out_acc_dir, class_
     no_target_df['version'] = [f'{i}_no_{target}' for i in no_target_df['version']]    
     
     all_chips_df = pd.concat([w_target_df, no_target_df])
-    out_name = Path(out_acc_dir) / f"chip_acc_{pred_prefix}_allregions_{str(len(all_chips_df))}.csv"
+    out_name = Path(out_acc_dir) / f"chip_acc_{pred_prefix}_allregions_{len(all_chips_df)!s}.csv"
     all_chips_df.to_csv(out_name)
     
     w_target_grouped = w_target_df.groupby(["version"])[["numFields", "avgArea", f"total{target.capitalize()}Area"]].mean()
     no_target_grouped = no_target_df.groupby(["version"])[["numFields", "avgArea", f"total{target.capitalize()}Area"]].mean()
     all_grouped = pd.concat([w_target_grouped, no_target_grouped])
-    all_grouped.to_csv(out_name.replace(f"_allregions_{str(len(all_chips_df))}.csv", "_avg.csv"))
+    all_grouped.to_csv(out_name.replace(f"_allregions_{len(all_chips_df)!s}.csv", "_avg.csv"))
     
     return all_chips_df, all_grouped
 
@@ -131,7 +134,7 @@ def largest_overlap(ref_df, pred_df):
             rdf['area'] = rdf.geometry.area
             pdf['area'] = pdf.geometry.area 
             intersect_df = gpd.overlay(rdf, pdf, how="intersection")
-            if not len(intersect_df) == 0:
+            if len(intersect_df) != 0:
                 interction_area = intersect_df['geometry'].area
                 pred_indices_per_ref_field.append(pred_index)
                 overlap_areas_per_ref_field.append(interction_area[0])
@@ -179,7 +182,7 @@ def calc_metrics(predvector, ref_df, pred_df, rp_index_matches):
         location_similarities.append(1-centr_dist/circradius)
 
     filename = Path(predvector).stem
-    region = (list(set(ref_df['region'])))[0] ### UNQ or region
+    region = next(iter(set(ref_df['region']))) ### UNQ or region
     logger.info(f'region = {region}')
     match_metrics = [filename, region, rp_index_matches,ious,overseg_rates,underseg_rates,location_similarities]
     match_metrics=pd.DataFrame(match_metrics).T
@@ -192,9 +195,11 @@ def calc_metrics(predvector, ref_df, pred_df, rp_index_matches):
     
     return match_metrics_per_grid
 
-def instance_field_accuracy(refshp, predvector, out_name, target='crop', pos_classes=[1]):
+def instance_field_accuracy(refshp, predvector, out_name, target='crop', pos_classes=None):
     ### Note: this is not called at moment
 
+    if pos_classes is None:
+        pos_classes = [1]
     refpolys = gpd.read_file(refshp)
     refchips=refshp.replace("_Polys", "_Chips")
     chip_df = gpd.read_file(refchips)

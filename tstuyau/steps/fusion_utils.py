@@ -1,9 +1,8 @@
+import cv2
 import numpy as np
 import xarray as xr
-import cv2
-from numba import njit, prange, set_num_threads
+from numba import njit, set_num_threads
 from tqdm import tqdm
-
 
 # @jit
 # def calc_medoids(data):
@@ -54,10 +53,8 @@ def argmin(data, sums, ip, ncols):
 @njit(nopython=True)
 def calc_dists(samples, ip, ncols, dists_, out_sum_):
 
-    for i in range(0, ncols):
-
-        for j in range(0, ncols):
-
+    for i in range(ncols):
+        for j in range(ncols):
             dists_[i, j] = abs(samples[ip, i] - samples[ip, j])
 
             if not np.isnan(dists_[i, j]):
@@ -69,13 +66,10 @@ def calc_dists(samples, ip, ncols, dists_, out_sum_):
 @njit(nopython=True, parallel=False)
 def compute_samples(samples, nrows, ncols, dists, out_sum, argmins, dists_copy, out_sum_copy):
 
-    for s in range(0, nrows):
-
+    for s in range(nrows):
         dists[...] = dists_copy
         out_sum[...] = out_sum_copy
-
         out_sum = calc_dists(samples, s, ncols, dists, out_sum)
-
         argmins[s] = argmin(samples, out_sum, s, ncols)
 
     return argmins
@@ -84,10 +78,8 @@ def compute_samples(samples, nrows, ncols, dists, out_sum, argmins, dists_copy, 
 def calc_medoids(samples, n_threads=1):
 
     set_num_threads(n_threads)
-
     nrows = samples.shape[0]
     ncols = samples.shape[1]
-
     dists = np.zeros((ncols, ncols), dtype='float64')
     dists_copy = dists.copy()
     out_sum = np.zeros(ncols, dtype='float64')
@@ -111,11 +103,9 @@ def get_medoid(stack_list, bands, num_workers):
     __ = calc_medoids(np.random.rand(1, 10), n_threads=1)
 
     for bidx, band in enumerate(bands):
-
         res_band = res_.sel(band=band)
 
         for w in tqdm(windows, total=niters):
-
             slicer1 = (slice(0, None), slice(w.row_off, w.row_off+w.height), slice(w.col_off, w.col_off+w.width))
             slicer2 = (slice(bidx, bidx+1), slice(w.row_off, w.row_off+w.height), slice(w.col_off, w.col_off+w.width))
 
@@ -132,8 +122,7 @@ def get_medoid(stack_list, bands, num_workers):
     return medoids_
 
 
-class BAP(object):
-
+class BAP:
     """
     Best available pixel
     """
@@ -348,7 +337,7 @@ class BAP(object):
         # Normalized gaussian
         doy_score_ = self.gaussian(float(doy_diff), 0, self.max_days*0.33) / self.gaussian(0, 0, self.max_days*0.33)
 
-        return doy_score_ if doy_score_ > self.baseline_score else self.baseline_score
+        return max(self.baseline_score, doy_score_)
 
     def haze_score(self, data):
 

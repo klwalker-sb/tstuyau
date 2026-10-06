@@ -1,7 +1,7 @@
-import time
-from pathlib import Path
 import sqlite3
+import time
 from functools import wraps
+from pathlib import Path
 
 
 def sleep_exec(func):
@@ -30,7 +30,7 @@ def sleep_exec(func):
     return wrapper
 
 
-class TuyauDataBase(object):
+class TuyauDataBase:
 
     def __init__(self, database_file):
         self.database_file = database_file
@@ -188,7 +188,7 @@ class TuyauDataBase(object):
             status = c.fetchone()
 
         if status:
-            return True if status[0] == 'y' else False
+            return status[0] == 'y'
         else:
             return False
 
@@ -206,6 +206,6 @@ class TuyauDataBase(object):
             status = c.fetchone()
 
         if status:
-            return True if status[0] == 'y' else False
+            return status[0] == 'y'
         else:
             return False

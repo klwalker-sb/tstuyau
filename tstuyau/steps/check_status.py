@@ -1,19 +1,20 @@
-from pathlib import Path
-import yaml
+import ast
+import csv
 import datetime
 import shutil
-import ast
 import sys
-import csv
+from pathlib import Path
+
 import geopandas as gpd
 import geowombat as gw
-import rasterio as rio
-import pandas as pd
 import matplotlib.pyplot as plt
+import pandas as pd
+import rasterio as rio
+import timezone
 
 from ..db import TuyauDataBase
-from .project import ProjectPaths
 from ..handler import logger
+from .project import ProjectPaths
 
 pd.options.mode.chained_assignment = None
 
@@ -56,7 +57,7 @@ def find_gaps(ranges, start_date, stop_date):
         return []
     gaps = []
     # check for gap at the beginning of range:
-    startd = datetime.datetime.strptime(start_date,'%Y-%m-%d').date()
+    startd = datetime.datetime.strptime(start_date,'%Y-%m-%d').replace(tzinfo=timezone.utc).date()
     if ranges[0][0] > startd:
         gaps.append([startd,ranges[0][0]])
     # Set marker at the end of the first range
@@ -75,7 +76,7 @@ def find_gaps(ranges, start_date, stop_date):
         current = max(pair[1], current)
     # check for gap at the end of range:
     logger.debug(f'stop_date={stop_date}')
-    stopd = datetime.datetime.strptime(stop_date,'%Y-%m-%d').date()
+    stopd = datetime.datetime.strptime(stop_date,'%Y-%m-%d').replace(tzinfo=timezone.utc).date()
     if ranges[-1][1] < stopd:
         gaps.append([ranges[-1][1],stopd])
     return gaps
@@ -91,7 +92,7 @@ def check_logfile_dl(logfile, cell_dict,stop_date='2025-10-01', start_date='2000
     errors=[]
     if ignore_dates:
         ignore = [d for d in ignore_dates.split('--')]
-        ignore_dt = [datetime.datetime.strptime(d,'%Y-%m-%d').date() for d in ignore]
+        ignore_dt = [datetime.datetime.strptime(d,'%Y-%m-%d').replace(tzinfo=timezone.utc).date() for d in ignore]
     with open(logfile) as f:
         for line in f:
             if 'cell_id' in line:
@@ -136,13 +137,13 @@ def check_logfile_dl(logfile, cell_dict,stop_date='2025-10-01', start_date='2000
             ## note: if dict has been saved as dataframe and reconstructed as dict, entries will be strings
             ## update start and end value
             if isinstance(cell_dict[cell_id]['dllog_start'],str):
-                old_start = datetime.datetime.strptime(cell_dict[cell_id]['dllog_start'],'%Y-%m-%d').date()
+                old_start = datetime.datetime.strptime(cell_dict[cell_id]['dllog_start'],'%Y-%m-%d').replace(tzinfo=timezone.utc).date()
             else:
                 old_start = cell_dict[cell_id]['dllog_start']
             if ranges[0][0] < old_start:
                 cell_dict[cell_id]['dllog_start']=ranges[0][0]
             if isinstance(cell_dict[cell_id]['dllog_end'],str):
-                old_end = datetime.datetime.strptime(cell_dict[cell_id]['dllog_end'],'%Y-%m-%d').date()
+                old_end = datetime.datetime.strptime(cell_dict[cell_id]['dllog_end'],'%Y-%m-%d').replace(tzinfo=timezone.utc).date()
             else:
                 old_end = cell_dict[cell_id]['dllog_end']
             if ranges[-1][1] > old_end:
@@ -154,8 +155,8 @@ def check_logfile_dl(logfile, cell_dict,stop_date='2025-10-01', start_date='2000
             else:
                 old_errors = cell_dict[cell_id]['dllog_errors']
             unresolved_errors = [e for e in old_errors if e in errors or e not in new_ranges]
-            new_errors = [e for e in errors if datetime.datetime.strptime(e[0],'%Y-%m-%d').date() < old_start 
-                          or datetime.datetime.strptime(e[1],'%Y-%m-%d').date() > old_end]
+            new_errors = [e for e in errors if datetime.datetime.strptime(e[0],'%Y-%m-%d').replace(tzinfo=timezone.utc).date() < old_start 
+                          or datetime.datetime.strptime(e[1],'%Y-%m-%d').replace(tzinfo=timezone.utc).date() > old_end]
             if len(unresolved_errors) > 0:
                 new_errors.extend(unresolved_errors)
             cell_dict[cell_id]['dllog_errors']=new_errors
@@ -218,9 +219,7 @@ def archive_logfile(logfile,cell_dict,archive_path):
     if isinstance(cell_dict[cell_id]['dl_fix_now'],str):
         if cell_dict[cell_id]['dl_fix_now'] == '[]':
             shutil.move(str(logfile), archive_path)
-    elif cell_dict[cell_id]['dl_fix_now'] is None:
-        shutil.move(str(logfile), archive_path)
-    elif len(cell_dict[cell_id]['dl_fix_now']) == 0:
+    elif cell_dict[cell_id]['dl_fix_now'] is None or len(cell_dict[cell_id]['dl_fix_now']) == 0:
         shutil.move(str(logfile), archive_path)
 
 def check_dl_logs(params):
@@ -242,7 +241,7 @@ def check_dl_logs(params):
     dldb_path = Path(params['status']['download_db_path'])
     if not dldb_path:
         ppaths=ProjectPaths(params)
-        dldb_path_path = ppaths.dldb
+        dldb_path = ppaths.dldb
 
     if Path(dldb_path).is_file():
         #TODO: make a temp copy so the original does not get corrupted
@@ -256,7 +255,7 @@ def check_dl_logs(params):
     logpath = Path(params['status']['log_path'])
     logger.info(f"    Looking for log files in {logpath}")
     logger.info(f"      processing images between: {params['status']['period'][0]}, {params['status']['period'][1]}")
-    cell_batch = set([])
+    cell_batch = set()
     for logfile in logpath.glob(f"{params['status']['log_prefix']}*.err"):
         processed = check_logfile_dl(logfile, cell_dict, params['status']['period'][0], params['status']['period'][0], params['status']['ignore_dates'])
         cell_batch.add(processed[0])
@@ -299,7 +298,7 @@ def check_ts_windows(cell_list, processed_dir, spec_indices, start_check, end_ch
         with open(cell_list, newline='') as cell_file:
             for row in csv.reader(cell_file):
                 cells.append (row[0])
-    elif isinstance(cell_list, int) or isinstance(cell_list, str): # if runing individual cells as array via bash script
+    elif isinstance(cell_list, (int, str)): # if runing individual cells as array via bash script
         cells.append(cell_list) 
 
     data_status = {}
@@ -314,7 +313,7 @@ def check_ts_windows(cell_list, processed_dir, spec_indices, start_check, end_ch
                 logger.debug(f'    ERROR: no {ix} created for cell {cell} \n')
                 data_status[ix][cell] =  'no ts'
             else: 
-                ts_imgs = sorted(list(ts_dir.glob('*.tif')))
+                ts_imgs = sorted(ts_dir.glob('*.tif'))
                 if len(ts_imgs) == 0:
                     logger.debug(f'    ERROR: there are no images in the {ix} folder for cell {cell} \n')
                     data_status[ix][cell] =  'no ts'
@@ -356,7 +355,7 @@ def plot_status(out_fig, dataframe, zoom, other_layers, plt_title=None, cent_dis
 
     logger.info('      plotting grid status...')
     with plt.style.context('seaborn-dark'):
-        fig, ax = plt.subplots(constrained_layout=True)
+        _fig, ax = plt.subplots(constrained_layout=True)
         legend_kwds = {'ncol': 1,
                        'fontsize': 4,
                        'loc': 'lower center',
@@ -461,8 +460,8 @@ def status(params):
                         # Check pre-preprocessing
                         if db.is_complete(int(row.UNQ), 'preprocess'):
                             df.loc[row.Index, 'status'] = 'p_preprocess'
-                    except:
-                        # raise LookupError(f'The database for grid {row.UNQ} could not be opened.')
+                    except Exception:
+                        raise LookupError(f'The database for grid {row.UNQ} could not be opened.')
                         continue
                 
                     ## mark with p_sis if any indices have been processed

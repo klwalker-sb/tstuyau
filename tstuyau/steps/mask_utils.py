@@ -1,28 +1,29 @@
-import shutil
-from pathlib import Path
-import string
 import random
-import geowombat as gw
-from geowombat.data import srtm30m_bounding_boxes
-from geowombat.core import dask_to_xarray, ndarray_to_xarray
-from geowombat.radiometry.topo import calc_slope_delayed, calc_aspect_delayed
-from geowombat.moving import moving_window
-from rastercrf.util import scale_min_max, transform_data, nd_to_columns, columns_to_nd
-import numpy as np
+import shutil
+import string
+from pathlib import Path
+
 import cv2
-import rasterio as rio
-from rasterio.windows import Window
-import geopandas as gpd
 import dask.array as da
+import geopandas as gpd
+import geowombat as gw
+import numpy as np
+import rasterio as rio
 import xarray as xr
 import xrspatial
-from scipy.ndimage import rotate as ndi_rotate, binary_dilation
-import dask.array as da
-from tqdm import tqdm
-from .project import ProjectPaths
-from .lookup import MASKS
-from .io import extract_profile_geotif, default_profile_netcdf
+from geowombat.core import dask_to_xarray
+from geowombat.data import srtm30m_bounding_boxes
+from geowombat.moving import moving_window
+from geowombat.radiometry.topo import calc_aspect_delayed, calc_slope_delayed
+from rastercrf.util import columns_to_nd, nd_to_columns, scale_min_max, transform_data
+from rasterio.windows import Window
+from scipy.ndimage import binary_dilation
+from scipy.ndimage import rotate as ndi_rotate
+
 from ..handler import logger
+from .io import default_profile_netcdf, extract_profile_geotif
+from .lookup import MASKS
+from .project import ProjectPaths
 
 LANDSAT_LIKE_BANDS = ['blue', 'green', 'red', 'nir', 'swir1', 'swir2']
 
@@ -77,7 +78,7 @@ def get_mask_kwargs(img_dir, params, mask_args={}):
     return mask_args
     
 
-def apply_masks_to_images(images, img_dir, masked_img_dir, mask_args={}, params=None):
+def apply_masks_to_images(images, img_dir, masked_img_dir, mask_args=None, params=None):
     """
     Applies existing masks to images and saves to temp dir for use in index construction and smoothing operations
     <images> can be a list of images or a dictionary with image names as keys. 
@@ -89,7 +90,7 @@ def apply_masks_to_images(images, img_dir, masked_img_dir, mask_args={}, params=
         params:masking:treat_missing> is set to 'skip'
     """
 
-    if not mask_args:
+    if mask_args is None:
         mask_args = get_mask_kwargs(img_dir, params)
         
     def get_image_basename(im_path):
@@ -109,17 +110,17 @@ def apply_masks_to_images(images, img_dir, masked_img_dir, mask_args={}, params=
     if params['reconstruct']['chunks']:
         set_chunks = params['reconstruct']['chunks']
     if (set_chunks is None) or (set_chunks == 'None'):
-        set_shunks = 512
+        set_chunks = 512
         
     if isinstance(images, dict):
         image_names = list(images)
-    elif isinstance(images[-1],pathlib.Path):
+    elif isinstance(images[-1],Path):
         image_names = [i.name for i in images]
     elif '/' in images[-1]:
         image_names = [Path(i).name for i in images]
     else: image_names = images
 
-    logger.info(f" checking masks in {str(mask_dir)}...")
+    logger.info(f" checking masks in {mask_dir!s}...")
     missing = []
     for im in image_names:
         im_base = get_image_basename(Path(im))
@@ -131,7 +132,7 @@ def apply_masks_to_images(images, img_dir, masked_img_dir, mask_args={}, params=
         logger.warning(f"{len(missing)} of {len(image_names)} scenes have no {mask_args['maskname']} file in {mask_args['mask_dir']}:")
         logger.warning(f"Missing items: {missing[:5]}{'...' if len(missing) > 5 else ''}. ")
         if params['masking']['treat_missing'].lower() == 'fail':
-            logger.warning(f"try running the masks before running this step")
+            logger.warning("try running the masks before running this step")
             return
         elif params['masking']['treat_missing'].lower() == 'skip':
             image_names = [item for item in image_names if item not in missing]
@@ -159,48 +160,50 @@ def apply_masks_to_images(images, img_dir, masked_img_dir, mask_args={}, params=
         out_path = Path(masked_img_dir) / im_path.name
         im_base = get_image_basename(im_path)
         mask_path = mask_dir / f"{im_base}_{mask_args['maskname']}.tif"
-        with gw.open(im_path, band_names=LANDSAT_LIKE_BANDS, **img_open_kwargs) as img_src:
-            with gw.open(mask_path) as mask_src:
-                mask_da = mask_src.isel(band=0, drop=True) if 'band' in mask_src.dims else mask_src
-                ## converting both dask arrays to numpy forces them to use grid alignment rather than coordinate
-                ##   because coordinate alignment becomes a problem with images that have been coregistered.
-                mask_values = mask_da.values
-                img_values = img_src.values
-                if mask_values.shape != img_values.shape[-2:]:
-                    logger.warning:(f"ERROR -- mask shape {mask_values.shape} != image shape {img_values.shape[-2:]} for {im_path.name}")
-                is_kept = (mask_values < mask_start) | (mask_values > mask_stop)
-                nodata_fill = profile_kwargs.get('_FillValue', profile_kwargs.get('nodata', 0))
-                masked_arr = np.where(is_kept[np.newaxis, :, :], img_values, nodata_fill)
-                masked_arr = masked_arr.astype(img_src.dtype)
+        with gw.open(im_path, band_names=LANDSAT_LIKE_BANDS, **img_open_kwargs) as img_src, gw.open(mask_path) as mask_src:
+            mask_da = mask_src.isel(band=0, drop=True) if 'band' in mask_src.dims else mask_src
+            ## converting both dask arrays to numpy forces them to use grid alignment rather than coordinate
+            ##   because coordinate alignment becomes a problem with images that have been coregistered.
+            mask_values = mask_da.values
+            img_values = img_src.values
+            if mask_values.shape != img_values.shape[-2:]:
+                logger.warning(f"ERROR -- mask shape {mask_values.shape} != image shape {img_values.shape[-2:]} for {im_path.name}")
+            is_kept = (mask_values < mask_start) | (mask_values > mask_stop)
+            nodata_fill = profile_kwargs.get('_FillValue', profile_kwargs.get('nodata', 0))
+            masked_arr = np.where(is_kept[np.newaxis, :, :], img_values, nodata_fill)
+            masked_arr = masked_arr.astype(img_src.dtype)
 
-                ## best to keep output same as input image at this point so that the masksed images can be slotted right back into the 
-                ##    reconstruction processing. Final outputs will be dictated by the parameters for the larger process being run.
-                if input_img_type == 'tif':
-                    profile_kwargs['dtype'] = str(img_src.dtype)
-                    out_profile = dict(profile_kwargs)
-                    out_profile['count'] = masked_arr.shape[0]
-                    with rio.open(out_path, 'w', **out_profile) as dst:
-                        dst.write(masked_arr)
-                elif input_img_type == 'nc':
-                    ## need to convert from numpy back to dask array for gw.to_netcdf to work
-                    masked_arr_da = da.from_array(masked_arr, chunks=img_src.data.chunksize)
-                    masked_img = img_src.copy(data=masked_arr_da)
-                    ## gw.to_netcdf requires a name for the array
-                    masked_img.name = 'masked_data'
-                    masked_img.gw.to_netcdf(out_path, overwrite=True, **profile_kwargs)
+            ## best to keep output same as input image at this point so that the masksed images can be slotted right back into the 
+            ##    reconstruction processing. Final outputs will be dictated by the parameters for the larger process being run.
+            if input_img_type == 'tif':
+                profile_kwargs['dtype'] = str(img_src.dtype)
+                out_profile = dict(profile_kwargs)
+                out_profile['count'] = masked_arr.shape[0]
+                with rio.open(out_path, 'w', **out_profile) as dst:
+                    dst.write(masked_arr)
+            elif input_img_type == 'nc':
+                ## need to convert from numpy back to dask array for gw.to_netcdf to work
+                masked_arr_da = da.from_array(masked_arr, chunks=img_src.data.chunksize)
+                masked_img = img_src.copy(data=masked_arr_da)
+                ## gw.to_netcdf requires a name for the array
+                masked_img.name = 'masked_data'
+                masked_img.gw.to_netcdf(out_path, overwrite=True, **profile_kwargs)
 
     return image_names
         
-def open_masks_with_time_series(ppaths, ts_stack, ds_stack, **mask_args):
+def open_masks_with_time_series(ppaths, ts_stack, ds_stack, mask_args):
     """Opens each scene's mask, matched 1:1 to ts_stack by filename as a single time-stacked boolean DataArray aligned to ds_stack.
     Returns a (time, y, x) DataArray, True where a pixel is in should be excluded, aligned to the same time coordinate as ts_stack itself.
     Raises FileNotFoundError if any scene in ts_stack has no corresponding mask 
     Note: not using currently because running masking through reconstruction is with apply_masks_to_images() 
-          is cleaner in the full processign pipeline even though it requires saving the masked images temporarily. 
+        is cleaner in the full processign pipeline even though it requires saving the masked images temporarily. 
     """
+    
+    mask_dir = Path(ppaths.ms).parent / mask_args['mask_dir']
+    maskname = mask_args['maskname']
+
     mask_paths = []
     missing = []
-    
     for p in ts_stack:
         p_base = Path(p).stem.split('_coreg')[0]
         mask_path = Path(mask_dir) / f"{p_base}_{maskname}.tif"
@@ -219,7 +222,7 @@ def open_masks_with_time_series(ppaths, ts_stack, ds_stack, **mask_args):
     if 'band' in mask_da.dims:
         mask_da = mask_da.squeeze('band', drop=True)
         
-    return (mask_da >= mask_start) & (mask_da <= mask_stop)
+    return (mask_da >= mask_args['mask_start']) & (mask_da <= mask_args['mask_stop'])
 
 
 def _random_id(string_length):
@@ -303,9 +306,8 @@ def open_dem_aligned(dem_path, ref_bounds, ref_crs, res):
     """
     with gw.config.update(
         ref_bounds=ref_bounds, ref_crs=ref_crs, ref_res=res, nodata=255, ignore_warnings=True
-    ):
-        with gw.open(dem_path, resampling='bilinear') as dem_src:
-            dem_da = dem_src.squeeze(drop=True).load()
+        ), gw.open(dem_path, resampling='bilinear') as dem_src:
+        dem_da = dem_src.squeeze(drop=True).load()
     return dem_da
 
 
@@ -450,18 +452,18 @@ def calc_il(data, dem_path=None, angles=None, num_workers=None, params=None):
         demsource = params['topo']['demsource']
 
     if demsource == 'srtm':
-        zip_paths, mosaic = get_srtm_grids(data, srtm_path)
+        zip_paths, mosaic = get_srtm_grids(data, dem_path)
 
-    slope_kwargs = dict(format='MEM',
-                        computeEdges=True,
-                        alg='ZevenbergenThorne',
-                        slopeFormat='degree')
+    slope_kwargs = {'format': 'MEM',
+                        'computeEdges': True,
+                        'alg': 'ZevenbergenThorne',
+                        'slopeFormat': 'degree'}
 
-    aspect_kwargs = dict(format='MEM',
-                         computeEdges=True,
-                         alg='ZevenbergenThorne',
-                         trigonometric=False,
-                         zeroForFlat=True)
+    aspect_kwargs = {'format': 'MEM',
+                         'computeEdges': True,
+                         'alg': 'ZevenbergenThorne',
+                         'trigonometric': False,
+                         'zeroForFlat': True}
 
     slope_kwargs['format'] = 'MEM'
     slope_kwargs['slopeFormat'] = 'degree'
@@ -568,18 +570,11 @@ def masks_to_file(sat_bands,
     if cloud_probas.dtype.name in ['float32', 'float64']:
 
         # for i in range(0, cloud_probas.shape[0]):
-        #
         #     if class_labels[i] != 'c':
-        #
         #         proba_layer = cloud_probas[i]
-        #
         #         proba_layer[(proba_layer > 1) | (proba_layer < 0) | np.isnan(proba_layer) | np.isinf(proba_layer)] = 0
-        #
         #         cloud_probas[i] = moving_window(np.ascontiguousarray(np.pad(proba_layer, ((pad, pad), (pad, pad)),
-        #                                                                     mode='reflect'), dtype='float64'),
-        #                                         stat='mean',
-        #                                         w=w,
-        #                                         weights=True,
+        #                                         mode='reflect'), dtype='float64'), stat='mean', w=w, weights=True,
         #                                         n_jobs=num_workers)[pad:-pad, pad:-pad]
 
         def resample_probas(probas):
@@ -879,7 +874,7 @@ def calc_features(data, scale_factor=0.0001, nodata=65535, il=None):
                 .assign_coords(band='shi')\
                 .expand_dims(dim='band')
 
-    shi = scale_min_max(shi.sel(band='shi') - ndsi.sel(band='ndvi') - bsi, 0, 1, -2, 1)\
+    shi = scale_min_max(shi.sel(band='shi') - ndvi.sel(band='ndvi') - bsi, 0, 1, -2, 1)\
                 .assign_coords(band=['shi'])\
                 .transpose('time', 'band', 'y', 'x')
 
@@ -946,8 +941,6 @@ def saliency_map(image):
     # Convert image to grayscale
     if len(image.shape) > 2:
         image = rgb2gray(image)
-    else:
-        image = image
 
     # Apply Gaussian Smoothing
     gaussian = cv2.GaussianBlur(image, (5, 5), 0)
@@ -1027,7 +1020,7 @@ def compute_cloud_crf(image_batch_list,
             new_x_data.append(X_data_layer_stack)
 
         sat_bands = np.array(new_x_data, dtype='float64')
-        band_names = band_names + [f'zproba{plab_idx:03d}' for plab_idx in range(0, len(predict_labels))]
+        band_names = band_names + [f'zproba{plab_idx:03d}' for plab_idx in range(len(predict_labels))]
         ##################################################################################
 
     # Apply the model
@@ -1068,7 +1061,7 @@ def compute_cloud_crf(image_batch_list,
                                                              n_jobs=num_workers)
 
     # Write layers
-    for j in range(0, pred_clouds.shape[0]):
+    for j in range(pred_clouds.shape[0]):
 
         outfile = future_files[j]
 
@@ -1086,4 +1079,3 @@ def compute_cloud_crf(image_batch_list,
                           w=w,
                           num_workers=num_workers)
 
-    return None

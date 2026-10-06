@@ -1,16 +1,18 @@
 
-import sys
-from pathlib import Path
 import json
-import numpy as np
+from pathlib import Path
+
 import pandas as pd
-import shutil
-from .project import ProjectPaths
-from .mod_utils import get_train_yrs_str, get_class_col, getset_feature_model
-from .check_model_prep import format_ptfeat_set, get_stable_holdout, make_and_score_model
-from .check_classification import classify_timestep
+
 from ..handler import logger
-from .lookup import LC_FOCUS_DICT
+from .check_model_prep import (
+    format_ptfeat_set,
+    get_stable_holdout,
+    make_and_score_model,
+)
+from .mod_utils import get_class_col, get_train_yrs_str, getset_feature_model
+from .project import ProjectPaths
+
 
 def aggregate_run_scores(score_dict, agg_score_tab):
     with open(score_dict, 'r+') as full_dict:
@@ -69,7 +71,7 @@ def get_best_models(score_dict, final_models_tab, final_dict):
     keep_models.to_csv(final_models_tab)
     keep_dict = keep_models.to_dict(orient='index')
     ## remove iteration number from key name for final dictionary
-    key_parts = [k.split('_') for k in keep_dict.keys()]
+    key_parts = [k.split('_') for k in keep_dict]
     new_keys = ['_'.join(kps[:-1]) for kps in key_parts]
     keep_clean = dict(zip(new_keys, list(keep_dict.values())))
     if final_dict.is_file():
@@ -111,6 +113,7 @@ def optimize_feature_model(params):
     dropf_list = params['iter_models']['dropf_list']
     dropf_method = params['iter_models']['dropf_method']
     new_fmodname = params['iter_models']['new_fmodname']
+    drop_thresh = params['iter_models']['dropf_thresh']
     original_dict = params['iter_models']['model_score_dict']
     original_importance = params['classify']['importance_method']
     params['iter_models']['model_score_dict'] = params['iter_models']['fmodel_score_dict']
@@ -134,13 +137,11 @@ def optimize_feature_model(params):
     elif dropf_method == 'thresh':
         params['classify']['importance_method'] = 'Permutation'
         make_and_score_model(params, df=ptsdf, out_dir=None)
-        drop_thresh = params['iter_models']['dropf_thresh']
         params['iter_models']['new_fmodname'] = f'{feat_mod}_keep{numkeep}'
         ## TODO: read in variable importance file and drop all features below <drop_thresh> (usually 0)
         ## drop_cols = 
     elif dropf_method == 'top_w_thresh':
         numkeep = params['iter_models']['dropf_keepnum']
-        drop_thresh = params['iter_models']['dropf_thresh']
         ## drop_cols = 
     elif dropf_list:
         logger.info(f'dropping features from list {dropf_list}')
@@ -163,7 +164,7 @@ def optimize_feature_model(params):
     logger.info(f'dropping {drop_cols} from model \n')
     final_cols = [c for c in cols if c not in list(drop_cols)]
     logger.info(f'new model has bands: {final_cols} \n')
-    new_model = getset_feature_model(feature_mod_dict,new_fmodname,spec_indices=None,si_vars=None,
+    getset_feature_model(feature_mod_dict,new_fmodname,spec_indices=None,si_vars=None,
                                      spec_indices_pheno=None,pheno_vars=None, ancillary_vars=None,poly_vars=None, combo_bands=final_cols)
     newname_full = f'{new_fmodname}_{samp_mod}_{class_col}_{yr_str}'
     df_out = pd.DataFrame.to_csv(ptsdf,Path(vardf_dir)/f"pixdf_{newname_full}.csv", sep=',', index=True)
@@ -172,7 +173,7 @@ def optimize_feature_model(params):
     params['feature_model']['name'] = params['iter_models']['new_fmodname']
     make_and_score_model(params, df=ptsdf, out_dir=None)
   
-    scores_csv = ['iter_models']['model_score_dict'].replace('.json','.csv')
+    scores_csv = params['iter_models']['model_score_dict'].replace('.json','.csv')
     with open(params['iter_models']['model_score_dict'], 'r+') as fmod_score_dict:
         fsdict = json.load(fmod_score_dict)
     pd.DataFrame.to_csv(fsdict, scores_csv, sep=',', na_rep='NaN', index=True)
@@ -209,7 +210,7 @@ def iterate_sample_model(params):
     range_minbal = params['iter_mods']['range_minbal'] # e.g. [0,7]. minbal is the representation of the minority class of interest (e.g. mixed)
     inc_minbal = params['iter_mods']['inc_minbal']
     numruns = params['iter_mods']['iterations'] # e.g. 10  # The number of models (e.g. RFs) run with the same parameters and holdout
-    num_subsamples = ['sample_model']['num_subsamples']  # The number of subsamples run on the original point sample
+    num_subsamples = params['sample_model']['num_subsamples']  # The number of subsamples run on the original point sample
     mod_type = params['classify']['mod_type'] # 'RF' | 'GB'
     range_est = params['iter_mods']['range_est']  # e.g. [100,300]. range for nunber of estimators to use.
     inc_est = params['iter_mods']['inc_est'] # step number for estimator increments (e.g. 100)
@@ -298,7 +299,7 @@ def iterate_sample_model(params):
                         for rn in range(numruns):
                             logger.info(f'iteration {rn}...\n')
                             params['iter_models']['iter'] = rn
-                            mod0 = make_and_score_model(params)
+                            make_and_score_model(params)
                             ## logging now occurs during make_and_score_model to handle multiyr holdouts
                             #sdict = log_acc_results(score_dict, model_name_full, mod0[1],subsample=ssn,runnum=rn)
 

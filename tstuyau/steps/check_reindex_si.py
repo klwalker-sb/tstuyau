@@ -1,9 +1,9 @@
-from ..handler import logger
-from ..db import TuyauDataBase
-from .project import ProjectPaths
-from . import utils
-
 import yaml
+
+from ..db import TuyauDataBase
+from ..handler import logger
+from . import utils
+from .project import ProjectPaths
 
 
 def reindex_si(params):
@@ -27,15 +27,15 @@ def reindex_si(params):
 
         # Check if the step is complete
         if not db.is_complete(grid, 'reconstruct'):
-            logger.warning(f'  The reconstruction step is not complete.')
+            logger.warning('  The reconstruction step is not complete.')
             continue
 
         # Check if the step is complete
         if db.is_complete(grid, 'reindex'):
-            logger.warning(f'  The reindexing step is complete.')
+            logger.warning('  The reindexing step is complete.')
             continue
 
-        if not getattr(ppaths, 'ms').is_dir():
+        if not ppaths.ms.is_dir():
             logger.warning(f'  The input directory for grid {grid} does not exist.')
             continue
 

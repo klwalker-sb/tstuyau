@@ -1,29 +1,33 @@
-from pathlib import Path
-from datetime import datetime
 import concurrent.futures
-import numpy as np
-import pandas as pd
-import rasterio as rio
-from affine import Affine
+from datetime import datetime, timezone
+from pathlib import Path
+
 #from rasterio.enums import Resampling as RioResampling
 #from rasterio.warp import reproject
-from rasterio.transform import from_bounds
 import geowombat as gw
-from geowombat.core import sort_images_by_date
-import xarray as xr
+import numpy as np
+import pandas as pd
 import rastercrf as rcrf
+import rasterio as rio
+from geowombat.core import sort_images_by_date
 from tqdm import tqdm
 
-from .io import extract_ref_profile
-from ..handler import logger
 from ..db import TuyauDataBase
+from ..handler import logger
 from . import utils
-from .project import ProjectPaths
-from .mask_utils import compute_cloud_crf, compute_cast_shadow, compute_self_shadow, buffer_mask
+from .constants import (
+    FILENAME_DATE_END_INDEX,
+    FILENAME_DATE_INDEX,
+    FILENAME_DATE_INDEX_GEE,
+    FILENAME_DATE_START_INDEX,
+)
 from .gee_ingest import IngestFromGoogle
-from .constants import FILENAME_DATE_INDEX, FILENAME_DATE_INDEX_GEE, FILENAME_DATE_START_INDEX, FILENAME_DATE_END_INDEX
-from .lookup import SENSORS, MASKS
+from .io import extract_ref_profile
+from .lookup import MASKS, SENSORS
+from .mask_utils import buffer_mask, compute_cast_shadow, compute_self_shadow
 from .processing_tracker import match_brdf_files_to_record
+from .project import ProjectPaths
+
 
 def update_db_mask_tracker(processing_db,image_id,mask_type):
     
@@ -100,12 +104,12 @@ def mask_clouds_CRF(params, ppaths, processing_db):
     # lgb_clf.from_file(lgb_model_name)
     lgb_clf = None
 
-    pred_kwargs = dict(count=1,
-                        dtype='uint8',
-                        nodata=255,
-                        driver='GTiff',
-                        tiled=True,
-                        compress='lzw')
+    pred_kwargs = {'count': 1,
+                        'dtype': 'uint8',
+                        'nodata': 255,
+                        'driver': 'GTiff',
+                        'tiled': True,
+                        'compress': 'lzw'}
 
     if params['dlMethod'] == 'GEE':
         date_pos=FILENAME_DATE_INDEX_GEE
@@ -127,7 +131,7 @@ def mask_clouds_CRF(params, ppaths, processing_db):
     skip_flag = params['masking']['skip_flag']  
     
     if (sensor == 'LS2') or (sensor == 'All'):
-        search_str = f'*.nc' if skip_flag is None else f"*[!{skip_flag}].nc"
+        search_str = '*.nc' if skip_flag is None else f"*[!{skip_flag}].nc"
     else:
         senstr = SENSORS[sensor]['matchstr']
         search_str = f'L3?_{senstr}*.nc' if skip_flag is None else f"L3?_{senstr}*[!{skip_flag}].nc"
@@ -164,7 +168,7 @@ def mask_clouds_CRF(params, ppaths, processing_db):
 
         Note, processing dictionary is passed in here, for consistency, but it is not used. TODO: update at end as with other masking methods
         """
-        for fidx in range(0, len(full_time_list)-batch_size):
+        for fidx in range(len(full_time_list)-batch_size):
             file_time_list = []
             image_dates = []
             yidx = 0
@@ -179,10 +183,10 @@ def mask_clouds_CRF(params, ppaths, processing_db):
                 try:
                     with gw.open(f'{fn}:swir2', chunks=params['masking']['chunks']) as src:
                         pass
-                except:
+                except Exception:
                     continue
                 # The image date
-                fn_dt = datetime.strptime(Path(fn).name.split('_')[3][:8], '%Y%m%d')
+                fn_dt = datetime.strptime(Path(fn).name.split('_')[3][:8], '%Y%m%d').replace(tzinfo=timezone.utc)
                 file_time_list.append(fn)
                 image_dates.append(fn_dt)
 
@@ -195,9 +199,9 @@ def mask_clouds_CRF(params, ppaths, processing_db):
                 try:
                     with gw.open(f'{fn}:swir2', chunks=params['masking']['chunks']) as src:
                         pass
-                except:
+                except Exception:
                     continue
-                fn_dt = datetime.strptime(Path(fn).name.split('_')[3][:8], '%Y%m%d')
+                fn_dt = datetime.strptime(Path(fn).name.split('_')[3][:8], '%Y%m%d').replace(tzinfo=timezone.utc)
                 if len(list(set(image_dates + [fn_dt]))) > batch_size:
                     break
                 file_time_list.append(fn)
@@ -228,9 +232,9 @@ def mask_clouds_CRF(params, ppaths, processing_db):
                     with gw.open(f'{fn}:swir2', chunks=params['masking']['chunks']) as src:
                         pass
                     file_time_list.append(fn)
-                except:
-                    pass
-            image_dates = [datetime.strptime(Path(fn).name.split('_')[3][:8], '%Y%m%d') for fn in file_time_list]
+                except Exception as e:
+                    logger.warning(f'ERROR opening file {fn}: {e}')
+            image_dates = [datetime.strptime(Path(fn).name.split('_')[3][:8], '%Y%m%d').replace(tzinfo=timezone.utc) for fn in file_time_list]
             if len(list(set(file_time_list))) == batch_size:
                 break
             bfidx -= 1
@@ -242,8 +246,7 @@ def mask_clouds_CRF(params, ppaths, processing_db):
 
             outfile = rpath_mask / f'{fn_dt.year}{fn_dt.month:02d}{fn_dt.day:02d}.tif'
 
-            if params['masking']['overwrite']:
-                if outfile.is_file():
+            if params['masking']['overwrite'] and (outfile.is_file()):
                     outfile.unlink()
 
             existing_files.append(outfile.is_file())
@@ -254,24 +257,23 @@ def mask_clouds_CRF(params, ppaths, processing_db):
         else:
             yield None, None, None
 
-        with rio.Env(GDAL_CACHEMAX=params['io']['gdal_cachemax']):
+        with rio.Env(GDAL_CACHEMAX=params['io']['gdal_cachemax']), gw.config.update(
+            sensor=params['masking']['sensor'],
+            ref_bounds=ref_bounds,
+            ref_res=params['masking']['ref_res'],
+            ignore_warnings=True,
+        ):
+            futures = []
 
-            with gw.config.update(sensor=params['masking']['sensor'],
-                                  ref_bounds=ref_bounds,
-                                  ref_res=params['masking']['ref_res'],
-                                  ignore_warnings=True):
+            with concurrent.futures.ProcessPoolExecutor(max_workers=params['num_workers']) as executor:
 
-                futures = []
-
-                with concurrent.futures.ProcessPoolExecutor(max_workers=params['num_workers']) as executor:
-
-                    for image_batch_list, dates_batch_list, future_files in time_generator(ppaths.masks,
+                for image_batch_list, dates_batch_list, future_files in time_generator(ppaths.masks,
                                                                                            proc_names,
                                                                                            params['masking']['batch_size']):
 
-                        if image_batch_list:
+                    if image_batch_list:
 
-                            f = executor.submit(mask_data,
+                        f = executor.submit(mask_data,
                                                 image_batch_list,
                                                 dates_batch_list,
                                                 params['masking']['chunks'],
@@ -292,10 +294,10 @@ def mask_clouds_CRF(params, ppaths, processing_db):
                                                 shadow_proba_thresh=params['masking']['shadow_proba_thresh'],
                                                 pred_kwargs=pred_kwargs)
 
-                            futures.append(f)
+                        futures.append(f)
 
-                    for f in tqdm(concurrent.futures.as_completed(futures), total=len(futures)):
-                        res = f.result()
+                for f in tqdm(concurrent.futures.as_completed(futures), total=len(futures)):
+                    res = f.result()
 
 def mask_clouds_s2cloudless(params, ppaths, grid, input_dir, processing_db, open_kwargs):
     '''
@@ -305,12 +307,12 @@ def mask_clouds_s2cloudless(params, ppaths, grid, input_dir, processing_db, open
     masking functions; not yet used below since the thresholding
     logic itself is still a TODO (unchanged from the original).
     '''
-    logger.info(f'  first downloading s2cloudless masks from GEE ...')
+    logger.info('  first downloading s2cloudless masks from GEE ...')
     mask_args = MASKS['s2cloudless']  ##TODO: use this
     params['image_type'] = ['S2cp']
     ig = IngestFromGoogle(verbose=1)
-    gee = ig.ingest_from_gee(params, grid, ppaths)
-    logger.info(f'  now applying masks to Sentinel images ...')
+    ig.ingest_from_gee(params, grid, ppaths)
+    logger.info('  now applying masks to Sentinel images ...')
 
     skip_flag = params['masking']['skip_flag']
 
@@ -419,7 +421,6 @@ def mask_shade(params, input_dir, processing_db, open_kwargs):
             processing_db.loc[scene_id, db_col] = str(out_path)
             update_db_mask_tracker(processing_db,scene_id,'shade')
 
-            
         except Exception as e:
             logger.warning(f'Failed to make shade mask for {img_path.name}: {e}')
             n_skip += 1
@@ -505,30 +506,25 @@ def make_masks(params):
                 ## note: we are excluding files that end with 'angles' and 'cloudless' from the glob by excluding words that 
                 ##    end in s. For more precise method, might need to use list version:
                 ## e.g. [f for f in ppaths.gee if 'LT05' in os.path.basename(f) and "angles" not in os.path.basename(f)]
-                if any (s in msensors for s in ['L','All','LS2','LT05']):
-                    if list(ppaths.gee.glob('LT05*[!s].nc')):
-                        logger.warning(f'  The LT05 post-processing for grid {grid} is incomplete.')
-                        continue
+                if any (s in msensors for s in ['L','All','LS2','LT05']) and (list(ppaths.gee.glob('LT05*[!s].nc'))):
+                    logger.warning(f'  The LT05 post-processing for grid {grid} is incomplete.')
+                    continue
 
-                if any (s in msensors for s in ['L','All','LS2','LE07']):
-                    if list(ppaths.gee.glob('LE07*[!_s].nc')):
-                        logger.warning(f'  The LE07 post-processing for grid {grid} is incomplete.')
-                        continue
+                if any (s in msensors for s in ['L','All','LS2','LE07']) and (list(ppaths.gee.glob('LE07*[!_s].nc'))):
+                    logger.warning(f'  The LE07 post-processing for grid {grid} is incomplete.')
+                    continue
 
-                if any (s in msensors for s in ['L','All','LS2','LC08']):   
-                    if list(ppaths.gee.glob('LC08*[!_s].nc')):
-                        logger.warning(f'  The LC08 post-processing for grid {grid} is incomplete.')
-                        continue
+                if any (s in msensors for s in ['L','All','LS2','LC08']) and (list(ppaths.gee.glob('LC08*[!_s].nc'))):
+                    logger.warning(f'  The LC08 post-processing for grid {grid} is incomplete.')
+                    continue
 
-                if any (s in msensors for s in ['L','All','LS2','LC09']):  
-                    if list(ppaths.gee.glob('LC09*[!_s].nc')):
-                        logger.warning(f'  The LC09 post-processing for grid {grid} is incomplete.')
-                        continue
+                if any (s in msensors for s in ['L','All','LS2','LC09']) and (list(ppaths.gee.glob('LC09*[!_s].nc'))):
+                    logger.warning(f'  The LC09 post-processing for grid {grid} is incomplete.')
+                    continue
 
-                if any (s in msensors for s in ['S', 'All','LS2','S2']):  
-                    if list(ppaths.gee.glob('L1C*[!_s].nc')):
-                        logger.warning(f'  The S-2 L1C post-processing for grid {grid} is incomplete.')
-                        continue
+                if any (s in msensors for s in ['S', 'All','LS2','S2']) and (list(ppaths.gee.glob('L1C*[!_s].nc'))):
+                    logger.warning(f'  The S-2 L1C post-processing for grid {grid} is incomplete.')
+                    continue
 
         if not db.table_exists:
             db.remove()
@@ -540,17 +536,17 @@ def make_masks(params):
             
         # Check if the step is complete
         if db.is_complete(grid, 'mask'):
-            logger.warning(f'  The masking step is complete.')
+            logger.warning('  The masking step is complete.')
             continue
 
         logger.info(f'  Masks being created for grid {grid} ...')
         
         if not img_dir.is_dir():
-            logger.warning(f' Directory: {str(img_dir)} for grid {grid} does not exist.')
+            logger.warning(f' Directory: {img_dir!s} for grid {grid} does not exist.')
             continue
         
         if params['masking']['retry_masks'] == True:
-            logger.info(f'resetting file names in {str(img_dir)} to retry masking')
+            logger.info(f'resetting file names in {img_dir!s} to retry masking')
             failed_masks = list(img_dir.glob('*MASKFAILX*.nc'))
             for f in failed_masks:
                 clean_name = f.name.replace("_MASKFAILX", "")

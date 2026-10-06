@@ -15,17 +15,17 @@ This code processes Landsat and Sentinel cubes
 10. Conduct post-model adjustments to reduce spatial and temporal inconsistencies
 """
 
+import argparse
 import os
 from pathlib import Path
-import argparse
-from . import __version__
-from .handler import logger, set_log_level
-from . import steps
-
 
 import yaml
 
-class Config(object):
+from . import __version__, steps
+from .handler import logger, set_log_level
+
+
+class Config:
     def load(self):
         with open(self.config_file, 'r') as pf:
             self.params = yaml.load(pf, Loader=yaml.FullLoader)

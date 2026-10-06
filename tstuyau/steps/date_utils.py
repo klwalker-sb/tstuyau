@@ -1,12 +1,14 @@
-from pathlib import Path
-from datetime import datetime, timedelta
 import calendar
-from calendar import monthrange, month_abbr
+from calendar import month_abbr, monthrange
 from collections import namedtuple
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import geopandas as gpd
 import geowombat as gw
 import numpy as np
 import pandas as pd
-import geopandas as gpd
+
 from ..handler import logger
 
 
@@ -25,9 +27,9 @@ def get_date_range(year,period,params,return_type='ymd',padded=False):
     '''
 
     ## start of the year is the first day of the starting calendar month
-    start_of_yr = datetime(year, params['calendar']['first_mo'], 1)
+    start_of_yr = datetime.datetime(year, params['calendar']['first_mo'], 1, tzinfo=datetime.timezone.utc)
     ## end of the year is 364 days from the start of the year
-    end_of_yr = datetime(year, params['calendar']['first_mo'], 1) + timedelta(364)
+    end_of_yr = datetime.datetime(year, params['calendar']['first_mo'], 1, tzinfo=datetime.timezone.utc) + timedelta(364)
     
     if period == 'yr':
         start_date = start_of_yr
@@ -40,7 +42,7 @@ def get_date_range(year,period,params,return_type='ymd',padded=False):
             start_yr = year
         else:
             start_yr = year + 1
-        start_date = datetime(start_yr, month1_num, 1)
+        start_date = datetime.datetime(start_yr, month1_num, 1, tzinfo=datetime.timezone.utc)
         ## if single month, end month is same as start month. But period can be range (e.g. 'JanMar') 
         end_month = month1_num if len(period) == 3 else list(month_abbr).index(period[-3:])
         if end_month >= params['calendar']['first_mo']:
@@ -48,13 +50,14 @@ def get_date_range(year,period,params,return_type='ymd',padded=False):
         else:
             end_yr = year + 1
         last_day = monthrange(end_yr, end_month)[1]
-        end_date = datetime(end_yr, end_month, last_day)
+        end_date = datetime.datetime(end_yr, end_month, last_day, tzinfo=datetime.timezone.utc)
     elif any (q in period for q in ['Q1','Q2','Q3','Q4']):
         quarter = int(period.split('Q')[1][0])
         qend = quarter * 91
         qstart = qend - 91
-        start_date = datetime(year, params['calendar']['first_mo'], 1) + timedelta(qstart)
-        end_date = datetime(year, params['calendar']['first_mo'], 1) + timedelta(qend)
+
+        start_date = datetime.datetime(year, params['calendar']['first_mo'], 1, tzinfo=datetime.timezone.utc) + timedelta(qstart)
+        end_date = datetime.datetime(year, params['calendar']['first_mo'], 1, tzinfo=datetime.timezone.utc) + timedelta(qend)
     else:
         if period == 'wet':
             doys = [int(params['calendar']['start_wet']), int(params['calendar']['end_wet'])]
@@ -65,15 +68,15 @@ def get_date_range(year,period,params,return_type='ymd',padded=False):
         if padded:
             doys = [doys[0] - params['feature_model']['pheno_pad_days'][0], doys[1] + params['feature_model']['pheno_pad_days'][1]]
 
-        if datetime((int(year) + 1), 1, 1) + timedelta(days=doys[0] - 1) > end_of_yr:
-            start_date = datetime((int(year)), 1, 1) + timedelta(days=(doys[0] - 1))
+        if datetime((int(year) + 1), 1, 1, tzinfo=datetime.timezone.utc) + timedelta(days=doys[0] - 1) > end_of_yr:
+            start_date = datetime((int(year)), 1, 1, tzinfo=datetime.timezone.utc) + timedelta(days=(doys[0] - 1))
         else:
-            start_date = datetime((int(year) + 1), 1, 1) + timedelta(days=(doys[0]  - 1))
-            
-        if datetime((int(year) + 1), 1, 1) + timedelta(days=doys[1] - 1) > end_of_yr:
-            end_date = datetime((int(year)), 1, 1) + timedelta(days=(doys[1] - 1))
+            start_date = datetime((int(year) + 1), 1, 1, tzinfo=datetime.timezone.utc) + timedelta(days=(doys[0]  - 1))
+
+        if datetime((int(year) + 1), 1, 1, tzinfo=datetime.timezone.utc) + timedelta(days=doys[1] - 1) > end_of_yr:
+            end_date = datetime((int(year)), 1, 1, tzinfo=datetime.timezone.utc) + timedelta(days=(doys[1] - 1))
         else:
-            end_date = datetime((int(year) + 1), 1, 1) + timedelta(days=(doys[1] - 1))
+            end_date = datetime((int(year) + 1), 1, 1, tzinfo=datetime.timezone.utc) + timedelta(days=(doys[1] - 1))
 
     if return_type == 'doy':
         return int(start_date.strftime("%Y%j")), int(end_date.strftime("%Y%j"))
@@ -105,7 +108,7 @@ def get_img_date(img, ts_type, img_type, data_source=None):
         ydoy = ymd.strftime("%Y%j")
         doy = int(ymd.strftime('%j'))
     elif img_type not in ['LS2','S2','L','LT05', 'LE07', 'LC08', 'LC09']:
-        logger.info(f"Currently valid image types are 'LS2','S2','L' or specific landsat sensors (LT05, LE07, LC08, LC09)")
+        logger.info("Currently valid image types are 'LS2','S2','L' or specific landsat sensors (LT05, LE07, LC08, LC09)")
         logger.info(f"or CHIRPS(-pentad,-dekad,-daily). You put ts_type={ts_type},img_type={img_type}")
     else:
         if img_type == 'S2' and 'brdf' not in str(img_base):
@@ -116,7 +119,7 @@ def get_img_date(img, ts_type, img_type, data_source=None):
         MM = int(YYYYMMDD[4:6])
         DD = int(YYYYMMDD[6:8])
    
-        ymd = datetime(YYYY, MM, DD)
+        ymd = datetime(YYYY, MM, DD, tzinfo=timezone.utc)
         ydoy = ymd.strftime("%Y%j")
         doy = int(ymd.strftime('%j'))
 
@@ -189,21 +192,21 @@ def filter_tile_groups(tile_list, start, end):
     """
 
     # Get the Julian days
-    start_jd = datetime.strptime(start, '%Y-%m-%d')
-    end_jd = datetime.strptime(end, '%Y-%m-%d')
+    start_jd = datetime.strptime(start, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+    end_jd = datetime.strptime(end, '%Y-%m-%d').replace(tzinfo=timezone.utc)
 
     # Filter the list by the requested time slice
     return [fn_tuple[1] for fn_tuple in tile_list
-            if (datetime.strptime(str(fn_tuple[0]), '%Y%j') >= start_jd)
-            and (datetime.strptime(str(fn_tuple[0]), '%Y%j') <= end_jd)]
+            if (datetime.strptime(str(fn_tuple[0]), '%Y%j').replace(tzinfo=timezone.utc) >= start_jd)
+            and (datetime.strptime(str(fn_tuple[0]), '%Y%j').replace(tzinfo=timezone.utc) <= end_jd)]
 
 
 def date_attrs_to_datetime(year, month, day):
-    return datetime.strptime(f"{year:d}-{month}-{day}", '%Y-%m-%d')
+    return datetime.strptime(f"{year:d}-{month}-{day}", '%Y-%m-%d').replace(tzinfo=timezone.utc)
 
 
 def julian_attrs_to_datetime(jd):
-    return datetime.strptime(str(jd), '%Y%j')
+    return datetime.strptime(str(jd), '%Y%j').replace(tzinfo=timezone.utc)
 
 
 def date_to_julian(date):
@@ -221,7 +224,7 @@ def date_to_julian(date):
     if isinstance(date, datetime):
         dt = date
     else:
-        dt = datetime.strptime(date, '%Y%m%d')
+        dt = datetime.strptime(date, '%Y%m%d').replace(tzinfo=timezone.utc)
 
     doy = dt.timetuple().tm_yday
 
@@ -247,7 +250,7 @@ def check_day_dist(dta, dtb, max_days):
     max_month_days = monthrange(dta.year, dtb.month)[1]
     month_day = min(dtb.day, max_month_days)
 
-    dtc = datetime.strptime(f'{dta.year}-{dtb.month}-{month_day}', '%Y-%m-%d')
+    dtc = datetime.strptime(f'{dta.year}-{dtb.month}-{month_day}', '%Y-%m-%d').replace(tzinfo=timezone.utc)
 
     if abs(dta - dtc).days <= max_days:
         return True
@@ -256,7 +259,7 @@ def check_day_dist(dta, dtb, max_days):
     max_month_days = monthrange(dta.year-1, dtb.month)[1]
     month_day = min(dtb.day, max_month_days)
 
-    dtc = datetime.strptime(f'{dta.year-1}-{dtb.month}-{month_day}', '%Y-%m-%d')
+    dtc = datetime.strptime(f'{dta.year-1}-{dtb.month}-{month_day}', '%Y-%m-%d').replace(tzinfo=timezone.utc)
 
     if abs(dta - dtc).days <= max_days:
         return True
@@ -265,12 +268,9 @@ def check_day_dist(dta, dtb, max_days):
     max_month_days = monthrange(dta.year+1, dtb.month)[1]
     month_day = min(dtb.day, max_month_days)
 
-    dtc = datetime.strptime(f'{dta.year+1}-{dtb.month}-{month_day}', '%Y-%m-%d')
+    dtc = datetime.strptime(f'{dta.year+1}-{dtb.month}-{month_day}', '%Y-%m-%d').replace(tzinfo=timezone.utc)
 
-    if abs(dta - dtc).days <= max_days:
-        return True
-
-    return False
+    return abs(dta - dtc).days <= max_days
 
 
 def prepare_x(X, start, end, skip):
@@ -288,8 +288,8 @@ def prepare_x(X, start, end, skip):
         X information (namedtuple)
     """
 
-    start_dt = datetime.strptime(start, '%Y-%m-%d')
-    end_dt = datetime.strptime(end, '%Y-%m-%d')
+    start_dt = datetime.strptime(start, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+    end_dt = datetime.strptime(end, '%Y-%m-%d').replace(tzinfo=timezone.utc)
 
     xd = [1000]
     dist = 1000

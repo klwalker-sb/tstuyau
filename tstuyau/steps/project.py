@@ -12,7 +12,7 @@ def get_tsdir_name(params):
 
     return dirstr
 
-class ProjectPaths(object):
+class ProjectPaths:
 
     def __init__(self, params, grid=None):
 

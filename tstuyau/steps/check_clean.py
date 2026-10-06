@@ -1,12 +1,15 @@
-import shutil
-import pandas as pd
-import numpy as np
-from pathlib import Path
 import os
-from . import utils
+import shutil
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
 from ..handler import logger
-from .project import ProjectPaths
+from . import utils
 from .constants import FILENAME_DATE_INDEX, FILENAME_DATE_INDEX_GEE
+from .project import ProjectPaths
+
 
 def update_processing_rec(fbase, processing_db, ppaths, stage, reprocess=True, prep_rerun=False, treat_brdf='flag_X'):
     
@@ -67,21 +70,20 @@ def update_processing_rec(fbase, processing_db, ppaths, stage, reprocess=True, p
             newrec = processing_db.loc[processing_db.index == rec[0]][['redownload','brdf_id']]
             logger.info(f'updated database entry to: {newrec}')
 
-        if prep_rerun:
-            if stage == 'brdf':
-                dl = processing_db.loc[rec[0], 'dl']
-                logger.info(f'dl to copy: {dl}')
-                if rec[0].startswith('L'):
-                    copy_to = ppaths.ms.parent.joinpath('brdfs_to_rerun/landsat')
-                    copy_files = ppaths.ms.parent.joinpath('landsat').glob(f'{rec[0]}*')
-                    logger.info(f'copying files {copy_files}')
-                else:
-                    copy_to = ppaths.ms.parent.joinpath('brdfs_to_rerun/sentinel2')
-                    copy_files = ppaths.ms.parent.joinpath('sentinel2').glob(f'{rec[0]}*')
-                for cf in copy_files:
-                    cf_base = cf.name
-                    logger.info(f'copying files {copy_files}')
-                    shutil.copy(cf, copy_to.joinpath(cf_base))
+        if prep_rerun and (stage == 'brdf'):
+            dl = processing_db.loc[rec[0], 'dl']
+            logger.info(f'dl to copy: {dl}')
+            if rec[0].startswith('L'):
+                copy_to = ppaths.ms.parent.joinpath('brdfs_to_rerun/landsat')
+                copy_files = ppaths.ms.parent.joinpath('landsat').glob(f'{rec[0]}*')
+                logger.info(f'copying files {copy_files}')
+            else:
+                copy_to = ppaths.ms.parent.joinpath('brdfs_to_rerun/sentinel2')
+                copy_files = ppaths.ms.parent.joinpath('sentinel2').glob(f'{rec[0]}*')
+            for cf in copy_files:
+                cf_base = cf.name
+                logger.info(f'copying files {copy_files}')
+                shutil.copy(cf, copy_to.joinpath(cf_base))
     
     return processing_db
     
@@ -139,7 +141,7 @@ def clean(params):
                 if fn.startswith('L3'):
                     fbase = str(fn)[0:35]
                     if params['clean']['prep_rerun']:
-                        logger.info(f'prep_rerun')
+                        logger.info('prep_rerun')
                         update_processing_rec(fbase, processing_db, ppaths, stage='brdf', reprocess=False, prep_rerun=True)
                     elif params['clean']['treat_brdf'].startswith('flag'):
                         alt= params['clean']['treat_brdf'].split('_')[1]
@@ -314,10 +316,8 @@ def clean(params):
                
                     if params['dlMethod'] == 'GEE':
                         date_pos=FILENAME_DATE_INDEX_GEE
-                        prepend_str='netcdf:'
                     else:
                         date_pos=FILENAME_DATE_INDEX
-                        prepend_str=''
         
                     senstart = ['L','S'] if sensors in ['All','LS2'] else [s.upper() for s in sensors]
                 

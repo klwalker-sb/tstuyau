@@ -1,20 +1,20 @@
-import sys
-from pathlib import Path
 import json
-import csv
 import random
-import numpy as np
-import rasterio as rio
-import pandas as pd
-import geowombat as gw
-import geopandas as gpd
-from shapely.geometry import Point, box, shape
 import shutil
 import tempfile
-from .project import ProjectPaths
+from pathlib import Path
+
+import geopandas as gpd
+import geowombat as gw
+import numpy as np
+import pandas as pd
+import rasterio as rio
+from shapely.geometry import Point, box, shape
+
 #from .mod_utils import get_train_yrs_str, get_class_col
 from ..handler import logger
 from . import utils
+from .project import ProjectPaths
 
 
 def get_ran_pt_in_poly(polyg, seed):
@@ -63,10 +63,9 @@ def get_variables_at_pts(in_dir, feature_model, feature_mod_dict, start_yr, poly
     on each row and an image index value(named YYYYDDD) in each column
     '''
     stack_path = Path(in_dir) / f"{feature_model}_{start_yr}_stack.tif"
-    if not stack_path.is_file():
-        if 'Poly' in feature_model and 'NoPoly' not in feature_model:
-            nopoly_model = str(feature_model).replace('Poly','NoPoly')
-            stack_path = Path(in_dir) / f"{nopoly_model}_{start_yr}_stack.tif"
+    if not stack_path.is_file() and ('Poly' in feature_model) and ('NoPoly' not in feature_model):
+        nopoly_model = str(feature_model).replace('Poly','NoPoly')
+        stack_path = Path(in_dir) / f"{nopoly_model}_{start_yr}_stack.tif"
     if not stack_path.is_file():       
         logger.warning(f"path {stack_path} does not exist. \n")
         logger.warning(f"need to create variable stack for {feature_model}_{start_yr} first. \n")
@@ -126,7 +125,7 @@ def get_pts_in_grid (grid_file, grid_cell, ptfile):
     elif isinstance(ptfile, pd.DataFrame):
         ptsdf = ptfile
         pts = gpd.GeoDataFrame(ptsdf,geometry=gpd.points_from_xy(ptsdf.XCoord,ptsdf.YCoord),crs=crs_grid)
-    elif (ptfile.endswith('.shp')) or (ptfile.endswith('.gpkg')):
+    elif ptfile.endswith(('.shp', '.gpkg')):
         pts = gpd.read_file(ptfile)
     else:
         ptsdf = pd.read_csv(ptfile, index_col=0)
@@ -149,7 +148,7 @@ def get_pts_in_grid (grid_file, grid_cell, ptfile):
 
     ## Write to geojson file
     if pts_in_grid.shape[0] > 0:
-        pt_clip = Path(out_path)/ f"ptsGrid_{str(grid_cell)}.json"
+        pt_clip = Path(out_path)/ f"ptsGrid_{grid_cell!s}.json"
         pts_in_grid.to_file(pt_clip, driver="GeoJSON")
         logger.debug(f'pts in grid: {pts_in_grid.head(n=5)}')
         
@@ -195,7 +194,7 @@ def get_polygons_in_grid (grid_file, grid_cell, poly_path, oldest=None, newest=N
     if out=='json':
         ## Write to geojson file
             if polys_in_grid.shape[0] > 0:
-                poly_clip = Path({out_path}/f'polysGrid_{str(grid_cell)}.json')
+                poly_clip = Path({out_path}/f'polysGrid_{grid_cell!s}.json')
                 polys_in_grid.to_file(poly_clip, driver="GeoJSON")
 
             return poly_clip
@@ -231,7 +230,7 @@ def make_var_dataframe(params):
             in_dir = ppaths.comp
         logger.info(f'working on cell {cell} \n')
 
-        ftset_dir = ['classify']['ptsfeat_dir']
+        ftset_dir = params['classify']['ptsfeat_dir']
         if not ftset_dir:
             ftset_dir = ppaths.trainfeatsets
 
@@ -271,7 +270,6 @@ def make_var_dataframe(params):
           
         else:
             logger.info('skipping this cell \n')
-            pass
     
     pts_in = pd.read_csv(params['sample_model']['point_file'], index_col=0)
     if params['log_level'] == 'DEBUG':

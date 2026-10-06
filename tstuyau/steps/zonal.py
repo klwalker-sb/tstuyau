@@ -1,31 +1,27 @@
-import sys
-import csv
-import glob
 import json
 import math
 from pathlib import Path
-import datetime as dt
+
+import fiona
+import geopandas as gpd
+import numpy as np
+import pandas as pd
 import rasterio as rio
+from rasterio import features
+
+#from rasterio.features import shapes
+#from rasterstats import zonal_stats
 #from rasterio.merge import merge
 from rasterio.windows import Window, from_bounds
-from rasterio import features
-from rasterio.mask import mask
-#from rasterio.features import shapes
-import pandas as pd
-import numpy as np
-import geowombat as gw
-import geopandas as gpd
-import xarray as xr
-import fiona
-#from rasterstats import zonal_stats
-from .project import ProjectPaths
+
 from ..handler import logger
 from . import utils
-from .mask_utils import apply_binary_mask, combine_binary_masks
-from .date_utils import get_date_range
 from .check_sample import get_polygons_in_grid
-from .image_utils import img_to_bbox_offsets, image_to_snapped_bounds
-    
+from .date_utils import get_date_range
+from .mask_utils import apply_binary_mask
+from .project import ProjectPaths
+
+
 def clip_ras_to_poly(ras_in, polys, out_dir,prod_name):
         
     out_path = Path(out_dir) / prod_name
@@ -33,7 +29,7 @@ def clip_ras_to_poly(ras_in, polys, out_dir,prod_name):
         
     with fiona.open(polys, "r") as poly_src:
         logger.debug(f'poly_src: {poly_src}')
-        poly_crs = poly_src.crs
+        #poly_crs = poly_src.crs
         shapes = [feature["geometry"] for feature in poly_src]
 
     for i, shape in enumerate(shapes):
@@ -51,26 +47,25 @@ def clip_ras_to_poly(ras_in, polys, out_dir,prod_name):
 
 def subtract_rasters(rasyr1, rasyr2, bands, printmap=False, out_path=None):
     
-    with rio.open(rasyr1) as src1:
-        with rio.open(rasyr2) as src2:
-            profile = src1.profile
+    with rio.open(rasyr1) as src1, rio.open(rasyr2) as src2:
+        profile = src1.profile
 
-            for i in range(1, src1.count + 1):
-                data1 = src1.read(i)
-                data2  =src2.read(i)
-                prod_name = bands[i-1]
+        for i in range(1, src1.count + 1):
+            data1 = src1.read(i)
+            data2  =src2.read(i)
+            prod_name = bands[i-1]
                         
-                out_data = data2 - data1
+            out_data = data2 - data1
 
-                if printmap:
-                    profile.update(count=1)
-                    out = Path(out_path) / f'{prod_name}.tif'
-                    with rio.open(out, 'w', **profile) as dst:
-                        dst.write(out_data, indexes = 1)
-                    return out
+            if printmap:
+                profile.update(count=1)
+                out = Path(out_path) / f'{prod_name}.tif'
+                with rio.open(out, 'w', **profile) as dst:
+                    dst.write(out_data, indexes = 1)
+                return out
         
-                else:
-                    return out_data
+            else:
+                return out_data
 
 def make_reclass_dict(csv_path, old_col, new_col):
     '''
@@ -107,7 +102,7 @@ def reclassify_raster(params):
         out_meta = src.meta.copy()
         if len(np.unique(old_arr)) > 1: ## if there are any values other than 0, nodata 
             new_arr = np.vectorize(reclass_dict.get)(old_arr)
-            logger.info(f"{str(raster_path)} old raster vals: {np.unique(old_arr)}  new raster vals: {np.unique(new_arr)}")
+            logger.info(f"{raster_path!s} old raster vals: {np.unique(old_arr)}  new raster vals: {np.unique(new_arr)}")
             out_meta.update({'nodata': 0})
             with rio.open(new_name, 'w', **out_meta) as dst:
                 dst.write(new_arr, indexes=1)
@@ -282,6 +277,7 @@ def summarize_zones_cont(params, ras_in=None):
     return dict_in
 
 def get_ts_stats_within_polys(params, in_path=None, out_path=None):
+    
     from rasterstats import zonal_stats
 
     poly_buf = params['refine']['buffer']
@@ -293,6 +289,9 @@ def get_ts_stats_within_polys(params, in_path=None, out_path=None):
     ## saving raster grids with polygon features, using standard gridded procedures
 
     if params['feature_model']['ancillary_vars']:
+        avar = params['feature_model']['ancillary_vars'][0]
+        stat = avar.split('-')[1].split('_')[0]
+        avar0 = avar.split('-')[0]
         if in_path:
             var_path = in_path
             var_col = 'Value'
@@ -304,9 +303,6 @@ def get_ts_stats_within_polys(params, in_path=None, out_path=None):
                 var_path = dic[avar0]['path']
                 var_col = dic[avar0]['col']
             else: logger.warning(f'no entry for {avar0} in dict at: {var_dict}')
-        avar = params['feature_model']['ancillary_vars'][0]
-        stat = avar.split('-')[1].split('_')[0]
-        avar0 = avar.split('-')[0]
         logger.info(f'working on {avar0}...')
         
     elif params['feature_model']['spec_indices']:
@@ -332,7 +328,7 @@ def get_ts_stats_within_polys(params, in_path=None, out_path=None):
             #polys_all = gpd.read_file(poly_path)
             polys = get_polygons_in_grid(grid_file, cell, poly_path, oldest=None, newest=None, obs_col=None)
         elif Path(poly_path).is_dir():
-            polys = gpd.read_file([Path(poly_path)/i for i in list(Path(poly_path).glob(f'*{cell:04d}*.gpkg'))][0])              
+            polys = gpd.read_file(next(Path(poly_path)/i for i in list(Path(poly_path).glob(f'*{cell:04d}*.gpkg'))))              
         else:
             logger.warning(f'not sure how to parse polys {polys}')
             return
@@ -358,7 +354,7 @@ def get_ts_stats_within_polys(params, in_path=None, out_path=None):
                     #prepath = ppaths.comp/f'{cell:06d}'
                     var_path = str(var_path).replace('relative',str(prepath))
                 
-            logger.info(f'getting {avar0} at: {str(var_path)} \n')
+            logger.info(f'getting {avar0} at: {var_path!s} \n')
             with rio.open(var_path) as src0:
                 out_meta = src0.meta.copy()
                 ''' if using image_to_snapped_bounds():
@@ -377,7 +373,7 @@ def get_ts_stats_within_polys(params, in_path=None, out_path=None):
             ## the following is only for smoothed indices. TODO: add in raw
             ts_dir = ppaths.ts / si
             logger.debug(f'looking in {ts_dir}')
-            all_imgs = sorted(list(ts_dir.glob('*.tif')))
+            all_imgs = sorted(ts_dir.glob('*.tif'))
             rasts = sorted([r for r in all_imgs if int(r.stem) > use_dates[0] and int(r.stem) < use_dates[1]])
             logger.info(f'there are {len(rasts)} rasts between {use_dates[0]} and {use_dates[1]}')
             if (params['project_ver'] == 'Py_0') and (siv == 'avg-NovDec-std'):
@@ -468,10 +464,7 @@ def get_ts_stats_within_polys(params, in_path=None, out_path=None):
             logger.info(f'wrote final file to: {out_file}')
                             
         ## delete intermediate mean raster
-        try:
-            out_tmp.unlink()
-        except:
-            pass
+        out_tmp.unlink(missing_ok=True)
                             
 
 def make_polygon_features(params, in_path=None, out_path=None):
@@ -487,7 +480,7 @@ def make_polygon_features(params, in_path=None, out_path=None):
     uoa = params['feature_model']['unit_of_analysis']
     
     if uoa.lower().startswith('poly'):   ## making dictionary of polygon features
-        polyfeat_dict = params['feature_model']['poly_feat_dict']  ## eg. "../data/poly_stats.json"
+        #polyfeat_dict = params['feature_model']['poly_feat_dict']  ## eg. "../data/poly_stats.json"
         premask = params['mask']['mask_path']  ## eg. "/home/downspout-cel/biltong/mosaics/grass_obs_mask.tif"
         diff_feats = params['feature_model']['diff_feats']
         
@@ -510,12 +503,11 @@ def make_polygon_features(params, in_path=None, out_path=None):
                         ras_in = Path(ras_path) / f"{ras_prefix}_{yr}_{idx}_{si_vars[0]}-{si_vars[1]}-{si_vars[2]}.tif"
                         bands = [f'{yr}_{idx}_{mask_prefix}_{si_vars[0]}',f'{yr}_{idx}_{mask_prefix}_{si_vars[1]}',f'{yr}_{idx}_{mask_prefix}_{si_vars[2]}']
                     else:
-                        logger.info('finish this to make new composite')
+                        logger.info('TODO: finish this to make new composite')
                 
                     summarize_zones_cont(params, ras_in)
 
-                    if diff_feats:
-                        if yr > yrs[0] and yr < yrs[-1]:
+                    if diff_feats and (yr > yrs[0]) and (yr < yrs[-1]):
                             yr1 = int(yr)
                             yr0 = int(yr) - 1
                             yrstr = str(yr0)[2:] +'-'+ str(yr1)[2:]
@@ -541,8 +533,8 @@ def make_polygon_features(params, in_path=None, out_path=None):
             ## Need to add to <ancillary_var_dict> first
             if params['feature_model']['ancillary_vars']:
                 avars = params['feature_model']['ancillary_vars']
-                if isinstance(avar, str):
-                    avars = [avar]
+                if isinstance(avars, str):
+                    avars = [avars]
                 for avar in avars:
                     params['feature_model']['ancillary_vars'] = [avar]
                     stat = avar.split('-')[1].split('_')[0]
@@ -565,13 +557,12 @@ def make_polygon_features(params, in_path=None, out_path=None):
                         out_file = Path(out_path) / f'{avar}.tif'
 
                         logger.info(f'getting {avar0} at: {var_path} \n')
-                        with rio.Env(GTIFF_SRS_SOURCE="EPSG"):
-                            with rio.open(var_path) as src0:
-                                ## note: this only works if var_path is already clipped to the grid cell. otherwise need one of the image_utils methods.
-                                gt = src0.transform
-                                out_shape==(src0.height, src0.width)
-                                out_meta = src0.meta.copy()
-                                out_meta.update(count=1, dtype=np.int16, compress="lzw", tiled=True)    
+                        with rio.Env(GTIFF_SRS_SOURCE="EPSG"), rio.open(var_path) as src0:
+                            ## note: this only works if var_path is already clipped to the grid cell. otherwise need one of the image_utils methods.
+                            gt = src0.transform
+                            out_shape=(src0.height, src0.width)
+                            out_meta = src0.meta.copy()
+                            out_meta.update(count=1, dtype=np.int16, compress="lzw", tiled=True)    
                         ## within each polygon, calculate spatial stat for ras
                         if stat == 'majority':
                             gdf = polys.join(pd.DataFrame(zonal_stats(
@@ -579,21 +570,21 @@ def make_polygon_features(params, in_path=None, out_path=None):
                         else:
                             gdf = polys.join(pd.DataFrame(zonal_stats(
                                 vectors=polys['geometry'], raster=var_path, stats=[stat])), how='left' )
-                        with rio.open(out_file, 'w+', **out_meta) as dst:
-                            tmp_arr = dst.read(1)
+                        
                         ## rasterize polygon using stat value
                         shapes = ((geom,value) for geom, value in zip(gdf.geometry, gdf[stat]))
                         if len(out_shape) == 3:
                             out_shape=out_shape[1:] 
                         image = features.rasterize( ((g, v) for g, v in shapes), out_shape=out_shape, transform=gt, fill=0, dtype=np.int16)
-                        dst.write_band(1, image)
+                        with rio.open(out_file, 'w+', **out_meta) as dst:
+                            dst.write_band(1, image)
                         logger.debug(f'out_fn={out_file}')
                     
             else: ## using ts data   NOTE -- this doesn't currently work without gridded structure (below).
                 get_ts_stats_within_polys(params, in_path=in_path, out_path=out_path)
                 
         else:  ## use gridded structure
-            logger.info(f' getting ts stats in polys...')
+            logger.info(' getting ts stats in polys...')
             if params['feature_model']['ancillary_vars']:
                 avars = params['feature_model']['ancillary_vars']
                 if isinstance(avars, str):

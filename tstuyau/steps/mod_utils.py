@@ -1,21 +1,21 @@
+import json
+import shutil
 from pathlib import Path
+
+import geopandas as gpd
+import joblib
 import numpy as np
 import pandas as pd
-import geopandas as gpd
-import json
-import joblib
-from ..handler import logger
-from .project import ProjectPaths
-from .lookup import SCHEMATIC_MODS
-import shutil
-from sklearn.model_selection import train_test_split
-from sklearn.pipeline import Pipeline
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.inspection import permutation_importance
 from sklearn.metrics import accuracy_score
-from sklearn.metrics import confusion_matrix
-from sklearn.model_selection import cross_validate
+from sklearn.model_selection import train_test_split
+from sklearn.pipeline import Pipeline
+
+from ..handler import logger
+from .lookup import LC_CATS, SCHEMATIC_MODS, LC_CATS_Py0
+from .project import ProjectPaths
+
 # from sklearn_crfsuite import metrics
     
 def getset_feature_model(params):
@@ -66,7 +66,7 @@ def getset_feature_model(params):
                         band_names.append(f'{si}_{sv}')
             if params['feature_model']['combo_bands']:
                 for cb in params['feature_model']['combo_bands']:
-                    band_names.append(cb)
+                    band_names.append(f'{cb}')
             if params['feature_model']['spec_indices_pheno']:
                 for sip in params['feature_model']['spec_indices_pheno']:
                     for pv in params['feature_model']['pheno_vars']:
@@ -86,7 +86,6 @@ def getset_feature_model(params):
             logger.debug(f"on {params['feature_model']['spec_indices_pheno']} \n ancillary_vars={params['feature_model']['ancillary_vars']} \n")
             logger.debug(f"poly_vars={params['feature_model']['poly_vars']} \n combo_bands={params['feature_model']['combo_bands']} \n")
         
-    return None
 
 def get_train_yrs_str(train_yrs):
     '''
@@ -116,7 +115,7 @@ def get_class_col(lc_mod,lut):
     '''
     if lc_mod.startswith('LC'):
         class_col = lc_mod  
-    elif lc_mod in SCHEMATIC_MODS.keys():
+    elif lc_mod in SCHEMATIC_MODS:
         class_col = SCHEMATIC_MODS[lc_mod]
     elif lc_mod.startswith('single'):
         lc_base =  lc_mod.split('_')[1].lower()
@@ -142,8 +141,11 @@ def get_holdout_scores(holdoutpix, ml_model, class_col, out_dir,class_type=None,
     gets predictions for a holdout sample in .csv file <holdout_pix>. Expects columns "OID_" and <class_col> in holdout_pix
        as well as all "var_" columns that match model features
     '''
+
+    if project_v == 'Py_0':
+        LC_CATS = LC_CATS_Py0
+
     ## Save info for extra columns and drop (model is expecting only variable input columns)
-    
     if isinstance(holdoutpix, pd.DataFrame):
         holdout_pix = holdoutpix
         holdout_pix.reset_index(drop=True, inplace=True)
@@ -154,17 +156,14 @@ def get_holdout_scores(holdoutpix, ml_model, class_col, out_dir,class_type=None,
         ## filter to remove less confident entries
         #holdout_pix = holdout_pix[(holdout_pix['entry_lev'] == 4) | (holdout_pix['source'].isin(['ground','GE']))]
         holdout_pix = holdout_pix[(holdout_pix['entry_lev'] > 1)]
-        if project_v == 'Py0':
-            ## mixed fields are removed from from no-crop test set in CELPy, as this is ambiguous. TODO: expand for all
-            if class_type=='noCrop':
-                holdout_pix = holdout_pix[(holdout_pix['LC'] != 19) & (holdout_pix['smlhld_1ha'] == 0)]
+        ## mixed fields are removed from from no-crop test set in CELPy, as this is ambiguous. TODO: expand for all
+        if project_v == 'Py0' and class_type == 'noCrop':
+            holdout_pix = holdout_pix[(holdout_pix['LC'] != 19) & (holdout_pix['smlhld_1ha'] == 0)]
         holdout_pix.reset_index(drop=True, inplace=True)
 
     ## legacy code to handle the fact that 'LCcrop2' was originally just 'LC2':
     if class_col == 'LCcrop2':
-        if 'LCcrop2' in holdout_pix.columns.values.tolist():
-            class_col = class_col
-        elif project_v == 'Py0':
+        if 'LCcrop2' not in holdout_pix.columns.values.tolist() and (project_v == 'Py0'):
             class_col = 'LC2'
         else:
             logger.warning('WARNING: cannot find LCcrop2 column (maybe change project_ver param to Py0 if using original CELPy dfs)')
@@ -191,10 +190,7 @@ def get_holdout_scores(holdoutpix, ml_model, class_col, out_dir,class_type=None,
     holdout_fields.rename(columns=dict(zip(old_names, new_names)), inplace=True)
     
     if class_type=='noCrop': ## remove crop edges from no-crop test set, as this is ambiguous
-        if project_v == 'Py0':
-            holdout_fields = holdout_fields[(holdout_fields['label'] != 19)]
-        else:
-            holdout_fields = holdout_fields[(holdout_fields['label'] != 96)]
+            holdout_fields = holdout_fields[(holdout_fields['label'] != LC_CATS['crop_edge'])]
 
     ## Print to file
     if class_type:
@@ -293,7 +289,7 @@ def get_confusion_matrix(pred_col, obs_col, class_lut, lc_mod_map, lc_mod_acc, p
     cm.at['All','UA'] = ((cm['correct'].sum() - total) / total).round(3)
     cm.at['All','PA'] = ((cm['correct'].sum() - total) / total).round(3)
     if len(cats) == 2:
-        neg_cat = [c for c in cats if c.startswith('no')][0]
+        neg_cat = next(c for c in cats if c.startswith('no'))
         pos_cat = cats.remove(neg_cat)[0]
         cm.at['All','F1']=cm.at[pos_cat,'F1']
         TP = cm.at[pos_cat, pos_cat]
@@ -463,7 +459,7 @@ def log_acc_results(scores_dict, model_name, these_scores, subsample=None, runnu
         
         dic.update({model_name : these_scores})
 
-    except IOError:
+    except OSError:
         logger.info('File not found, will create a new one.')
         dic = {model_name : these_scores}
 
@@ -477,13 +473,11 @@ def save_best_models(keep_models, temp_mod_dir, main_mod_dir=None, params=None):
     moves keep models into main model dir
     use this to copy model from scratch dir to final storage dir for replicaiton
     '''
-    if main_mod_dir:
-        out_dir = main_mod_dir
-    else: 
+    if not main_mod_dir:
         main_mod_dir = params['classify']['mod_dir']
-        if not main_mod_dir:
-            ppaths=ProjectPaths(params)
-            main_mod_dir = ppaths.classification
+    if not main_mod_dir:
+        ppaths=ProjectPaths(params)
+        main_mod_dir = ppaths.classification
             
     keepers = list(keep_models.index.values)
     logger.debug(f'keepers = {keepers}')

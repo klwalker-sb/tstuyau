@@ -1,26 +1,39 @@
 
-import sys
-from pathlib import Path
 import json
-import joblib
-import csv
-import random
+import sys
 from collections.abc import Iterable
+from pathlib import Path
+
+import joblib
 import numpy as np
-import rasterio as rio
 import pandas as pd
-import geowombat as gw
-import geopandas as gpd
-import shutil
-import tempfile
-from .project import ProjectPaths
-from .aggregate import make_ts_composite
-from .mod_utils import getset_feature_model, get_train_yrs_str, get_class_col,  multiclass_mod, get_confusion_matrix
-from .mod_utils import get_holdout_scores, get_binary_holdout_score, prep_test_train, log_acc_results
-from .image_utils import clip_big_ras_to_small
-from .lookup import LC_CATS_Py0, LC_CATS, MIXED_CROPS_Py0, MIXED_CROPS, MIXED_NONCROPS_Py0, MIXED_NONCROPS, LC_FOCUS_DICT
+import rasterio as rio
+
 from ..handler import logger
 from . import utils
+from .aggregate import make_ts_composite
+from .image_utils import clip_big_ras_to_small
+from .lookup import (
+    LC_CATS,
+    LC_FOCUS_DICT,
+    MIXED_CROPS,
+    MIXED_NONCROPS,
+    LC_CATS_Py0,
+    MIXED_CROPS_Py0,
+    MIXED_NONCROPS_Py0,
+)
+from .mod_utils import (
+    get_binary_holdout_score,
+    get_class_col,
+    get_confusion_matrix,
+    get_holdout_scores,
+    get_train_yrs_str,
+    getset_feature_model,
+    log_acc_results,
+    multiclass_mod,
+    prep_test_train,
+)
+from .project import ProjectPaths
 
 
 def prioritize_row(row, lccol, project_v=None, focus='All'):
@@ -28,10 +41,9 @@ def prioritize_row(row, lccol, project_v=None, focus='All'):
     These are very specific quality flags to maximize/minimize the sample for certain over/under represented groups.
     '''
 
+    priority = 3
     if project_v == 'Py0':
-        if (row[f'{lccol}_name'] == 'NoVeg_Built') & (row['sampgroup'] != 'rd_samp') & (row['source'] == 'GE'):
-            priority = 1
-        elif (row[f'{lccol}_name'] == 'NoVeg_Bare') & (row['sampgroup'] != 'rd_samp') & (row['source'] == 'GE'):
+        if (row[f'{lccol}_name'] == 'NoVeg_Built') & (row['sampgroup'] != 'rd_samp') & (row['source'] == 'GE') or (row[f'{lccol}_name'] == 'NoVeg_Bare') & (row['sampgroup'] != 'rd_samp') & (row['source'] == 'GE'):
             priority = 1
         elif focus=='All' and row['estrat'] != 'BH':
             ## For full maps, want to prioritize Chaco data because there is less compared to E Py. but not ideal for E Py based optimization
@@ -41,9 +53,6 @@ def prioritize_row(row, lccol, project_v=None, focus='All'):
     for doubt_col in ['doubt_CNC', 'doubt_LC', 'doubt_LC5']:
         if (doubt_col in row) and (row[doubt_col] == 1):
             priority = 4
-    else:
-        priority = 3
-    
     
     return priority
 
@@ -84,9 +93,7 @@ def balance_training_data(params, pixdf=None, stats_only=False, print_file=False
         sampmod = f'{sampmod0}_{allyrstr}-{focus_geo}'
 
     if pixdf:
-        if isinstance(pixdf, pd.DataFrame):
-            pixdf = pixdf
-        else:
+        if isinstance(pixdf, str):
             pixdf = pd.read_csv(pixdf)
     else:
         pixdf = pd.read_csv(params['sample_model']['point_file'])
@@ -95,7 +102,7 @@ def balance_training_data(params, pixdf=None, stats_only=False, print_file=False
         bal_col = 'perLC32E'
         lccol = 'LC32'
     else:
-        bal_col = ['sample_model']['balance_col']
+        bal_col = params['sample_model']['balance_col']
     if bal_col not in pixdf:
         lccol = bal_col.split('per')[1]
         #if lccol not in pixdf:
@@ -228,7 +235,7 @@ def balance_training_data(params, pixdf=None, stats_only=False, print_file=False
             dic = json.load(stat_dict)
         dic.update({samp_name : samp_entry})
           
-    except IOError:
+    except OSError:
         logger.warning('File not found, will create a new one.')
         with open(samp_stat_dict, 'w') as new_dict:
             dic = {samp_name : samp_entry}
@@ -273,7 +280,7 @@ def get_stable_holdout(params, df_in=None, overwrite=False):
         ppaths=ProjectPaths(params)
         ho_dir = ppaths.hos
         ho_dir.mkdir(parents=True, exist_ok=True)
-    ftset_dir = ['classify']['ptsfeat_dir']
+    ftset_dir = params['classify']['ptsfeat_dir']
     if not ftset_dir:
         ppaths=ProjectPaths(params)
         ftset_dir = ppaths.trainfeatsets
@@ -319,10 +326,8 @@ def get_stable_holdout(params, df_in=None, overwrite=False):
 
         else:  ## make new holdout sets
 
-            if isinstance(df_in, pd.DataFrame):
-                ## for use in hands-on tinkering -- make sure params['sample_model']['train_yrs'] is a single year
-                df_in = df_in
-            elif df_in:
+            ## for use in hands-on tinkering -- make sure params['sample_model']['train_yrs'] is a single year
+            if not isinstance(df_in, pd.DataFrame):
                 df_in = pd.read_csv(df_in)
             else: ## for normal pipeline 
                 df_path = Path(ftset_dir) / f'ptsfeats_{feat_mod_name}_{y}.csv'    
@@ -376,17 +381,16 @@ def get_stable_holdout(params, df_in=None, overwrite=False):
                     train_out_path = Path(ftset_dir) / f"{feat_mod_name}_TRAINING_all_{yrst}.csv"
                     non_hos.to_csv(train_out_path)
                     ho.to_csv(ho_out_path)
-                    if balanced_ho:
-                        if focus in LC_FOCUS_DICT.keys():
-                            for cat in LC_FOCUS_DICT[focus]['cats']:
-                                if cat.startswith('no'):  ## currently only balancing the negative category
-                                    ho_no = ho.loc[ho['LC_UNQ'].isin(LC_CATS[cat])]
-                                    logger.info(f'balancing {cat}. Originally has {len(ho_no)} records')
-                                    hono_bal = balance_training_data(params, ho_no, stats_only=False, print_file=False, out_path=None)
-                                    logger.info(f"there are {len(hono_bal)} pixels in the {cat} holdout \n")
-                            ho_other = ho.loc[~ho['LC_UNQ'].isin(LC_CATS[cat])]
-                            ho_bal = pd.concat([ho_no,ho_other],axis=1)
-                            ho_bal.to_csv(ho_bal_path)
+                    if balanced_ho and (focus in LC_FOCUS_DICT):
+                        for cat in LC_FOCUS_DICT[focus]['cats']:
+                            if cat.startswith('no'):  ## currently only balancing the negative category
+                                ho_no = ho.loc[ho['LC_UNQ'].isin(LC_CATS[cat])]
+                                logger.info(f'balancing {cat}. Originally has {len(ho_no)} records')
+                                hono_bal = balance_training_data(params, ho_no, stats_only=False, print_file=False, out_path=None)
+                                logger.info(f"there are {len(hono_bal)} pixels in the {cat} holdout \n")
+                        ho_other = ho.loc[~ho['LC_UNQ'].isin(LC_CATS[cat])]
+                        ho_bal = pd.concat([ho_no,ho_other],axis=1)
+                        ho_bal.to_csv(ho_bal_path)
                 
                 else:  ## with subsamples
                     logger.info(f'generating {num_subsamples} pt-feature sets for {feat_mod_name} in {ftset_dir}')
@@ -402,7 +406,7 @@ def get_stable_holdout(params, df_in=None, overwrite=False):
                         train_out_path = Path(ftset_dir)/ f"{feat_mod_name}_TRAINING_all_{yrst}_ss{n}.csv"
                         non_hos.to_csv(train_out_path)
                         if balanced_ho:
-                            if focus in LC_FOCUS_DICT.keys():
+                            if focus in LC_FOCUS_DICT:
                                 for cat in LC_FOCUS_DICT[focus]['cats']:
                                     if cat.startswith('no'):  ## currently only balancing the negative category
                                         ho_no = ho.loc[ho['LC_UNQ'].isin(LC_CATS[cat])]
@@ -562,13 +566,13 @@ def format_ptfeat_set(params):
             cols = keep_other + keep_vars
             multiyr_vardf = fullmultiyr_vardf[cols]
             logger.debug(f'new order is: {multiyr_vardf.columns.tolist()}')
-            logger.info(f'made reduced vardf \n')
+            logger.info('made reduced vardf \n')
             pd.to_csv(multiyr_vardf,multiyr_vardf_path)
 
         return multiyr_vardf
     
     elif list(Path(vardf_dir).glob(f"{feat_mod}_{sampmod.replace('YYYY',allyrstr)}*")) > 0:
-        altdf_path= list(Path(vardf_dir).glob(f"{feat_mod}_{sampmod.replace('YYYY',allyrstr)}*"))[0]
+        altdf_path= next(iter(Path(vardf_dir).glob(f"{feat_mod}_{sampmod.replace('YYYY',allyrstr)}*")))
         logger.info(f'found an alternate vardf: {altdf_path}. Joining new LC col... \n')
         altdf = pd.read_csv(altdf_path)
         if class_mod_name not in list(altdf.columns):
@@ -797,7 +801,7 @@ def make_variable_stack(params):
             band_names = []
             logger.info(f"making variable stack for cell {cell} \n")
 
-            logger.info(f'prechecking ts directories...')
+            logger.info('prechecking ts directories...')
             for si in params['feature_model']['spec_indices']:
                 ## check if all spec indices exist before going on:
                 img_dir = ppaths.ts / si
@@ -817,7 +821,7 @@ def make_variable_stack(params):
                 try:
                     with rio.open(new_vars) as src:
                         num_bands = src.count
-                except:    
+                except Exception:    
                     logger.warning(f"ERROR: there is a problem with the time series for {si} \n")
                     return False
 
@@ -1021,7 +1025,7 @@ def make_and_score_model(params, df=None, out_dir=None):
     nest = params['classify']['n_est']
     runnum = params['iter_models']['iter']   ## set by "iterate_sample_model" if not None
     subsample = params['sample_model']['subsample']  ## set by "iterate_sample_model" if not None
-    fixed_ho = ['sample_model']['fixed_ho'] ## True/False
+    fixed_ho = params['sample_model']['fixed_ho'] ## True/False
     balanced_ho = params['sample_model']['use_balanced_ho']
     if fixed_ho:
         thresh = 1
@@ -1165,7 +1169,7 @@ def make_and_score_model(params, df=None, out_dir=None):
             score["smalls_1ha"] = df["smlhld_1ha"]
             score["smalls_halfha"] = df["smlhd_halfha"]
 
-        if focus in LC_FOCUS_DICT.keys():
+        if focus in LC_FOCUS_DICT:
             acccat = LC_FOCUS_DICT[focus][class_col]
             s_hos={}
             for cat in LC_FOCUS_DICT[focus]['cats']:
@@ -1192,7 +1196,7 @@ def make_and_score_model(params, df=None, out_dir=None):
 
         cats = pd.read_csv(lut)[acccat].unique()
         if len(cats) == 2:
-            neg_lab = [c for c in cats if c.startswith('no')][0]
+            neg_lab = next(c for c in cats if c.startswith('no'))
             pos_lab = cats.remove(neg_lab)[0]
             score["Kappa_bi"] = cm.at[pos_lab,'Kappa']
             score["F1_bi"] = cm.at[pos_lab,'F1']

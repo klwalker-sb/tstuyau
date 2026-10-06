@@ -1,21 +1,31 @@
-from pathlib import Path
 import csv
+from pathlib import Path
+
+import geowombat as gw
+import numpy as np
 import rasterio as rio
 from rasterio.windows import Window
-import numpy as np
-import xarray as xr
-import geowombat as gw
+
 #from scipy.ndimage import generic_filter
-from scipy.ndimage import uniform_filter, maximum_filter ,distance_transform_edt
-from .project import ProjectPaths
-from .zonal import make_polygon_features
-from .aggregate import mosaic_cells
-from .image_utils import clip_big_ras_to_small
-from .filter_utils import FilterTsArgs, store_count, get_most_frequent_cat_in_timeseries, mark_forest_edges, is_region_filter_active, get_regional_filter
-from .time_series_post_utils import CORRECTIONS
-from .lookup import LC_CATS_Py0, LC_CATS
+from scipy.ndimage import distance_transform_edt, maximum_filter, uniform_filter
+
 from ..handler import logger
-        
+from .aggregate import mosaic_cells
+from .filter_utils import (
+    FilterTsArgs,
+    get_most_frequent_cat_in_timeseries,
+    get_regional_filter,
+    is_region_filter_active,
+    mark_forest_edges,
+    store_count,
+)
+from .image_utils import clip_big_ras_to_small
+from .lookup import LC_CATS, LC_CATS_Py0
+from .project import ProjectPaths
+from .time_series_post_utils import CORRECTIONS
+from .zonal import make_polygon_features
+
+
 def reclass_small_fields(params, class_ras, poly_ras, area_ras, ras_out): 
     '''
     reclassifies crop polygons smaller than 5ha as smallholder (or <2ha for other crops like sugar)
@@ -141,7 +151,7 @@ def make_filter_layers_for_cell(params, filter_set):
         polys_exist=True
         if not Path(poly_area_in).is_file():
             polys_exist = False
-            logger.info(f"WARNING: there is no polygon layer for this cell.  Making 0 placeholder...") 
+            logger.info("WARNING: there is no polygon layer for this cell.  Making 0 placeholder...") 
             
             poly_area_in = f"{params['scratch_dir']}/tmp_poly_rasts/{params['grids'][0]:06d}/poly_area.tif"
             make_blank_layer(params, filter_set, poly_area_in)
@@ -213,7 +223,7 @@ def make_filter_layers_for_cell(params, filter_set):
                              filter_set['polys_buf']['cell_final'])
      
     if 'chaco' in filter_set:
-        logger.info(f'clipping chaco \n')
+        logger.info('clipping chaco \n')
         clip_big_ras_to_small(filter_set['area_focal']['cell_final'], filter_set['chaco']['cell_base'], filter_set['chaco']['cell_final'])
          
     if 'highveg_nbhd' in filter_set: 
@@ -248,7 +258,7 @@ def make_filter_layers_for_cell(params, filter_set):
 
             sm_nbhd_size = params['refine']['sm_neighborhood']
             if sm_nbhd_size > 3:
-                majsm = int(round(.8 * sm_nbhd_size * sm_nbhd_size))
+                majsm = round(.8 * sm_nbhd_size * sm_nbhd_size)
             sm_nbhd_mean = uniform_filter(smf, size=sm_nbhd_size, mode='reflect', cval=0.0)
             sm_nbhd = np.round(sm_nbhd_mean * sm_nbhd_size*sm_nbhd_size).astype(np.uint16)
             if 'sm_neighbors' in filter_set:
@@ -313,7 +323,7 @@ def post_classification_spatial_filter_smallholder(params, filter_set):
         out_dir = Path(params['backup_path']) / 'mosaics' 
     out_dir.mkdir(parents=True, exist_ok=True)
     
-    filter1_path = Path(params['scratch_dir']) /'comp/second_smallholder_filter.tif'
+    Path(params['scratch_dir']) /'comp/second_smallholder_filter.tif'
     filterfinal_path = Path(out_dir)/f"{Path(filter_set['base_map']['full']).stem}_filtsmh-sp.tif"
 
     PAD_SIZE = 1 
@@ -361,7 +371,6 @@ def post_classification_spatial_filter_smallholder(params, filter_set):
                 smdist = data['sm_nbhd_dist']
                 #smnbhd = data['sm_neighbors']
                 highvegnbhd = data['highveg_nbhd']
-                area_focal = data['area_focal']
                 chaco = data['chaco'] if is_paraguay else np.zeros_like(orig)
             
                 ## 1. Inside original segmented polygons
@@ -422,12 +431,12 @@ def post_classification_spatial_filter_smallholder(params, filter_set):
         for r in readers.values():
             r.close()
 
-    logger.info(f'refining forest edges...')
+    logger.info('refining forest edges...')
     with rio.open(filterfinal_path, 'r') as src:
         profile = src.profile
         final0 = src.read(1)
     final1 = mark_forest_edges(final0, params)
-    final_forest_retouch = filterfinalpath.replace('.tif','_ForestEdge.tif')
+    final_forest_retouch = filterfinal_path.replace('.tif','_ForestEdge.tif')
     with rio.open(final_forest_retouch, "w", **profile) as dst:
         dst.write(final1, 1)
         
@@ -449,13 +458,13 @@ def post_aggregation_filter(params):
         out_yr = out_yr[0]
         params['classify']['out_yrs'] = out_yr
     mod_base = params['classify']['name']
+    comp_mod_name = mod_base
     if mod_base.startswith('relative'):
         comp_mod_name = mod_base.replace('relative_','')
-    else:
-        comp_mod_name = mod_base
+        
 
     if params['classify']['test']:
-        final_dir = Path(params['scratch_dir']) / f'classified'
+        final_dir = Path(params['scratch_dir']) / 'classified'
     else:
         final_dir = Path(params['backup_path']).parents[1] / 'mosaics' 
     final_dir.mkdir(parents=True, exist_ok=True)
@@ -490,7 +499,7 @@ def post_aggregation_filter(params):
             with open(params['grids'], newline='') as cell_file:
                 for row in csv.reader(cell_file):
                     cells.append(row[0])
-        elif isinstance(params['grids'], int) or isinstance(params['grids'], str): # if runing individual cells as array via bash script
+        elif isinstance(params['grids'], (int, str)): # if runing individual cells as array via bash script
             comp_prefix = params['grids']
             cells.append(params['grids']) 
 
@@ -517,13 +526,13 @@ def post_aggregation_filter(params):
                 sm_nbhd_size = params['refine']['sm_neighborhood']
                 
                 map_filters = { 
-                    'base_map' : {'cell_base':f'{str(comp_dir_in)}/{cell:06d}_{mod_base}',
-                                 'cell_final':f'{str(comp_dir_in)}/{cell:06d}_{mod_base}', 
+                    'base_map' : {'cell_base':f'{comp_dir_in!s}/{cell:06d}_{mod_base}',
+                                 'cell_final':f'{comp_dir_in!s}/{cell:06d}_{mod_base}', 
                                  'full':f'{final_dir}/{comp_prefix}_{mod_base}'},
-                    'polys_maj' : {'cell_base':f'{str(comp_dir_in)}/{cell:06d}_{mod_base}', 
+                    'polys_maj' : {'cell_base':f'{comp_dir_in!s}/{cell:06d}_{mod_base}', 
                                  'cell_final':f'{cell_var_dir}/CELseg{out_yr}-majority_rcsmall.tif', 
                                  'full':f'{comp_dir_out}/CELseg{out_yr}-majority_rcsmall.tif'},
-                    'polys_buf' : {'cell_base':f'{str(comp_dir_in)}/{cell:06d}_{mod_base}', 
+                    'polys_buf' : {'cell_base':f'{comp_dir_in!s}/{cell:06d}_{mod_base}', 
                                   'cell_final':f'{cell_var_dir}/CELseg{out_yr}-majority_buf{buf}_rcsmall.tif', 
                                   'full':f'{comp_dir_out}/CELseg{out_yr}-majority_buf{buf}_rcsmall.tif'},
                     'polys_area' : {'cell_base':f'{poly_var_path_orig}/pred_area_{cell:04d}.tif', 
@@ -532,16 +541,16 @@ def post_aggregation_filter(params):
                     'area_focal' : {'cell_base':f'{poly_var_path_orig}/pred_area_{cell:04d}.tif', 
                                    'cell_final':f'{cell_var_dir}/field_area_focal100avg_int0.tif', 
                                    'full':f'{comp_dir_out}/field_area_focal100avg_int0.tif'},
-                    'highveg_nbhd': {'cell_base':f'{str(comp_dir_in)}/{cell:06d}_{mod_base}',
+                    'highveg_nbhd': {'cell_base':f'{comp_dir_in!s}/{cell:06d}_{mod_base}',
                                     'cell_final':f'{cell_var_dir}/highveg_nbhd.tif', 
                                      'full':f'{comp_dir_out}/highveg{out_yr}_nbhd.tif'},
-                    'sm_neighbors': {'cell_base':f'{str(comp_dir_in)}/{cell:06d}_{mod_base}',
+                    'sm_neighbors': {'cell_base':f'{comp_dir_in!s}/{cell:06d}_{mod_base}',
                                     'cell_final':f'{cell_var_dir}/sm_neighbors.tif', 
                                      'full':f'{comp_dir_out}/sm_neighbors{out_yr}.tif'},
-                    'sm_nbhd_mask': {'cell_base':f'{str(comp_dir_in)}/{cell:06d}_{mod_base}',
+                    'sm_nbhd_mask': {'cell_base':f'{comp_dir_in!s}/{cell:06d}_{mod_base}',
                                     'cell_final':f'{cell_var_dir}/sm_nbhd_mask.tif', 
                                      'full':f'{comp_dir_out}/sm_nbhd{sm_nbhd_size}_{out_yr}_mask.tif'},
-                    'sm_nbhd_dist': {'cell_base':f'{str(comp_dir_in)}/{cell:06d}_{mod_base}',
+                    'sm_nbhd_dist': {'cell_base':f'{comp_dir_in!s}/{cell:06d}_{mod_base}',
                                     'cell_final':f'{cell_var_dir}/sm_nbhd_dist.tif', 
                                      'full':f'{comp_dir_out}/sm_nbhd{out_yr}_dist.tif'}
                     }  
@@ -584,7 +593,7 @@ def post_aggregation_filter(params):
         post_classification_spatial_filter_smallholder(params, filter_set=map_filters)
 
 
-def filter_temporal_noise_from_stable_cats(ts_files, LC_CATS, cat, cat_idx, params, count_cache):
+def filter_temporal_noise_from_stable_cats(ts_files, cat, cat_idx, params, count_cache):
     '''
     Returns the class with the majority count from a set of classes for each pixel, unless one of the defined
     exceptions below applies. Treats sets of classes that are theoretically stable (unlikely short-term
@@ -593,7 +602,7 @@ def filter_temporal_noise_from_stable_cats(ts_files, LC_CATS, cat, cat_idx, para
     '''
     logger.info(f'getting stable base for {cat}')
     with gw.open(ts_files) as ts:
-        attrs = ts.attrs.copy()
+        _attrs = ts.attrs.copy()
 
     ##########  Exceptions to simple majority rule:
     ## shrub forest if ever classified as shrub forest, or if classified as both dense forest & shrub
@@ -657,7 +666,7 @@ def get_stable_base(ts_files, ts_yrs, params, count_cache):
                 ras = src.read(1)
             base_rasters[cat] = ras
         else:
-            base_rasters[cat] = filter_temporal_noise_from_stable_cats(ts_files, LC_CATS, cat, i, params, count_cache)
+            base_rasters[cat] = filter_temporal_noise_from_stable_cats(ts_files, cat, i, params, count_cache)
 
     ## if >1 type of forest listed, base value for pixels with >1 forest type in ts is assigned based on
     ## order of forest types listed (not counts). If most-frequent should win instead, use a more generic
@@ -669,7 +678,7 @@ def get_stable_base(ts_files, ts_yrs, params, count_cache):
             ras = src.read(1)
         base_rasters['forest'] = ras
     else:
-        forest_priority = [c for c in params['refine']['stable_group'] if (c.endswith('_for') or c.endswith('_forest'))]
+        forest_priority = [c for c in params['refine']['stable_group'] if (c.endswith(('_for', '_forest')))]
         if len(forest_priority) == 1:
             base_for = base_rasters[forest_priority[0]]
         elif len(forest_priority) > 1:
@@ -685,7 +694,7 @@ def get_stable_base(ts_files, ts_yrs, params, count_cache):
             meta = src0.meta.copy()
         meta.update(count=1, compress='LZW', tiled=True)
 
-        for b in base_rasters.keys():
+        for b in base_rasters:
             base_dir = Path(params['scratch_dir']) / f"tsfilters/{params['refine']['mod_prescript']}"
             base_dir.mkdir(parents=True, exist_ok=True)
             base_ras = Path(base_dir) / f'{b}.tif'
@@ -715,7 +724,7 @@ def filter_ts_rasters(ts_files, ts_yrs, base_rasters, params, count_cache):
     ctx = FilterTsArgs(ts_files, ts_yrs, params, LC_CATS, base_rasters, count_cache)
     
     with gw.open(ts_files, time_names=ts_yrs, stack_dim='time') as ts:
-        attrs = ts.attrs.copy()
+        _attrs = ts.attrs.copy()
 
     group_suffix = ""
     if params['refine']['group_suffix']:
@@ -759,10 +768,9 @@ def override_edits_in_segmented_polys(ts_files, poly_area_files, ts_yrs, orig_ts
     resets pixels to original crop classification if in segmented polygon
     inputs: poly_area_in is path to rasterized polygons with field size
     '''
-    with gw.open(ts_files, time_names=ts_yrs, stack_dim='time') as ts:
-        attrs = ts.attrs.copy()
-        with gw.open(orig_ts, time_names=ts_yrs, stack_dim='time') as ots:
-            with gw.open(poly_area_files, time_names=ts_yrs, stack_dim='time') as polyaea:
+    with gw.open(ts_files, time_names=ts_yrs, stack_dim='time') as ts, gw.open(
+        orig_ts, time_names=ts_yrs, stack_dim='time') as ots, gw.open(
+            poly_area_files, time_names=ts_yrs, stack_dim='time') as polyarea:
     
                 tsf = ots.where(polyarea > 0, ts)
     return tsf
@@ -778,17 +786,16 @@ def ts_filter(params):
     if params['classify']['mod_dir']:
         comp_dir_in = params['classify']['mod_dir']
     else:
-        comp_dir_in = Path(params['scratch_dir']) / f'classified'
+        comp_dir_in = Path(params['scratch_dir']) / 'classified'
     
     if params['classify']['test']:
-        final_dir = Path(params['scratch_dir']) / f'classified'
+        final_dir = Path(params['scratch_dir']) / 'classified'
     else:
         final_dir = Path(params['backup_path']).parents[1] / 'mosaics' 
     final_dir.mkdir(parents=True, exist_ok=True)
 
-    if params['refine']['spatial_filter']:
-        if params['refine']['spatial_filter'] == 'smCrop':
-            params['refine']['mod_postscript'] = 'filtsmh-sp'
+    if params['refine']['spatial_filter'] and (params['refine']['spatial_filter'] == 'smCrop'):
+        params['refine']['mod_postscript'] = 'filtsmh-sp'
     postscript = params['refine']['mod_postscript']
     prescript = params['refine']['mod_prescript']
 

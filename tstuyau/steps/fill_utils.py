@@ -1,12 +1,12 @@
-from datetime import datetime
 from collections import defaultdict
+from datetime import datetime
 
+import cv2
 import geowombat as gw
-import satsmooth as sm
-
-import numpy as np
-import xarray as xr
 import numba as nb
+import numpy as np
+import satsmooth as sm
+import xarray as xr
 from tqdm import trange
 
 
@@ -68,7 +68,7 @@ def readjust(data, indices):
     # for bidx in range(0, data.shape[0]):
     #     data[bidx] = ((clahe.apply(((data[bidx]*0.0001)*255.0).astype('uint8')) / 255.0) * 10000.0).astype('float64')
 
-    for imidx in indices.keys():
+    for imidx in indices:
 
         for bidx in range(0, data.shape[0]):
 
@@ -97,7 +97,7 @@ def fill_array(bap, imidx, full, new, indices):
 
     indices_sub = defaultdict(list)
 
-    for bidx in range(0, full.shape[0]):
+    for bidx in range(full.shape[0]):
 
         new_band = new[bidx]
 
@@ -221,7 +221,7 @@ def fill_gaps(ldate_dt, landsat_list, near_indices, ppaths, params):
 
         ndims, nrows, ncols = fill_data.shape
 
-        for didx in range(0, ndims):
+        for didx in range(ndims):
 
             gap_days, gap_array = sort_range(dates, fill_data, didx, 5, params['fusion']['fill_max_days'])
 

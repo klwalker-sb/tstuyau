@@ -1,17 +1,17 @@
-import sys
-import re
-from pathlib import Path
 import datetime
+import re
 from datetime import datetime, timedelta
-import rasterio as rio
-import numpy as np
+from pathlib import Path
+
 import geowombat as gw
+import numpy as np
 import xarray as xr
-import pandas as pd
+
 #import bottleneck
 from ..handler import logger
-from .date_utils import get_date_range, doy_to_month_array_vals
+from .date_utils import doy_to_month_array_vals, get_date_range
 from .mask_utils import open_masks_with_time_series
+
 
 def add_var_to_stack(arr, var, attrs, out_dir, comp_band_names, ras_list, **gw_args):
     logger.info(f'adding var {var} at last position in stack: {comp_band_names}')
@@ -68,8 +68,7 @@ def mean_abs_diff(data, axis=1):
 
 def _lstsq(data):
 
-    n_samples, n_feas = data.shape
-
+    _n_samples, n_feas = data.shape
     x = np.arange(0, n_feas)
 
     # Fit a least squares solution to each sample
@@ -79,7 +78,7 @@ def abs_slope_q1(data, axis=1):
     """
     Calculates the absolute slope of the first quarter
     """
-    n_samples, n_feas = data.shape
+    _n_samples, n_feas = data.shape
     b1 = _lstsq(data[:, :int(0.25*n_feas)])[0]
     return np.abs(b1)
 
@@ -87,7 +86,7 @@ def abs_slope_q2(data, axis=1):
     """
     Calculates the absolute slope of the second quarter
     """
-    n_samples, n_feas = data.shape
+    _n_samples, n_feas = data.shape
     b1 = _lstsq(data[:, int(0.25*n_feas):int(0.5*n_feas)])[0]
     return np.abs(b1)
 
@@ -95,7 +94,7 @@ def abs_slope_q3(data, axis=1):
     """
     Calculates the absolute slope of the third quarter
     """
-    n_samples, n_feas = data.shape
+    _n_samples, n_feas = data.shape
     b1 = _lstsq(data[:, int(0.5*n_feas):int(0.75*n_feas)])[0]
     return np.abs(b1)
 
@@ -103,7 +102,7 @@ def abs_slope_q4(data, axis=1):
     """
     Calculates the absolute slope of the fourth quarter
     """
-    n_samples, n_feas = data.shape
+    _n_samples, n_feas = data.shape
     b1 = _lstsq(data[:, int(0.75*n_feas):])[0]
     return np.abs(b1)
 
@@ -111,7 +110,7 @@ def sum_rss(data, axis=1):
     """
     Calculates the coefficients of a linear least squares regression, and the residual sum of squares
     """
-    n_samples, n_feas = data.shape
+    _n_samples, n_feas = data.shape
     x = np.arange(0, n_feas)
     b1, intercept_b0 = _lstsq(data)
     # Estimate
@@ -157,7 +156,7 @@ def unpad_ts(params, temp, pad_days, start_yr, freq='doy', padded=False):
 
     return unpadded_start,unpadded_end
     
-def get_sig_change(ts_stack, ds_stack, cng_thresh, basethresh_pre=[0,10000], basethresh_post=[0,10000], 
+def get_sig_change(ts_stack, ds_stack, cng_thresh, basethresh_pre=None, basethresh_post=None, 
                    imgbuf=0, temp='yr', cng_freq='doy', normalize=None, params=None):
     '''
     Captures moment of significant change (above <cng_thresh>) in index, either as a drop (negatve <cng_thresh>) or spike (positive <cng_thresh>) 
@@ -171,6 +170,10 @@ def get_sig_change(ts_stack, ds_stack, cng_thresh, basethresh_pre=[0,10000], bas
         fire events are often masked as cloud shadow. if not useful for mapping task, set <feature_model:pheno_imgbuf> to 0.
     '''
 
+    if basethresh_post is None:
+        basethresh_post = [0, 10000]
+    if basethresh_pre is None:
+        basethresh_pre = [0, 10000]
     logger.info(f'getting significant change raster for threshold {cng_thresh}...')
     logger.debug(f'cng_freq = {cng_freq}')
 
@@ -185,7 +188,7 @@ def get_sig_change(ts_stack, ds_stack, cng_thresh, basethresh_pre=[0,10000], bas
     valsin0 = src.where((src > lowest) & (src < highest))
     
     if normalize:
-        allavg = valsin.mean(dim='time')
+        allavg = valsin0.mean(dim='time')
     if normalize == '0m': 
         valsin0 = valsin0 - allavg
     elif normalize == 'z':
@@ -310,7 +313,7 @@ def find_peaks_robust(ts_stack, ds_stack,peak_thresh,base_thresh,invert):
         ## repeat the process at increasing time steps. If the value before the next time step is 1, there is a trough separating
         ##    the two peaks and both should be retained.
         for t in range(2,10):
-            peaktcheck = revise_peaks(t,peakcheck,invert=False)
+            peakcheck = revise_peaks(t,peakcheck,invert=False)
          ## TODO: break ties
     
         true_peaks = peakcheck.where(peakcheck >= peak_thresh)
@@ -320,7 +323,7 @@ def find_peaks_robust(ts_stack, ds_stack,peak_thresh,base_thresh,invert):
         peakcheck1 = peakbase.where(((peakbase - peakbase.shift(time=-1).fillna(32767) <= 0) | (peakbase==10000)),32767).fillna(32767)
         peakcheck = peakcheck1.where(((peakcheck1 - peakcheck1.shift(time=1).fillna(32767) <= 0) | (peakcheck1==10000)),32767).fillna(32767)
         for t in range(2,10):
-            peaktcheck = revise_peaks(t,peakcheck,invert=True)
+            peakcheck = revise_peaks(t,peakcheck,invert=True)
         true_peaks = peakcheck.where(peakcheck <= peak_thresh)
          
     numpeaks = true_peaks.count(dim='band').sum(dim='time').fillna(0).astype('int16')
@@ -369,7 +372,7 @@ def find_peaks_deriv(ts_stack,ds_stack,comp_band_names,peak_thresh,base_thresh,r
     masked2 = src1.where(src1 < base_thresh).all("time")
     numpeaks_allm = numpeaks_all.where(~masked2, 0).fillna(0).astype('int16')
 
-    return peakout, numpeaks_all
+    return peakout, numpeaks_allm
     
 def get_greenup(ts_stack, ds_stack, peak_time, method='step'):
     with gw.open(ts_stack, time_names = ds_stack) as src:
@@ -452,7 +455,7 @@ def prep_pheno_bands(pheno_vars,ts_stack,ds_stack,ts_stack_padded, ds_stack_padd
         aamp =  (mmax - mmin).astype('int16')
         add_var_to_stack(aamp,f'amp-{temp}',attrs,out_dir,comp_band_names,ras_list,**gw_args)   
 
-    delta_vars = [v for v in pheno_vars if v.startswith('sigcng') or v.startswith('burn')]
+    delta_vars = [v for v in pheno_vars if v.startswith(('sigcng', 'burn'))]
     if len(delta_vars) > 0:
         for dv in delta_vars:
             if '-' not in dv:  ## legacy code
@@ -465,8 +468,6 @@ def prep_pheno_bands(pheno_vars,ts_stack,ds_stack,ts_stack_padded, ds_stack_padd
                     cng_thresh = -1 * int(cng_thresh[1:])
                 elif cng_thresh.startswith('p'):
                     cng_thresh = int(cng_thresh[1:])
-                else:
-                    cng_thresh = cng_thresh
                 if dv.split('.')[2] == 'v':
                     freq = 'doy'
                 else:
@@ -527,7 +528,6 @@ def prep_pheno_bands(pheno_vars,ts_stack,ds_stack,ts_stack_padded, ds_stack_padd
     peak_vars = [v for v in pheno_vars if v.startswith(tuple(peak_prefixes)) and v.endswith(temp)]
     if len(peak_vars) > 0:
         if '.' not in peak_vars[0]:
-            sigdif = sigdif
             invert = False
         else:
             sigdif =  peak_vars[0].split('.')[1]
@@ -565,7 +565,7 @@ def prep_pheno_bands(pheno_vars,ts_stack,ds_stack,ts_stack_padded, ds_stack_padd
             if v.startswith('numrot'):
                 add_var_to_stack(peaks[0],v,attrs,out_dir,comp_band_names,ras_list,**gw_args)                
                         
-        tos_vars = [var for var in peak_vars if var.startswith(tuple(['tos','numlow','p1amp']))]
+        tos_vars = [var for var in peak_vars if var.startswith(('tos','numlow','p1amp'))]
         if len(tos_vars) > 0:
             if '.' in tos_vars[0]:
                 sigt = f".{tos_vars[0].split('.')[1]}"
@@ -599,7 +599,7 @@ def prep_pheno_bands(pheno_vars,ts_stack,ds_stack,ts_stack_padded, ds_stack_padd
                     p1amp = p1amp0.where(((p1amp0 > 0) & ((peaks[0] > 0) | (numlow > 0))), 0).fillna(0).astype('int16').squeeze() 
                     add_var_to_stack(p1amp,v,attrs,out_dir,comp_band_names,ras_list,**gw_args)
 
-        sos_vars = [var for var in peak_vars if var.startswith(tuple(['sos','sov','rog','los']))]
+        sos_vars = [var for var in peak_vars if var.startswith(('sos','sov','rog','los'))]
         if len(sos_vars) > 0:
             if '.' in sos_vars[0]:
                 sigt = f".{sos_vars[0].split('.')[1]}"
@@ -623,7 +623,7 @@ def prep_pheno_bands(pheno_vars,ts_stack,ds_stack,ts_stack_padded, ds_stack_padd
                 if v.startswith('sosv'):
                     add_var_to_stack(sosv,v,attrs,out_dir,comp_band_names,ras_list,**gw_args)
 
-        eos_vars = [var for var in peak_vars if var.startswith(tuple(['eos','ros','los']))]
+        eos_vars = [var for var in peak_vars if var.startswith(('eos','ros','los'))]
         if len(eos_vars) > 0:
             if '.' in eos_vars[0]:
                 sigt = f".{eos_vars[0].split('.')[1]}"
@@ -647,19 +647,19 @@ def prep_pheno_bands(pheno_vars,ts_stack,ds_stack,ts_stack_padded, ds_stack_padd
                 if v.startswith('eosv'):
                     add_var_to_stack(eosv,v,attrs,out_dir,comp_band_names,ras_list,**gw_args)
 
-        rate_vars = [var for var in peak_vars if var.startswith(tuple(['rog','rol','los']))]
+        rate_vars = [var for var in peak_vars if var.startswith(('rog','rol','los'))]
         if len(rate_vars) > 0:
             with gw.open(Path(out_dir) /f'posd-{temp}.tif') as posd2:
                 pass
             for v in rate_vars:
-                if v.startswith('rog') or v.startswith('los'):
+                if v.startswith(('rog', 'los')):
                     with gw.open(Path(out_dir)/f'sosd-{temp}.tif') as sosd2:
                         with gw.open(Path(out_dir)/f'sosv-{temp}.tif') as sosv:
                             rog = sosd2.where(sosd2 == 0, (posv - sosv) / (posd2 - sosd2))
                             rog = rog.astype('int16')
                 if v.startswith('rog'):
                     add_var_to_stack(rog,v,attrs,out_dir,comp_band_names,ras_list,**gw_args)
-                if v.startswith('ros') or v.startswith('los'):
+                if v.startswith(('ros', 'los')):
                     with gw.open(Path(out_dir)/f'eosd-{temp}.tif') as eosd2:      
                         with gw.open(Path(out_dir)/f'eosv-{temp}.tif') as eosv:
                             ros = eosd2.where(eosd2 == 0, (posv - eosv) / (posd2 - eosd2)) 
@@ -689,10 +689,10 @@ def prep_ts_variable_bands(si_vars, ts_stack,ds_stack, out_dir,temp,start_doy,co
     logger.debug(f'replacing nodata values of {nodata_in} with Nan')
     valid = (src0 != int(nodata_in)) & (src0 != 10000)
 
-    if masking:
-        mask = open_masks_with_time_series(ppaths, ts_stack, ds_stack, **mask_args)
-        valid = valid & (~mask)
-    src = src0.where(valid)
+    #if masking:
+    #    mask = open_masks_with_time_series(ppaths, ts_stack, ds_stack, **mask_args)
+    #    valid = valid & (~mask)
+    #src = src0.where(valid)
         
     ## remove glcm portion of variables in case it exists. For glcms, the underlying variable will be processed, then the glcm after.
     if isinstance(si_vars,str):
@@ -707,42 +707,42 @@ def prep_ts_variable_bands(si_vars, ts_stack,ds_stack, out_dir,temp,start_doy,co
         singdate = v.split('.')[0]
         if len(str(singdate)) == 3:
             ## this is doy -- get full date
-            fulldate = [d for d in sds_stack if ds.endswith(str(singdate))][0]
+            fulldate = next(d for d in sds_stack if d.endswith(str(singdate)))
             logger.info(f' adding image from {fulldate} to stack')
         elif len(str(singdate)) == 7:
             fulldate = singdate
         else: 
             logger.warning(f'cannot parse {singdate} to get corresponing image -- should be doy or YYYdoy')   
-        sing_img = ds.sel(time=v.split('.')[0])  ##TODO: verify that time is in YYYYdoy and not YYYY-mm-dd
+        sing_img = src0.sel(time=v.split('.')[0])  ##TODO: verify that time is in YYYYdoy and not YYYY-mm-dd
         add_var_to_stack(sing_img,str(singdate),attrs,out_dir,comp_band_names,ras_list,**gw_args)
         
     if any(v in si_vars for v in [f'maxv-{temp}',f'amp-{temp}', f'maxd-{temp}', f'maxdc-{temp}']):
-        mmax = src.max(dim='time').astype('int16')
+        mmax = src0.max(dim='time').astype('int16')
         if f'maxv-{temp}' in si_vars:
             add_var_to_stack(mmax,f'maxv-{temp}', attrs,out_dir,comp_band_names,ras_list,**gw_args)
     if any(v in si_vars for v in [f'minv-{temp}',f'amp-{temp}', f'mind-{temp}',f'mindc-{temp}']):
-        mmin = src.min(dim='time').astype('int16')
+        mmin = src0.min(dim='time').astype('int16')
         if f'minv-{temp}' in si_vars:
             add_var_to_stack(mmin,f'minv-{temp}', attrs,out_dir,comp_band_names,ras_list,**gw_args)
     if f'amp-{temp}' in si_vars:
         aamp = (mmax - mmin).astype('int16')
         add_var_to_stack(aamp,f'amp-{temp}', attrs,out_dir,comp_band_names,ras_list,**gw_args)
     if f'avg-{temp}' in si_vars or f'cv-{temp}' in si_vars:
-        aavg = src.mean(dim='time').astype('int16')
+        aavg = src0.mean(dim='time').astype('int16')
         if f'avg-{temp}' in si_vars:
             add_var_to_stack(aavg,f'avg-{temp}', attrs,out_dir,comp_band_names,ras_list,**gw_args)
     if f'med-{temp}' in si_vars:
-        mmed = src.median(dim='time').astype('int16')
+        mmed = src0.median(dim='time').astype('int16')
         add_var_to_stack(mmed,f'med-{temp}', attrs,out_dir,comp_band_names,ras_list,**gw_args)
     if f'sd-{temp}' in si_vars or f'cv-{temp}' in si_vars:
-        sstd = src.std(dim='time').astype('int16')
+        sstd = src0.std(dim='time').astype('int16')
         if f'sd-{temp}' in si_vars:
             add_var_to_stack(sstd,f'sd-{temp}', attrs,out_dir,comp_band_names,ras_list,**gw_args)
     if f'cv-{temp}' in si_vars:
         ccv = ((sstd / aavg) * 10000).astype('int16')
         add_var_to_stack(ccv,f'cv-{temp}',attrs,out_dir,comp_band_names,ras_list,**gw_args)
     if any(v in si_vars for v in [f'maxd-{temp}', f'maxdc-{temp}']):
-        maxd = src.idxmax(dim='time',skipna=True)
+        maxd = src0.idxmax(dim='time',skipna=True)
         maxd1 = maxd.dt.dayofyear.astype('int16')
         ## add 365 to doy if it passed into the next year to avoid jump in values from Dec31 to Jan 1
         ## (keep everything >= start_doy as is. If passes into next year, doy will be < start_doy, so add 365)
@@ -756,7 +756,7 @@ def prep_ts_variable_bands(si_vars, ts_stack,ds_stack, out_dir,temp,start_doy,co
         maxd_cos = maxd_cos.astype('int16')
         add_var_to_stack(maxd_cos,f'maxdc-{temp}',attrs,out_dir,comp_band_names,ras_list,**gw_args)
     if f'mind-{temp}' in si_vars or f'mindc-{temp}' in si_vars:
-        mind = src.idxmin(dim='time',skipna=True)
+        mind = src0.idxmin(dim='time',skipna=True)
         mind1 = mind.dt.dayofyear.astype('int16')
         ## add 365 to doy if it passed into the next year to avoid jump in values from Dec31 to Jan 1
         ## (keep everything >= start_doy as is. If passes into next year, doy will be < start_doy, so add 365)
@@ -772,22 +772,22 @@ def prep_ts_variable_bands(si_vars, ts_stack,ds_stack, out_dir,temp,start_doy,co
     if f'numobs-{temp}' in si_vars:
         ## number of valid observations in data stack -- mostly useful with raw time series
         ## <reconstruct><nodata> probably neeeds to be set to 0 so that 0s are also seen as NA
-        numobs = src.count(dim="time").astype('int16')
+        numobs = src0.count(dim="time").astype('int16')
         add_var_to_stack(numobs,f'numobs-{temp}', attrs,out_dir,comp_band_names,ras_list,**gw_args)
     if f'perclear-{temp}' in si_vars:
         ## not super useful because num_images will include partially overlapping images (NA is missing data; not always clouds)
         num_images = len(sts_stack)
-        numobs = src.count(dim="time")
+        numobs = src0.count(dim="time")
         perclear = (100 * numobs / num_images).astype('int16')
         add_var_to_stack(perclear,f'perclear-{temp}', attrs,out_dir,comp_band_names,ras_list,**gw_args)
     if f'gapavg-{temp}' in si_vars:
-        numobs = src.count(dim="time").astype('int16')
-        numdays = (src.time[-1] - src.time[0]).dt.days.item() + 1
+        numobs = src0.count(dim="time").astype('int16')
+        numdays = (src0.time[-1] - src0.time[0]).dt.days.item() + 1
         gapavg = (numdays / numobs).astype('int16')
         add_var_to_stack(gapavg,f'gapavg-{temp}', attrs,out_dir,comp_band_names,ras_list,**gw_args)
     
     if f'gapmax-{temp}' in si_vars:
-        src0 = src.chunk({"time": -1}).astype(float)
+        src0 = src0.chunk({"time": -1}).astype(float)
         valsin = src0.where((src0 > 0) & (src0 < 10000))
         is_na = valsin.isnull()
         #logger.debug(f"total nan pixels found: {int(is_na.sum().values)}") 
@@ -805,7 +805,7 @@ def prep_ts_variable_bands(si_vars, ts_stack,ds_stack, out_dir,temp,start_doy,co
         threshold is supplied with . following deltaobs -- e.g. deltaobs.p500 or deltaobs.n500 
         (n and p indicate whether negative or positive changes are to be counted, respectively) 
         '''
-        siv = [v for v in si_vars if v.startswith('deltaobs')][0]
+        siv = next(v for v in si_vars if v.startswith('deltaobs'))
         if '.' in siv:
             thresh0 = siv.split('.')[1].split('-')[0]
             if 'n' in thresh0:
@@ -818,8 +818,8 @@ def prep_ts_variable_bands(si_vars, ts_stack,ds_stack, out_dir,temp,start_doy,co
             thresh = 0
         ## <reconstruct><nodata> neeeds to be set to 0 to set 0s to NA
         num_images = len(sts_stack) ## note -- this count will include NAs
-        numobs = src.count(dim="time")  ## this is number of non NA observations for each pixel
-        src_c = src.chunk({"time": -1})
+        numobs = src0.count(dim="time")  ## this is number of non NA observations for each pixel
+        src_c = src0.chunk({"time": -1})
         srcf = src_c.ffill(dim='time',limit=2)
         srcff = srcf.bfill(dim='time',limit=2)
         srcf = src_c.ffill(dim='time')

@@ -1,17 +1,15 @@
+import concurrent.futures
 from abc import ABC, abstractmethod
 from datetime import datetime
-import concurrent.futures
 
 try:
     from prophet import Prophet
 except:
     pass
 
+import numexpr as nx
 import numpy as np
 import pandas as pd
-import numexpr as nx
-from tqdm.notebook import tqdm as tqdm_notebook
-from tqdm import tqdm as tqdm_normal
 
 
 class BaseAbstract(ABC):
@@ -76,7 +74,7 @@ class DLMHarmonics(HarmonicsAbstract, Harmonics):
         pass
 
 
-class ProphetProps(object):
+class ProphetProps:
 
     @property
     def as_datetime(self):

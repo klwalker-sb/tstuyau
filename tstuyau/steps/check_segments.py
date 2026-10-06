@@ -1,19 +1,20 @@
-from pathlib import Path
-import shutil
-import csv
-import yaml
 import json
-import numpy as np
-import pandas as pd
+import shutil
+from pathlib import Path
+
 import geopandas as gpd
+import numpy as np
 import rasterio as rio
-from rasterio.windows import Window, from_bounds
-from shapely.geometry import box, Polygon
-from osgeo import gdal, ogr, gdal_array
+import yaml
+from osgeo import gdal, gdal_array, ogr
+from rasterio.windows import from_bounds
+from shapely.geometry import box
+
 from ..handler import logger
-from .project import ProjectPaths
-from .date_utils import get_date_range
 from . import utils
+from .date_utils import get_date_range
+from .project import ProjectPaths
+
 #from .image_utils import img_to_bbox_offsets
 #######################################################################################################################################
 ### Culltionet prep
@@ -35,7 +36,7 @@ def prep_user_train(training_digitizations, user_train_dir, end_yr,chip_dim):
     for i, chp in chips.iterrows():
         process_polys = False
         chip_region = chp.region
-        out_chip_name = Path(user_train_dir)/f"{chip_region}_grid_{str(end_yr)}.gpkg"
+        out_chip_name = Path(user_train_dir)/f"{chip_region}_grid_{end_yr!s}.gpkg"
         ## check dimensions
         xdim = chips.bounds.iloc[i]['maxx']-chips.bounds.iloc[i]['minx']
         ydim = chips.bounds.iloc[i]['maxy']-chips.bounds.iloc[i]['miny']
@@ -68,7 +69,7 @@ def prep_user_train(training_digitizations, user_train_dir, end_yr,chip_dim):
             chip_polys = polys.sjoin(chip_gdf, how="inner") ## select digitizations that intersect chip
             chip_polys = chip_polys[chip_polys.columns.drop(list(chip_polys.filter(regex='right')))] ## drop duplicate columns
             chip_polys = chip_polys[chip_polys.columns.drop(list(chip_polys.filter(regex='left')))] ## drop duplicate columns
-            chip_polys['Name'] = f"{str(chip_region)}_poly_{str(end_yr)}" ## Name column for cultionet 
+            chip_polys['Name'] = f"{chip_region!s}_poly_{end_yr!s}" ## Name column for cultionet 
             chip_polys['region'] = str(chip_region) ## region column for cultionet 
             chip_polys['class'] = chip_polys[class_col]
             if len(chip_polys['class'].unique()) == 1 and 0 in chip_polys['class'].unique(): ## if there are only non-crop digitizations (based on recoded 'class')
@@ -82,11 +83,11 @@ def prep_user_train(training_digitizations, user_train_dir, end_yr,chip_dim):
                 chip_polys = gpd.GeoDataFrame(chip_polys, crs=proj_crs, geometry=geom) ## create field digitization's GeoDataFrame
             chip_polys = chip_polys[['class', 'region', 'Name', 'geometry']]
             logger.info(f'chip_polys: {chip_polys}')
-            out_polys_name = Path(user_train_dir)/f"{str(chip_region)}_poly_{str(end_yr)}.gpkg"
+            out_polys_name = Path(user_train_dir)/f"{chip_region!s}_poly_{end_yr!s}.gpkg"
             chip_polys.to_file(out_polys_name,  crs=proj_crs, driver="GPKG", mode="w") ## , layer=str(chip_region) ## export digitization polys             
 
         else:
-            logger.info(f'user_train already made for {str(out_chip_name)}')
+            logger.info(f'user_train already made for {out_chip_name!s}')
 
     logger.info(f'skipped chips:{skipped_chips} \n')
     logger.info(f'adjusted chips:{adjusted_chips} \n')
@@ -103,7 +104,7 @@ def clip_to_chips(ras_list, grid_num, spec_index, version_dir, grid_file, end_yr
     ]
     logger.info(f'training chips for this grid: {names}')
     ## get chips that match current year
-    chip_list = [f"{str(i)}_grid_{str(end_yr)}.gpkg" for i in names]
+    chip_list = [f"{i!s}_grid_{end_yr!s}.gpkg" for i in names]
     for chip in chip_list:
         chip_num = int(chip.split("_")[0])
         chip_clip_shape = gpd.read_file(Path(seg_dir)/"user_train"/chip)
@@ -117,10 +118,10 @@ def clip_to_chips(ras_list, grid_num, spec_index, version_dir, grid_file, end_yr
             out_rast = Path(out_dir_f)/Path(rast).name   
             logger.debug(f'raster_out: {out_rast}')
             if not out_rast.exists():
-                with rio.open(rast_path, 'r') as src:
+                with rio.open(rast, 'r') as src:
                     window = from_bounds(*bounds, transform=src.transform)
                 if int(window.height) == 100 and int(window.width) == 100:
-                    with rio.open(rast_path, 'r') as src:
+                    with rio.open(rast, 'r') as src:
                         clipped_rast = src.read(1, window=window)
                         new_gt = src.window_transform(window)
                         out_meta = {'driver': 'GTiff','width': 100,'height': 100,'count': 1,
@@ -159,7 +160,7 @@ def clip_to_chips(ras_list, grid_num, spec_index, version_dir, grid_file, end_yr
                     # delete tmp mosaic 
                     grid_mosaic.unlink()
             else:
-                logger.info(f'mosaic already made: {str(out_dir_f)}')
+                logger.info(f'mosaic already made: {out_dir_f!s}')
 
 def update_cultionet_config(seg_dir, yr, params):
 
@@ -298,7 +299,7 @@ def prep_training_ts_for_segmentation(params):
                         pre_ts_base = str(ppaths.ts/si).split(f'{cell:06d}')[0]
                         outdir =  Path(str(ppaths.ts/si).replace(pre_ts_base, f'{tsvar_dir}/'))
                         outdir.mkdir(parents=True, exist_ok=True)
-                        logger.info(f'copying images from {dr[0]} and {dr[1]} into {str(outdir)}')
+                        logger.info(f'copying images from {dr[0]} and {dr[1]} into {outdir!s}')
                         for fi in copy_images:
                             out_fi = Path(outdir)/fi.name
                             #if not out_fi.exists():
@@ -319,24 +320,24 @@ def prep_training_ts_for_segmentation(params):
             logger.info(f'sis_found = {sis_found}')
             for si in sis:
                 if si not in sis_found:
-                    not_ready.append(f"{str(rgn)}_{str(si)}")
-                    logger.warning(f"{str(rgn)} missing for {str(si)}")
+                    not_ready.append(f"{rgn!s}_{si!s}")
+                    logger.warning(f"{rgn!s} missing for {si!s}")
                 elif si in sis_found:
                     num_tifs = list((Path(rgn_ts_dir)/si).glob("*.tif"))
                     if len(num_tifs) != 13:
-                        logger.warning(f"{rgn.stem} does not have 13 images of {str(si)}. there are only {len(num_tifs)}")
-                        not_ready.append(f"{rgn.stem}_{str(si)}")
+                        logger.warning(f"{rgn.stem} does not have 13 images of {si!s}. there are only {len(num_tifs)}")
+                        not_ready.append(f"{rgn.stem}_{si!s}")
                         #logger.info(f'region={rgn}')
         #logger.info(f'not ready = {not_ready}')
-        regions_not_ready = list(set([i.split("_")[0] for i in not_ready]))
+        regions_not_ready = list({i.split("_")[0] for i in not_ready})
         ready = sorted([i.name for i in user_train_regions if i not in regions_not_ready])
         #config_file = Path(seg_dir)/"config_cultionet.yml"
     
         ## save file for user_train_regions that are ready (for the config file)
         if len(ready) > 0:
             chip_file = Path(seg_dir)/"cnet_training_regions.txt"
-            txt = open(chip_file, 'w')                           
-            txt.write('id \n')     
+            with open(chip_file, 'w') as txt:                          
+                txt.write('id \n')     
             for rdy in ready:
                 if not str(rdy).startswith("."):
                     txt.write(f'{rdy} \n')       
@@ -346,8 +347,8 @@ def prep_training_ts_for_segmentation(params):
                 
         ## create holdout list for accuracy assessment from chips that weren't used in model training bcuz they had incomplete TS
         ## Note: for this to work, need to run this first for non-holdout cells, then later for holdout cells (with <get_chip_list>=False) 
-        txt_holdout = open(str(chip_file).replace(".txt", "_holdout.txt"), 'w')
-        txt_holdout.write('id \n')     
+        with open(str(chip_file).replace(".txt", "_holdout.txt"), 'w') as txt_holdout:
+            txt_holdout.write('id \n')     
         for incomplete_ts in regions_not_ready:
             if not incomplete_ts.startswith("."):
                 txt_holdout.write(f'{incomplete_ts} \n')       

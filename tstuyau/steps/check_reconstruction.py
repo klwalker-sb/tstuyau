@@ -1,30 +1,33 @@
-from pathlib import Path
-from datetime import datetime, timedelta
 import concurrent.futures
-
-from ..handler import logger
-from ..db import TuyauDataBase
-from .project import ProjectPaths, get_tsdir_name
-from .time_series_utils import smooth
-from .io import TimeSeriesLoader
-from .constants import FILENAME_DATE_INDEX, FILENAME_DATE_START_INDEX, FILENAME_DATE_END_INDEX, FILENAME_DATE_INDEX_GEE
-from .lookup import SENSORS
-from .spec_indices import SI_DICT
-from .date_utils import get_date_range
-from .mask_utils import get_mask_kwargs, apply_masks_to_images
-from . import prechecks
-from . import utils
+import sys
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import geowombat as gw
-from geowombat.core import sort_images_by_date
-from geowombat.core.windows import get_window_offsets
-
 import numpy as np
 import pandas as pd
 import rasterio as rio
 import yaml
+from geowombat.core import sort_images_by_date
+from geowombat.core.windows import get_window_offsets
 from tqdm import tqdm
-import sys
+
+from ..db import TuyauDataBase
+from ..handler import logger
+from . import utils
+from .constants import (
+    FILENAME_DATE_END_INDEX,
+    FILENAME_DATE_INDEX,
+    FILENAME_DATE_INDEX_GEE,
+    FILENAME_DATE_START_INDEX,
+)
+from .date_utils import get_date_range
+from .io import TimeSeriesLoader
+from .lookup import SENSORS
+from .mask_utils import apply_masks_to_images, get_mask_kwargs
+from .project import ProjectPaths, get_tsdir_name
+from .spec_indices import SI_DICT
+from .time_series_utils import smooth
 
 LANDSAT_LIKE_BANDS = ['blue', 'green', 'red', 'nir', 'swir1', 'swir2']
 
@@ -92,9 +95,9 @@ def reconstruct(params):
         season = params['feature_model']['si_vars'][0].split('-')[1] 
         params['reconstruct']['start'], params['reconstruct']['end'] = get_date_range(params['feature_model']['start_yr'],season,params)
         if params['feature_model']['pheno_pad_days']:
-            params['reconstruct']['start_pad'] = (datetime.strptime(params['reconstruct']['start'], '%Y-%m-%d') 
+            params['reconstruct']['start_pad'] = (datetime.strptime(params['reconstruct']['start'], '%Y-%m-%d').replace(tzinfo=timezone.utc)
                                                   - timedelta(days=params['feature_model']['pheno_pad_days'][0])).strftime("%Y-%m-%d")
-            params['reconstruct']['end_pad'] = (datetime.strptime(params['reconstruct']['end'], '%Y-%m-%d') 
+            params['reconstruct']['end_pad'] = (datetime.strptime(params['reconstruct']['end'], '%Y-%m-%d').replace(tzinfo=timezone.utc) 
                                                   + timedelta(days=params['feature_model']['pheno_pad_days'][1])).strftime("%Y-%m-%d")
         else:
             params['reconstruct']['start_pad'] = params['reconstruct']['start']
@@ -114,10 +117,10 @@ def reconstruct(params):
 
         # Check if other pre-processing steps are complete
         if not db.is_complete(grid, 'preprocess'):
-            logger.warning(f'  The pre-processing step is incomplete.')
+            logger.warning('  The pre-processing step is incomplete.')
             continue
 
-        if not getattr(ppaths, 'proc').is_dir():
+        if not ppaths.proc.is_dir():
             logger.warning(f'  The input directory for grid {grid} does not exist.')
             continue
 
@@ -157,10 +160,9 @@ def reconstruct(params):
                 file_path.unlink()
 
         ## Check if the file is complete (only if rewrite_win parameter is set to False)
-        if not params['reconstruct']['rewrite_win']:
-            if (ts_dir / f'{grid:06d}.window').is_file():
-                with open(ts_dir / f'{grid:06d}.window', mode='r') as pf:
-                    window_tracker = yaml.load(pf, Loader=yaml.FullLoader)
+        if not params['reconstruct']['rewrite_win'] and ((ts_dir / f'{grid:06d}.window').is_file()):
+            with open(ts_dir / f'{grid:06d}.window', mode='r') as pf:
+                window_tracker = yaml.load(pf, Loader=yaml.FullLoader)
 
                 if int(window_tracker[params['reconstruct']['chunks']]['latest']) == 1e9:
                     logger.warning('  The reconstruct step is complete.')
@@ -188,14 +190,14 @@ def reconstruct(params):
             sensor = sensors
 
         if (sensor == 'LS2') or (sensor == 'All'):
-            search_str = f'*.nc' if skip_flag is None else f'*[!{skip_flag}].nc' 
+            search_str = '*.nc' if skip_flag is None else f'*[!{skip_flag}].nc' 
         else:
             senstr = SENSORS[sensor]['matchstr']
             search_str = f'L3?_{senstr}*.nc' if skip_flag is None else f'L3?_{senstr}*[!{skip_flag}].nc'
 
         
         image_dict = sort_images_by_date(
-            getattr(ppaths, 'proc'),
+            ppaths.proc,
             search_str,
             date_start=FILENAME_DATE_START_INDEX,
             date_end=FILENAME_DATE_END_INDEX,
@@ -220,16 +222,15 @@ def reconstruct(params):
         else:
             pad = params['reconstruct']['smooth_kwargs']['k']*2 if params['reconstruct']['smooth_kwargs']['spt_smoothing'] else None
             pidx = 1 if params['reconstruct']['smooth_kwargs']['spt_smoothing'] else 0
-            if isinstance(pad, int):
-                if pad % 2 == 0:
-                    pad += 1
+            if isinstance(pad, int) and (pad % 2 == 0):
+                pad += 1
         
         ## sis may be passed in with parameters attached (e.g. savi.100 and/or with ts info (e.g. savi-raw or savi.100-raw). '_' is legacy only.
         sidx = si.split('.')[0]
         if m := next((char for char in ('-', '_') if char in sidx), None):
             sidx = sidx.split(m)[0]
         #params['reconstruct']['si'] = sidx
-        if sidx in SI_DICT.keys():
+        if sidx in SI_DICT:
             band_names = SI_DICT[sidx]['band_names']
         else:
             logger.warning(f"  Model does not recognize {sidx}. Supported spectral indices are {SI_DICT.keys()}")
@@ -253,15 +254,15 @@ def reconstruct(params):
                 
             masked_img_dir = ppaths.scratch / 'masked'
             masked_img_dir.mkdir(parents=True, exist_ok=True)
-            start_date = datetime.strptime(params['reconstruct']['start_pad'], '%Y-%m-%d') 
-            end_date = datetime.strptime(params['reconstruct']['end_pad'], '%Y-%m-%d') 
+            start_date = datetime.strptime(params['reconstruct']['start_pad'], '%Y-%m-%d').replace(tzinfo=timezone.utc)
+            end_date = datetime.strptime(params['reconstruct']['end_pad'], '%Y-%m-%d').replace(tzinfo=timezone.utc) 
             filtered_images = {
                 name: dt
                 for name, dt in image_dict.items()
                 if start_date <= dt <= end_date
             }
             logger.info(f'applying masks to {len(filtered_images)} images')
-            apply_masks_to_images(filtered_images, getattr(ppaths,'proc'), masked_img_dir, mask_args, params)
+            apply_masks_to_images(filtered_images, ppaths.proc, masked_img_dir, mask_args, params)
             
             image_dict = sort_images_by_date(
                 masked_img_dir,
@@ -292,20 +293,20 @@ def reconstruct(params):
                 else:
                     ref_crs = src.crs
 
-                profile = dict(
-                    blockxsize=src.gw.col_chunks,
-                    blockysize=src.gw.row_chunks,
-                    crs=src.gw.crs_to_pyproj.to_wkt(),
-                    transform=src.gw.affine,
-                    driver='GTiff',
-                    count=1,
-                    height=src.gw.nrows,
-                    width=src.gw.ncols,
-                    nodata=0,
-                    dtype='uint16',
-                    compress='lzw',
-                    tiled=True
-                )
+                profile = {
+                    'blockxsize': src.gw.col_chunks,
+                    'blockysize': src.gw.row_chunks,
+                    'crs': src.gw.crs_to_pyproj.to_wkt(),
+                    'transform': src.gw.affine,
+                    'driver': 'GTiff',
+                    'count': 1,
+                    'height': src.gw.nrows,
+                    'width': src.gw.ncols,
+                    'nodata': 0,
+                    'dtype': 'uint16',
+                    'compress': 'lzw',
+                    'tiled': True
+                }
 
                 windows = get_window_offsets(
                     src.gw.nrows,
@@ -367,11 +368,11 @@ def reconstruct(params):
                     logger.debug(f'time_band_df for valid all images in directory (not yet filtered to date):\n {time_band_df}')
 
                     # Get the padding datetime
-                    start_pad_dt = datetime.strptime(params['reconstruct']['start_pad'], '%Y-%m-%d')
-                    end_pad_dt = datetime.strptime(params['reconstruct']['end_pad'], '%Y-%m-%d')
+                    start_pad_dt = datetime.strptime(params['reconstruct']['start_pad'], '%Y-%m-%d').replace(tzinfo=timezone.utc)
+                    end_pad_dt = datetime.strptime(params['reconstruct']['end_pad'], '%Y-%m-%d').replace(tzinfo=timezone.utc)
 
-                    start_dt = datetime.strptime(params['reconstruct']['start'], '%Y-%m-%d')
-                    end_dt = datetime.strptime(params['reconstruct']['end'], '%Y-%m-%d')
+                    start_dt = datetime.strptime(params['reconstruct']['start'], '%Y-%m-%d').replace(tzinfo=timezone.utc)
+                    end_dt = datetime.strptime(params['reconstruct']['end'], '%Y-%m-%d').replace(tzinfo=timezone.utc)
 
                     skip_years = 1
                     if params['reconstruct']['skip_years']:
@@ -379,9 +380,9 @@ def reconstruct(params):
                     
                     if 'raw' not in si:
                         # Iterate over each annual slice
-                        unique_yrs = sorted(list(set([dt.year for dt in time_band_df.index.to_pydatetime()])))
+                        unique_yrs = sorted({dt.year for dt in time_band_df.index.to_pydatetime()})
                     else:
-                        unique_yrs = list(set([int(params['reconstruct']['start'][:4]),int(params['reconstruct']['end'][:4])])) 
+                        unique_yrs = list({int(params['reconstruct']['start'][:4]),int(params['reconstruct']['end'][:4])}) 
                         logger.debug(f"unique yrs: are {unique_yrs} for {params['reconstruct']['start']} to {params['reconstruct']['end']}.")
                     
                     for yidx in range(0, len(unique_yrs), skip_years):
@@ -395,25 +396,24 @@ def reconstruct(params):
                             
                         # Padded datetimes
                         if start_dt.month - start_pad_dt.month >= 0:
-                            start_pad_dt_slice = datetime.strptime(f'{year}-{start_pad_dt.month}-{start_pad_dt.day}', '%Y-%m-%d')
+                            start_pad_dt_slice = datetime.strptime(f'{year}-{start_pad_dt.month}-{start_pad_dt.day}', '%Y-%m-%d').replace(tzinfo=timezone.utc)
                         else:
-                            start_pad_dt_slice = datetime.strptime(f'{year-1}-{start_pad_dt.month}-{start_pad_dt.day}', '%Y-%m-%d')
+                            start_pad_dt_slice = datetime.strptime(f'{year-1}-{start_pad_dt.month}-{start_pad_dt.day}', '%Y-%m-%d').replace(tzinfo=timezone.utc)
 
                         add_yrs = 0
                         if end_dt.year - start_dt.year > 0:
                             add_yrs = skip_years
                             
                         if end_pad_dt.month - end_dt.month >= 0:
-                            end_pad_dt_slice = datetime.strptime(f"{year+add_yrs}-{end_pad_dt.month}-{end_pad_dt.day}", '%Y-%m-%d')
+                            end_pad_dt_slice = datetime.strptime(f"{year+add_yrs}-{end_pad_dt.month}-{end_pad_dt.day}", '%Y-%m-%d').replace(tzinfo=timezone.utc)
                         else:
-                            end_pad_dt_slice = datetime.strptime(f"{year+add_yrs+1}-{end_pad_dt.month}-{end_pad_dt.day}", '%Y-%m-%d')
+                            end_pad_dt_slice = datetime.strptime(f"{year+add_yrs+1}-{end_pad_dt.month}-{end_pad_dt.day}", '%Y-%m-%d').replace(tzinfo=timezone.utc)
                         
-                        if end_pad_dt_slice > end_pad_dt:
-                            end_pad_dt_slice = end_pad_dt
+                        end_pad_dt_slice = min(end_pad_dt_slice, end_pad_dt)
                     
                         # Un-padded datetimes
-                        start_dt_slice = datetime.strptime(f'{year}-{start_dt.month}-{start_dt.day}', '%Y-%m-%d')
-                        end_dt_slice = datetime.strptime(f"{year+add_yrs}-{end_dt.month}-{end_dt.day}", '%Y-%m-%d')
+                        start_dt_slice = datetime.strptime(f'{year}-{start_dt.month}-{start_dt.day}', '%Y-%m-%d').replace(tzinfo=timezone.utc)
+                        end_dt_slice = datetime.strptime(f"{year+add_yrs}-{end_dt.month}-{end_dt.day}", '%Y-%m-%d').replace(tzinfo=timezone.utc)
                         
                         time_band_df_slice = time_band_df.loc[start_pad_dt_slice:end_pad_dt_slice]
                         #imgs_used = time_band_df_slice['image_path'].apply(lambda x: Path(x).stem)
@@ -505,10 +505,11 @@ def reconstruct(params):
 
                     _update_progress(ts_dir, grid, params, widx)
 
-                    if params['reconstruct']['rewrite_win']:
-                        if (params['reconstruct']['start_win'] + params['reconstruct']['win_batchsize']) == int(widx)+1:
-                            if int(widx) < 16:
-                                sys.exit(0)
+                    if params['reconstruct']['rewrite_win'] and (
+                        (params['reconstruct']['start_win'] + params['reconstruct']['win_batchsize']) == int(widx)+1) and(
+                        int(widx) < 16):
+                        
+                        sys.exit(0)
 
                 if 'raw' not in si:
                     _update_progress(ts_dir, grid, params, 1e9)

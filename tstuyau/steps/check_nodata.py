@@ -1,22 +1,17 @@
-import sys
-import shutil
-import math
-from tqdm import tqdm
 from pathlib import Path
-import pandas as pd
-import geopandas as gpd
+
+import geowombat as gw
 import numpy as np
-import pyproj
+import pandas as pd
+import rasterio as rio
+
 #import pickle
 import xarray as xr
-import rasterio as rio
-from shapely.geometry import box
-import geowombat as gw
 
 from ..handler import logger
-from .project import ProjectPaths
 from . import utils
 from .check_status import read_db
+from .project import ProjectPaths
 
 
 def reconstruct_db(processing_info_path,landsat_path,sentinel2_path,brdf_path):
@@ -35,11 +30,11 @@ def reconstruct_db(processing_info_path,landsat_path,sentinel2_path,brdf_path):
     else:
         brdf_files = []
     if Path(landsat_path).is_dir():
-        landsat_files = list(Path(landsat_files).glob('*.tif'))
+        landsat_files = list(Path(landsat_path).glob('*.tif'))
     else:
         landsat_files = list(Path(landsat_files).glob('*.tif'))
     if Path(sentinel2_path).is_dir():
-        sentinel2_files = list(Path(sentinel2_files).glob('*.tif'))
+        sentinel2_files = list(Path(sentinel2_path).glob('*.tif'))
     else:
         sentinel2_files = []
         
@@ -138,10 +133,10 @@ def reconstruct_db(processing_info_path,landsat_path,sentinel2_path,brdf_path):
                         if idx.startswith('S'):  
                             if (idx.split('_')[1] in fi.stem.split('_')[2]) and (idx.split('_')[2] == fi.stem.split('_')[3]):
                                 match = fi
-                        elif idx.startswith('L'): 
-                            if (idx.split('_')[0] == fi.stem.split('_')[1]) and (idx.split('_')[2] in fi.stem.split('_')[2]) and (
-                                idx.split('_')[3] == fi.stem.split('_')[3]):
-                                match = fi
+                        elif idx.startswith('L') and (idx.split('_')[0] == fi.stem.split('_')[1]) and (
+                            idx.split('_')[2] in fi.stem.split('_')[2]) and (
+                            idx.split('_')[3] == fi.stem.split('_')[3]):
+                            match = fi
                     logger.debug(f'match:{match}')
                     processing_db.at[idx,'brdf_id']=match
                     if match:
@@ -172,10 +167,10 @@ def reconstruct_db(processing_info_path,landsat_path,sentinel2_path,brdf_path):
                             if idx.startswith('S'):
                                 if (idx.split('_')[1] in fi.stem.split('_')[2]) and (idx.split('_')[2] == fi.stem.split('_')[3]):
                                      match = fi 
-                            elif idx.startswith('L'): 
-                                if (idx.split('_')[0] == fi.stem.split('_')[1]) and (idx.split('_')[2] in fi.stem.split('_')[2]) and (
-                                    idx.split('_')[3] == fi.stem.split('_')[3]):
-                                    match = fi
+                            elif idx.startswith('L') and (idx.split('_')[0] == fi.stem.split('_')[1]) and (
+                                idx.split('_')[2] in fi.stem.split('_')[2]) and (
+                                idx.split('_')[3] == fi.stem.split('_')[3]):
+                                match = fi
                         logger.debug(f'match:{match}')
                         if match:
                             if 'coreg' in match:
@@ -336,7 +331,7 @@ def get_valid_pix_per(img_path):
             validper = int(100*validpix/float(4000000))  
         return validper
     
-    except:
+    except Exception:
         return -99
 
 def check_valid_pixels(ppaths, grid, params, check_missing_files=False):
@@ -407,8 +402,8 @@ def move_nodata(params):
                 ## check where brdf pixels != download pixels
                 ## TODO: fix 'ValidPix_orig' for Sentinel images (always finding 100%) and remove 'numpix' from these calcs
                 ##   or can just use 'numpix', but is calculated at download stage and won't be avaiable if db missing/corrupted.
-                db['rerun_brdf'] = db.apply(lambda x: True if ((x['numpix'] > 200000) & 
-                                          ((x['ValidPix_orig'] + 1) / (x['ValidPix_brdf'] + 1) >= 2)) else False, axis=1)
+                db['rerun_brdf'] = db.apply(lambda x: bool((x['numpix'] > 200000) & (
+                    (x['ValidPix_orig'] + 1) / (x['ValidPix_brdf'] + 1) >= 2)), axis=1)
                 to_rerun = db[db['rerun_brdf']==True]
                 to_rerun[['brdf_id']].to_csv(ppaths.ms.parent.joinpath('rerun_brdfs.csv'), index=False, header=False) 
                 logger.info(f'flagging {to_rerun.shape[0]} failed brdfs in database to rerun')

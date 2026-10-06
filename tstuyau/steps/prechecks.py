@@ -1,27 +1,20 @@
 from datetime import datetime
-from pathlib import Path
+
 import matplotlib.pyplot as plt
 import yaml
-
-from ..handler import logger
-from .. import errors
-from . import utils
-from .project import ProjectPaths
-from .image_utils import get_rbg_img
-from .constants import FILENAME_DATE_INDEX, FILENAME_DATE_INDEX_GEE
-
 from geowombat.core import sort_images_by_date
+
+from .. import errors
+from ..handler import logger
+from . import utils
+from .constants import FILENAME_DATE_INDEX, FILENAME_DATE_INDEX_GEE
+from .image_utils import get_rbg_img
+from .project import ProjectPaths
 
 
 def precheck_reconstruct(grid, ppaths, params):
-
     """
     Checks if all masks are complete
-
-    Args:
-        grid (int)
-        ppaths (object)
-        params (dict)
     """
     if params['dlMethod'] == 'GEE':
         date_pos=FILENAME_DATE_INDEX_GEE
@@ -30,7 +23,7 @@ def precheck_reconstruct(grid, ppaths, params):
         date_pos=FILENAME_DATE_INDEX
         prepend_str=''
     
-    image_dict = sort_images_by_date(getattr(ppaths, 'ms'), '*.tif', date_pos, 0, 8)
+    image_dict = sort_images_by_date(ppaths.ms, '*.tif', date_pos, 0, 8)
 
     image_names = list(image_dict.keys())
     time_names = list(image_dict.values())
@@ -58,12 +51,8 @@ def precheck_reconstruct(grid, ppaths, params):
 
 
 def precheck_classify(params):
-
     """
     Checks if all variables are complete
-
-    Args:
-        params (dict)
     """
 
     cells = utils.get_cell_list_from_grid_param(params['grids'])
@@ -92,7 +81,7 @@ def make_thumbnail_batch(img_dir,thumbnail_dir,yr,params):
     skip_flag=params['reconstruct']['skip_flag']
 
     if skip_flag and (skip_flag != 'None'):
-        imgs0 = list(img_dir.glob(f'*{include}[!{exclude}].nc')) + list(img_dir.glob(f'*{include}[!{exclude}].tif'))
+        imgs0 = list(img_dir.glob(f'*{include}[!{skip_flag}].nc')) + list(img_dir.glob(f'*{include}[!{skip_flag}].tif'))
     else:
         imgs0 = list(img_dir.glob(f'*{include}.nc')) +  list(img_dir.glob(f'*{include}.tif'))
 

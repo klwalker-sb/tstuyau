@@ -1,12 +1,12 @@
-from ..handler import logger
 from pathlib import Path
-from .project import ProjectPaths
-from .constants import FILENAME_DATE_INDEX, FILENAME_DATE_INDEX_GEE
-import pandas as pd
-import geopandas as gpd
+
 import numpy as np
-import pyproj
-import pickle
+import pandas as pd
+
+from ..handler import logger
+from .constants import FILENAME_DATE_INDEX, FILENAME_DATE_INDEX_GEE
+from .project import ProjectPaths
+
 
 def match_brdf_files_to_record(brdf_dir, processing_db, exclude=None, method='stac'):
     """
@@ -54,7 +54,7 @@ def match_brdf_files_to_record(brdf_dir, processing_db, exclude=None, method='st
     return file_to_scene
     
 
-def reconstruct_db(gridcell):
+def reconstruct_db(gridcell, params):
     '''
     This checks for an existing processing.info database and creates one if needed from download and brdf folders.
     This is only for cases of corruption or accidental deletion. -- 
@@ -66,7 +66,7 @@ def reconstruct_db(gridcell):
     brdf_path = ppaths.ms
     landsat_path = ppaths.ms.parent / 'landsat'
     sentinel2_path = ppaths.ms.parent / 'sentinel2'
-    processing_info = ppaths.ms.parent / 'processing.info'
+    processing_info_path = ppaths.ms.parent / 'processing.info'
     
     modified = False
     
@@ -155,7 +155,7 @@ def reconstruct_db(gridcell):
                 if Path(s).stem in processing_db.values:
                     continue
                 else:
-                    new_dls[Path(s).stem]={'dl':f'{sentinel2}/{s}','beforeDB':True}
+                    new_dls[Path(s).stem]={'dl':f'{sentinel2_path}/{s}','beforeDB':True}
         
             if len(new_dls)>0:
                 new_dl_db = pd.DataFrame.from_dict(new_dls,orient='index')
@@ -176,13 +176,11 @@ def reconstruct_db(gridcell):
                 for idx, row in processing_db.iterrows():
                     match=None
                     for fi in Path(brdf_path).iterdir():
-                        if fi.endswith('.nc'):
-                            if idx.startswith('S'):  
-                                if (idx.split('_')[1] in fi.split('_')[2]) and (idx.split('_')[2] == fi.split('_')[3]):
-                                    match = fi
-                            elif idx.startswith('L'): 
-                                if (idx.split('_')[0] == fi.split('_')[1]) and (idx.split('_')[2] in fi.split('_')[2]) and (idx.split('_')[3] == fi.split('_')[3]):
-                                    match = fi
+                        if fi.endswith('.nc') and (
+                            (idx.startswith('S') and (idx.split('_')[1] in fi.split('_')[2]) and (idx.split('_')[2] == fi.split('_')[3])) or (
+                                idx.startswith('L') and (idx.split('_')[0] == fi.split('_')[1]) and (
+                                idx.split('_')[2] in fi.split('_')[2]) and (idx.split('_')[3] == fi.split('_')[3]))):
+                                match = fi
                     processing_db.at[idx,'brdf_id']=match
                     if match is not None:
                         if match.split('_')[0] == 'L3B':
@@ -212,9 +210,9 @@ def reconstruct_db(gridcell):
                                 if idx.startswith('S'):
                                     if (idx.split('_')[1] in fi.split('_')[2]) and (idx.split('_')[2] == fi.split('_')[3]):
                                         match = fi 
-                                elif idx.startswith('L'): 
-                                    if (idx.split('_')[0] == fi.split('_')[1]) and (idx.split('_')[2] in fi.split('_')[2]) and (idx.split('_')[3] == fi.split('_')[3]):
-                                        match = fi
+                                elif idx.startswith('L') and (
+                                    idx.split('_')[0] == fi.split('_')[1]) and (idx.split('_')[2] in fi.split('_')[2]) and (idx.split('_')[3] == fi.split('_')[3]):
+                                    match = fi
                         if match is not None:
                             if 'coreg' in match:
                                 processing_db.at[idx,'coreg']=True

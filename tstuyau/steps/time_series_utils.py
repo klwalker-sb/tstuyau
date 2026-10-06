@@ -1,17 +1,15 @@
-from __future__ import division
 
 import os
 
-from ..handler import logger
-# from .date_utils import prepare_x
+import numpy as np
 
+# from .date_utils import prepare_x
 import satsmooth as sm
-from satsmooth.utils import nd_to_columns, columns_to_nd, prepare_x
 from satsmooth.anc import AncSmoothers
-from satsmooth.anc._lowess_smooth import lowess_smooth
+from satsmooth.utils import columns_to_nd, nd_to_columns, prepare_x
 from satsmooth.utils.tfill import SFill
 
-import numpy as np
+from ..handler import logger
 
 
 def check_low_values(yd):

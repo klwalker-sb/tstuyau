@@ -1,14 +1,15 @@
-import string
-import random
 import csv
-import numpy as np
+import random
+import string
+
 import cv2
 import geowombat as gw
-from geowombat.core import ndarray_to_xarray
-from geowombat.radiometry import QAMasker
-import xarray as xr
+import numpy as np
 from affine import Affine
+from geowombat.core import ndarray_to_xarray
+
 from ..handler import logger
+
 
 def random_id(string_length):
 
@@ -31,10 +32,10 @@ def get_cell_list_from_grid_param(grid_param):
         with open(grid_param, newline='') as cell_file:
             for row in csv.reader(cell_file):
                 cells.append(row[0])
-    elif isinstance(grid_param, int) or isinstance(grid_param, str): # if runing individual cells as array via bash script
+    elif isinstance(grid_param, (int, str)): # if runing individual cells as array via bash script
         cells.append(grid_param) 
     else:
-        logger.warning(f"ERR: Problem parsing input as cell list. Needs to be list, .csv, or single int or string")
+        logger.warning("ERR: Problem parsing input as cell list. Needs to be list, .csv, or single int or string")
 
     return cells
     
@@ -164,11 +165,12 @@ def band_is_ok(band, chunks):
     try:
 
         with gw.open(band, chunks=chunks) as src:
-            res = src.gw.read(band=1, num_workers=1)
+            _res = src.gw.read(band=1, num_workers=1)
 
         return True
 
-    except:
+    except (gw.backends.rasterio.rasterio.errors.RasterioIOError, OSError) as e:
+        logger.warning(f'ERROR: {e}')
         return False
     
 def tag_array(bands,
@@ -193,7 +195,7 @@ def tag_array(bands,
 
     array_stack[(array_stack < 0) | (array_stack > 10000)] = params['nodata']
 
-    nbands, nrows, ncols = array_stack.shape
+    _nbands, nrows, ncols = array_stack.shape
 
     src_res = params['storage']['res'] if not isinstance(src_res, float) else src_res
 
@@ -237,12 +239,12 @@ def tag_array(bands,
 
     return res
 
-    class BandQA(object):
+class BandQA:
 
-        def __init__(self, sensor='landsat', collection='1'):
+    def __init__(self, sensor='landsat', collection='1'):
         
-            # Bit flags for Landsat Tier 1 surface reflectance from Google Earth Engine
-            bit_flags = {'landsat': {'fill': 1 << 0,
+        # Bit flags for Landsat Tier 1 surface reflectance from Google Earth Engine
+        bit_flags = {'landsat': {'fill': 1 << 0,
                                  'clear': 1 << 1,
                                  'water': 1 << 2,
                                  'shadow': 1 << 3,
@@ -251,34 +253,34 @@ def tag_array(bands,
                      'd09a1': {'cloud': 1 << 0,
                                'shadow': 1 << 2}}
         
-            self.sensor_flags = bit_flags[sensor]
+        self.sensor_flags = bit_flags[sensor]
 
-        def mask(self, qa, mask_items=None):
+    def mask(self, qa, mask_items=None):
 
-            """
-            Masks a QA array
+        """
+        Masks a QA array
 
-            Args:
-                qa (2d array): QA bit array.
-                mask_items (list): QA bit flags.
+        Args:
+            qa (2d array): QA bit array.
+            mask_items (list): QA bit flags.
 
-            Returns:
-                ``ndarray``:
-                    0: clear
-                    1: mask
-            """
+        Returns:
+            ``ndarray``:
+                0: clear
+                1: mask
+        """
 
-            if not mask_items:
-                mask_items = ['cloud']
+        if not mask_items:
+            mask_items = ['cloud']
 
-            mask_array = np.zeros(qa.shape, dtype='uint8')
+        mask_array = np.zeros(qa.shape, dtype='uint8')
 
-            for mitem in mask_items:
+        for mitem in mask_items:
 
-                flag_mask = np.bitwise_and(qa, self.sensor_flags[mitem])
-                mask_array = mask_array | flag_mask
+            flag_mask = np.bitwise_and(qa, self.sensor_flags[mitem])
+            mask_array = mask_array | flag_mask
 
-            return np.uint8(np.where(mask_array > 0, 1, 0))
+        return np.uint8(np.where(mask_array > 0, 1, 0))
 
 
 def mask_data(array, mask, nodataval):

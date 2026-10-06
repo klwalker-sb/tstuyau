@@ -1,24 +1,16 @@
-from abc import ABC, abstractmethod
-from pathlib import Path
 import concurrent.futures
 import json
-from tqdm import tqdm
-import string
-import random
-import shutil
-from datetime import datetime
-from collections import namedtuple
-import numpy as np
-import pandas as pd
+from abc import ABC, abstractmethod
+from pathlib import Path
+
 import geopandas as gpd
-
-from .lookup import GEE_TRANSLATIONS
-from ..handler import logger
-from .web_utils import GEE, WebGCP
-from .image_utils import get_grid_bounds
-
 from geowombat.core.properties import get_sensor_info
+from tqdm import tqdm
 
+from ..handler import logger
+from .image_utils import get_grid_bounds
+from .lookup import GEE_TRANSLATIONS
+from .web_utils import GEE, WebGCP
 
 
 class IngestAbstract(ABC):
@@ -38,12 +30,6 @@ class IngestFromGoogle(IngestAbstract, GEE):
         pass
 
     def ingest_from_gee(self, params, grid, ppaths):
-
-        """
-        """
-        
-        df = gpd.read_file(params['grid_file'])
-        cell = df.query(f"UNQ == {grid}")
 
         bounds, proj_bounds, proj_crs = get_grid_bounds(
                     params['grid_file'],
@@ -80,7 +66,6 @@ class IngestFromGoogle(IngestAbstract, GEE):
                     asset_id = f'LANDSAT/{sensor}/C01/T1_SR'
                     prod = sensor
         
-        out_path = Path(out_dir).absolute()
         if satellite not in ['sentinel-2','landsat']:
             logger.warning('only sentinel-2 and landsat are supported for GEE download at this time. see eosvault for other options')
             wg = None

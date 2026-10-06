@@ -1,23 +1,23 @@
+import math
+import pathlib
 import shutil
 import tempfile
-import pathlib
 from pathlib import Path
-import geowombat as gw
-from geowombat.core import sort_images_by_date
-import math
-import numpy as np
-import pandas as pd
+
 import geopandas as gpd
-import xarray as xr
-import rasterio as rio
-from skimage.exposure import rescale_intensity
-from rasterio.coords import BoundingBox
-from rasterio.windows import Window
-from shapely.geometry import Polygon
-from rasterio.mask import mask
+import geowombat as gw
+import numpy as np
 import pyproj
-from .utils import random_id
+import rasterio as rio
+import xarray as xr
+from geowombat.core import sort_images_by_date
+from rasterio.crs import CRS
+from rasterio.mask import mask
+from shapely.geometry import Polygon
+from skimage.exposure import rescale_intensity
+
 from ..handler import logger
+from .utils import random_id
 
 _projections = {}
 
@@ -39,10 +39,10 @@ def img_to_bbox_offsets(gt, cell, grid_file, buffer=100, res=10.0):
     origin_y = gt[5]
     pixel_width = gt[0]
     pixel_height = gt[4]
-    x1 = int(round((bbox[0] - origin_x) / pixel_width))
-    x2 = int(round((bbox[1] - origin_x) / pixel_width))
-    y1 = int(round((bbox[3] - origin_y) / pixel_height))
-    y2 = int(round((bbox[2] - origin_y) / pixel_height))
+    x1 = round((bbox[0] - origin_x) / pixel_width)
+    x2 = round((bbox[1] - origin_x) / pixel_width)
+    y1 = round((bbox[3] - origin_y) / pixel_height)
+    y2 = round((bbox[2] - origin_y) / pixel_height)
     xsize = x2 - x1
     ysize = y2 - y1
     return [x1, y1, xsize, ysize]
@@ -68,8 +68,8 @@ def image_to_snapped_bounds(cell, grid_file, buffer=100, res=10.0, width=None, h
         target_width = width
         target_height = height
     else:
-        target_width = int(round((east - west) / res))
-        target_height = int(round((north - south) / res))
+        target_width = round((east - west) / res)
+        target_height = round((north - south) / res)
 
     snapped_east = snapped_west + (target_width * res)
     snapped_south = snapped_north - (target_height * res)
@@ -84,13 +84,12 @@ def rescale_band(img_in, maxval=255, profile=None, outpath=None):
     rescales single-band image to range 0-maxval and returns it as uint8
     '''
 
-    if isinstance(img_in, str) or isinstance(img_in, pathlib.PurePath):
+    if isinstance(img_in, (str, pathlib.PurePath)):
         with rio.open(img_in) as src:
             old_arr = src.read()
             profile = src.profile 
     else:
         old_arr = img_in
-        profile = profile
         
     srcmin = np.amin(old_arr)
     srcmax = np.amax(old_arr)
@@ -208,7 +207,6 @@ def get_grid_bounds(grid_file,
 
     if centroid_to_utm == 'y':
         # Grid size, in meters
-        grid_size = grid_size
 
         grid_size_half = int(grid_size / 2.0)
 
@@ -399,7 +397,6 @@ def open_images(ppaths, params, method):
     else:
 
         grid_list = [ppaths.grid]
-        read_bounds = None
 
     vrt_files = []
 
@@ -452,8 +449,7 @@ def scale_data(data, scale_factor=1.0):
 
 def normalize(array):
     array_min, array_max = array.min(), array.max()
-    if array_min < 0:
-        array_min = 0
+    array_min = max(array_min, 0)
     return (array - array_min) / (array_max - array_min)
     
 def gammacorr(band, gamma):

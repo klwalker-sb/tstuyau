@@ -1,20 +1,19 @@
+from datetime import datetime, timezone
 from pathlib import Path
-from datetime import datetime
 
-from ..handler import logger
+import dask.array as da
+import geopandas as gpd
+import geowombat as gw
+import xarray as xr
+from geowombat.core import sort_images_by_date
+from geowombat.radiometry import Topo
+from geowombat.radiometry.topo import calc_aspect_delayed, calc_slope_delayed
+
 from ..db import TuyauDataBase
+from ..handler import logger
 from . import utils
 from .project import ProjectPaths
 from .web_utils import download_hgt
-
-import geowombat as gw
-from geowombat.core import sort_images_by_date
-from geowombat.radiometry import Topo
-from geowombat.radiometry.topo import calc_slope_delayed, calc_aspect_delayed
-
-import geopandas as gpd
-import dask.array as da
-import xarray as xr
 
 
 def delayed_to_xarray(delayed_data, data):
@@ -35,16 +34,16 @@ def adjust_topo(params):
     Note this is specific to srtm data. TODO: update to work with Copirnicus
     """
 
-    slope_kwargs = dict(format='MEM',
-                        computeEdges=True,
-                        alg='ZevenbergenThorne',
-                        slopeFormat='degree')
+    slope_kwargs = {'format': 'MEM',
+                        'computeEdges': True,
+                        'alg': 'ZevenbergenThorne',
+                        'slopeFormat': 'degree'}
 
-    aspect_kwargs = dict(format='MEM',
-                         computeEdges=True,
-                         alg='ZevenbergenThorne',
-                         trigonometric=False,
-                         zeroForFlat=True)
+    aspect_kwargs = {'format': 'MEM',
+                         'computeEdges': True,
+                         'alg': 'ZevenbergenThorne',
+                         'trigonometric': False,
+                         'zeroForFlat': True}
 
     ppaths = ProjectPaths(params)
 
@@ -75,7 +74,7 @@ def adjust_topo(params):
         #     continue
 
         # Intersect the SRTM grids with the sample grid
-        srtm_df_int = srtm_df[srtm_df.geometry.intersects(samples_df.query(f"UNQ == {grid}").geometry.values[0])]
+        srtm_df_int = dem_df[dem_df.geometry.intersects(samples_df.query(f"UNQ == {grid}").geometry.values[0])]
 
         # Intersect with the nations
         # nations_df_int = nations_df[['CONTINENT', 'geometry']][nations_df.geometry.intersects(srtm_df_int.geometry.values[0])]
@@ -112,7 +111,7 @@ def adjust_topo(params):
         image_names = list(image_dict.keys())
         time_names = list(image_dict.values())
 
-        open_kwargs = dict(chunks=512)
+        open_kwargs = {'chunks': 512}
 
         with gw.open(angle_image_names,
                      time_names=angle_time_names,
@@ -132,14 +131,13 @@ def adjust_topo(params):
                 if fn_path.name != '2005121.tif':
                     continue
 
-                fn_date = datetime.strptime(fn_path.stem, '%Y%j')
+                fn_date = datetime.strptime(fn_path.stem, '%Y%j').replace(tzinfo=timezone.utc)
 
                 # Get the angle nearest to the si date
                 src_ang_slice = src_ang.sel(time=fn_date, method='nearest')
 
-                with gw.config.update(ref_image=str(fn)):
-
-                    with gw.open(fn,
+                with gw.config.update(ref_image=str(fn)
+                                      ), gw.open(fn,
                                  band_names=['vi'],
                                  dtype='float64',
                                  resampling='nearest',

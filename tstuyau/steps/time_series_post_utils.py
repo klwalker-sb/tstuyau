@@ -1,7 +1,8 @@
-import numpy as np
 import xarray as xr
+
 from ..handler import logger
 from .filter_utils import FilterTsArgs, apply_condition_to_timeseries, store_count
+
 
 def _retouch_sugar_palm(ts, idx, ctx: FilterTsArgs):
     logger.info('correcting illogical palm forest / sugar sequences...')
@@ -27,7 +28,7 @@ def _retouch_sugar_grass(ts, idx, ctx: FilterTsArgs):
         (ngrass >= 4)
     )
     ##  fill with the majority grass type from the specific ts sequence
-    grass_ras = [key for key in ctx.base_rasters.keys() if key.startswith('grass')][0]
+    grass_ras = next(key for key in ctx.base_rasters if key.startswith('grass'))
     return apply_condition_to_timeseries(ts, unlikely_sugar_cond, ctx.base_rasters[grass_ras],
                                          idx, ctx.ts_files[0], ctx.params,region_key='illogical_regions', region_file_key='illogical_region_file')
     
@@ -156,7 +157,7 @@ def _retouch_medcrop_shrub(ts, idx, ctx: FilterTsArgs):
     unlikely_medcrop_cond = (
         ts.isin(ctx.LC_CATS['med_crops']) &
         ((ts.shift(time=1).fillna(0).isin(ctx.LC_CATS['dry_grass'])) | (ts.shift(time=1).fillna(0)==(ctx.LC_CATS['shrub_main']))) &
-        ((ts.shift(time=-1).fillna(0).isin(ctx.LC_CATS['dry_grass']) | (ts.shift(time=-1).fillna(0)==ctx.LC_CATS['shrub_main'])))
+        (ts.shift(time=-1).fillna(0).isin(ctx.LC_CATS['dry_grass']) | (ts.shift(time=-1).fillna(0)==ctx.LC_CATS['shrub_main']))
     )
     return apply_condition_to_timeseries(ts, unlikely_medcrop_cond, ctx.LC_CATS['shrub_main'],
                                        idx, ctx.ts_files[0], ctx.params,region_key='illogical_regions', region_file_key='illogical_region_file')
@@ -282,26 +283,20 @@ def _retouch_noplant_plant(ts, idx, ctx: FilterTsArgs):
         (ts < ctx.LC_CATS['first_mature']) &
         (ts.shift(time=-1).fillna(0).isin(ctx.LC_CATS['tree_plant']))
     )
-    return apply_condition_to_timeseries(ts, young_plant_cond, ctx.LC_CATS['young_treeplant'],
+    corrected1= apply_condition_to_timeseries(ts, young_plant_cond, ctx.LC_CATS['young_treeplant'],
                                        idx, ctx.ts_files[0], ctx.params,region_key='illogical_regions', region_file_key='illogical_region_file')
 
     ## recompute against the now-updated ts to catch 2-yr growth that the first pass didn't
-    young_plant_cond = (
-        (ts >= ctx.LC_CATS['first_medveg']) &
-        (ts < ctx.LC_CATS['first_mature']) &
-        (ts.shift(time=-1).fillna(0).isin(ctx.LC_CATS['tree_plant']))
-    )
-    return apply_condition_to_timeseries(ts, young_plant_cond, ctx.LC_CATS['young_treeplant'],
-                                       idx, ctx.ts_files[0], ctx.params,region_key='illogical_regions', region_file_key='illogical_region_file')
 
     baby_plant_cond = (
         (ts < ctx.LC_CATS['first_medveg']) &
         (ts >= ctx.LC_CATS['first_veg']) &
         (ts.shift(time=-1).fillna(0).isin(ctx.LC_CATS['tree_plant']))
     )
-    return apply_condition_to_timeseries(ts, baby_plant_cond, ctx.LC_CATS['baby_treeplant'],
+    corrected2 =  apply_condition_to_timeseries(corrected1, baby_plant_cond, ctx.LC_CATS['baby_treeplant'],
                                        idx, ctx.ts_files[0], ctx.params,region_key='illogical_regions', region_file_key='illogical_region_file')
 
+    return corrected2
 
 CORRECTIONS = {
     'sugar-palm': _retouch_sugar_palm,

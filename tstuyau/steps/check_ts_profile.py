@@ -1,26 +1,25 @@
-from pathlib import Path
-import csv
-import math
 import datetime
-import geowombat as gw
-from geowombat.core import sort_images_by_date
+import math
+from pathlib import Path
+
+import geopandas as gpd
+import matplotlib.pyplot as plt
 import pandas as pd
 import rasterio as rio
-import geopandas as gpd
+import timezone
 import xarray as xr
-import matplotlib.pyplot as plt
 
-from .project import ProjectPaths, get_tsdir_name
-#from .spec_indices import calc_si_gw
-from .constants import FILENAME_DATE_INDEX, FILENAME_DATE_INDEX_GEE, FILENAME_DATE_START_INDEX, FILENAME_DATE_END_INDEX
-from .check_sample import get_pts_in_grid, get_polygons_in_grid, get_ran_pts_in_polys
-from .date_utils import get_date_range, get_img_date
-from .mod_utils import get_train_yrs_str
-from .spec_indices import calculate_raw_index, calculate_char_index, SI_DICT
-from .separability import get_separability
-from . import utils
-from .lookup import SENSORS
 from ..handler import logger
+from . import utils
+from .check_sample import get_polygons_in_grid, get_pts_in_grid, get_ran_pts_in_polys
+
+#from .spec_indices import calc_si_gw
+from .date_utils import get_date_range, get_img_date
+from .lookup import SENSORS
+from .mod_utils import get_train_yrs_str
+from .project import ProjectPaths, get_tsdir_name
+from .separability import get_separability
+from .spec_indices import SI_DICT, calculate_char_index, calculate_raw_index
 
 LANDSAT_LIKE_BANDS = ['blue', 'green', 'red', 'nir', 'swir1', 'swir2']
     
@@ -43,9 +42,8 @@ def get_index_vals_at_pts(ts_stack, ts_type, img_type, polys, si, npts,
     logger.info('getting index values...')
     
     maxval=10000
-    if params:
-        if params['masking']['maxval']:
-            maxval = params['masking']['maxval']
+    if params and params['masking']['maxval']:
+        maxval = params['masking']['maxval']
     
     if not load_samp:
         if polys:
@@ -134,13 +132,13 @@ def get_index_vals_at_pts(ts_stack, ts_type, img_type, polys, si, npts,
                         elif spec_index in ['nir']:
                             b2_val = nir_val
 
-                        logger.debug(f"b2_val = {b2_val} for image {str(img_date)}.")
+                        logger.debug(f"b2_val = {b2_val} for image {img_date!s}.")
 
                         index_val = calculate_raw_index(nir_val, b2_val, si, params=params)
                     
                     pt_vals.append(index_val)
                 pt_dict[str(img_date)] = pt_vals
-                logger.debug(f" got {len(pt_vals)} values for {str(img_date)}")
+                logger.debug(f" got {len(pt_vals)} values for {img_date!s}")
         
     ptdf = pd.DataFrame.from_dict(pt_dict, orient='columns')
     ptsgdb = pd.concat([ptsgdb,ptdf], axis=1)     
@@ -177,7 +175,7 @@ def sample_timeseries(params):
         ppaths=ProjectPaths(params)
         spectsdf_dir = ppaths.tssigs
     ## maxval used by get_index_value, not needed here:
-    maxval = params['masking']['maxval']  ## int -- optional (defaults to 10000) usually 1 for unprocessed data
+    #maxval = params['masking']['maxval']  ## int -- optional (defaults to 10000) usually 1 for unprocessed data
 
     ## the following parameters are only needed if poly_file is not None
     if poly_file:
@@ -206,7 +204,7 @@ def sample_timeseries(params):
             point_df = ptfile
         elif ptfile.endswith('.csv'):
             point_df = pd.read_csv(ptfile, index_col='OID_')
-        elif ptfile.endswith('.shp') or ptfile.endswith('.gpkg'):
+        elif ptfile.endswith(('.shp', '.gpkg')):
             point_df = gpd.read_file(ptfile)
             
         if filter_class:
@@ -215,7 +213,7 @@ def sample_timeseries(params):
             pts = point_df
 
     cells = utils.get_cell_list_from_grid_param(grids)
-    for grid in cells:
+    for cell in cells:
         ppaths = ProjectPaths(params, grid=int(cell))
         logger.info(f"working on cell {cell}")
         ts_stack = []
@@ -290,7 +288,6 @@ def sample_timeseries(params):
 
         else:
             logger.info('skipping this cell')
-            pass
 
     allpts.set_index('pt', inplace=True, drop=True)
     ts = allpts.transpose()
@@ -330,7 +327,7 @@ def sample_timeseries(params):
         outfile = Path(spectsdf_dir) / f"Cell{cell}_{prefix}_{img_type}_{start_yr}-{end_yr}.csv"
     else:
         if params['explore']['sig_prefix']:
-            outfile = Path(spectsdf_dir) / f"{sig_prefix}_{prefix}_{img_type}_{start_yr}-{end_yr}.csv"
+            outfile = Path(spectsdf_dir) / f"{params['explore']['sig_prefix']}_{prefix}_{img_type}_{start_yr}-{end_yr}.csv"
         else:    
             outfile = Path(spectsdf_dir) / f"{prefix}_{img_type}_{start_yr}-{end_yr}.csv"
     
@@ -601,7 +598,7 @@ def plot_timeseries(params):
             axs.plot([start_dry,start_dry], [params['plot']['ylim'][0],params['plot']['ylim']][1], color='gold')
             axs.plot([end_dry,end_dry], [params['plot']['ylim'][0],params['plot']['ylim']][1], color='gold')
         
-        idx_bases = list(set([si.split('-')[0] for si in params['feature_model']['spec_indices']]))
+        idx_bases = list({si.split('-')[0] for si in params['feature_model']['spec_indices']})
         if len(idx_bases) > 1:
             axs.set_ylabel('index value')
         else:
@@ -659,10 +656,10 @@ def plot_timeseries(params):
         namedet_samp = get_namedet(params)
 
     all_sis = params['feature_model']['spec_indices']
-    idx_bases = list(set([si.split('-')[0] for si in all_sis]))
+    idx_bases = list({si.split('-')[0] for si in all_sis})
     logger.info(f'idx_bases: {idx_bases}')
-    smoothed_sis = list(set([s for s in all_sis if 'raw' not in s]))
-    raw_sis = list(set([s for s in all_sis if 'raw' in s]))
+    smoothed_sis = list({s for s in all_sis if 'raw' not in s})
+    raw_sis = list({s for s in all_sis if 'raw' in s})
             
     for inum, idx in enumerate(idx_bases):
         logger.info(f'working on {idx}...')
@@ -768,7 +765,7 @@ def plot_timeseries(params):
         
             elif len(smoothed_sis) > 0:
                 if isinstance(classes, list) and len(classes) > 1:
-                    logger.info(f'plotting multiple classes on single plot...')
+                    logger.info('plotting multiple classes on single plot...')
                     if len(classes) == 2:
                         title = f"{idx} signatures for {classes[0]} vs {classes[1]}"   
                     else:
@@ -882,7 +879,7 @@ def plot_timeseries(params):
     elif plot_multicoords:
     
         ## Making spectral signature plot with multiple points on sampe plot (note: will work with just one point, too)
-        logger.info(f'making spectral signature plot of multiple points')
+        logger.info('making spectral signature plot of multiple points')
         
         if len(classes) == 1:
             title = f"{params['sample_model']['filter_class']} signatures"
@@ -1002,10 +999,9 @@ def pre_post_df(params):
             done=True
             return 999
         for fd in future_dates:
-            if not done:
-                if (pd.notna(x[fd])) and (x[fd]>0):
-                    done=True
-                    return fd
+            if not done and (pd.notna(x[fd])) and (x[fd]>0):
+                done=True
+                return fd
 
     def get_closest_pre_date(x, obscol, date_cols):
         prior_dates = [d for d in date_cols if d < x[obscol]]
@@ -1016,10 +1012,9 @@ def pre_post_df(params):
         else:
             prior_dates.sort(reverse=True)
             for prd in prior_dates:
-                if not done:
-                    if (pd.notna(x[prd])) and (x[prd]>0):
-                        done=True
-                        return prd
+                if not done and (pd.notna(x[prd])) and (x[prd]>0):
+                    done=True
+                    return prd
                         
     if isinstance(sis,str):
         sis = [sis]
@@ -1163,15 +1158,15 @@ def pre_post_separability(params, printdf=True):
         opt_dir = ppaths.optimization
 
     ## get seasons to divide datasets by season
-    dry_start_mo = datetime.datetime.strptime(f"2024 {params['calendar']['start_dry']}", '%Y %j').month
-    dry_end_mo = datetime.datetime.strptime(f"2024 {params['calendar']['end_dry']}", '%Y %j').month
+    dry_start_mo = datetime.datetime.strptime(f"2024 {params['calendar']['start_dry']}", '%Y %j').replace(tzinfo=timezone.utc).month
+    dry_end_mo = datetime.datetime.strptime(f"2024 {params['calendar']['end_dry']}", '%Y %j').replace(tzinfo=timezone.utc).month
     if dry_start_mo > dry_end_mo: 
         dry_months = [f"{mo:02d}" for mo in range(dry_start_mo,13)] + [f"{mo:02d}" for mo in range(1,(dry_end_mo+1))]
     else:
         dry_months = [f"{mo:02d}" for mo in range(dry_start_mo,dry_end_mo+1)]
     logger.info(f" getting dry season stats using months:{dry_months}")
-    wet_start_mo = datetime.datetime.strptime(f"2024 {params['calendar']['start_wet']}", '%Y %j').month
-    wet_end_mo = datetime.datetime.strptime(f"2024 {params['calendar']['end_wet']}", '%Y %j').month
+    wet_start_mo = datetime.datetime.strptime(f"2024 {params['calendar']['start_wet']}", '%Y %j').replace(tzinfo=timezone.utc).month
+    wet_end_mo = datetime.datetime.strptime(f"2024 {params['calendar']['end_wet']}", '%Y %j').replace(tzinfo=timezone.utc).month
     if wet_start_mo > wet_end_mo: 
         wet_months = [f"{mo:02d}" for mo in range(wet_start_mo,13)] + [f"{mo:02d}" for mo in range(1,(wet_end_mo+1))]
     else:
@@ -1201,7 +1196,7 @@ def pre_post_separability(params, printdf=True):
                     int(obscol.split('-')[-1])
                     obscol = obscol.replace(obscol.split('-')[-1],yrstr)
                     logger.info(f'obscol = {obscol}')
-                except:
+                except Exception:
                     logger.warning('obscol does not end with year. need to incorporate new method to find each yr file')
                     
             if filter_class:

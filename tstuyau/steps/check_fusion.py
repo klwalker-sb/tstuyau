@@ -1,33 +1,26 @@
 import shutil
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
-from ..handler import logger
-from .project import ProjectPaths
-from .fusion_utils import BAP, get_medoid
-from .io import ImageIO
-from .date_utils import check_day_dist
-from . import utils
-
 import geowombat as gw
-from geowombat.core import ndarray_to_xarray
-from geowombat.radiometry._fusion import StarFM
-
 import numpy as np
 import xarray as xr
-from tqdm import trange, tqdm
+from geowombat.core import ndarray_to_xarray
+from geowombat.radiometry._fusion import StarFM
+from tqdm import tqdm, trange
+
+from ..handler import logger
+from . import utils
+from .date_utils import check_day_dist
+from .fusion_utils import BAP, get_medoid
+from .io import ImageIO
+from .project import ProjectPaths
 
 
 def fuse_sensors(params):
 
     """
     Fusion of images
-
-    Args:
-        params (dict)
-
-    Returns:
-        None
     """
 
     cells = utils.get_cell_list_from_grid_param(params['grids'])
@@ -41,22 +34,21 @@ def fuse_sensors(params):
 
         if params['fusion']['overwrite']:
             for fn in ppaths.fusion.glob('*.tif'):
-                if fn.is_file():
-                    # Do not delete copied S2 files
-                    if not fn.name.startswith('L1C_'):
-                        fn.unlink()
+                # Do not delete copied S2 files
+                if fn.is_file() and (not fn.name.startswith('L1C_')):
+                    fn.unlink()
 
         ppaths.clean_temp(ppaths.fusion)
 
         # The input time series path
         ts_dir = ppaths.ts / params['reconstruct']['si']
         
-        s2_list = sorted(list(ts_dir.glob(f"{params['fusion']['start_year']}*.tif")))
-        landsat_list = sorted(list(ts_dir.glob('*.tif')))
+        s2_list = sorted(ts_dir.glob(f"{params['fusion']['start_year']}*.tif"))
+        landsat_list = sorted(ts_dir.glob('*.tif'))
 
         # Move any dates greater than the start date
         s2_list += sorted([fn for fn in landsat_list if int(fn.name[:4]) > params['fusion']['start_year']])
-        landsat_list = sorted(list(set(landsat_list).difference(s2_list)))
+        landsat_list = sorted(set(landsat_list).difference(s2_list))
 
         # s2_list, landsat_list = utils.get_image_lists(ppaths.ms)
 
@@ -107,7 +99,7 @@ def fuse_sensors(params):
 
             # Get the Landsat image date
             ldate_str = fn.stem
-            ldate_dt = datetime.strptime(ldate_str, '%Y%j')
+            ldate_dt = datetime.strptime(ldate_str, '%Y%j').replace(tzinfo=timezone.utc)
 
             # if (ldate_dt.year == 2019) and (ldate_dt.month == 2):
             #     pass
@@ -122,39 +114,38 @@ def fuse_sensors(params):
             # if not lmask_image.is_file():
             #     continue
 
-            with gw.config.update(ignore_warnings=True):
+            #, \gw.open(lmask_image) as lmask_src:
+            with gw.config.update(ignore_warnings=True
+                ), gw.open(ts_dir / fn, band_names=params['fusion']['wavelengths']) as mres_0_src:
 
-                #, \gw.open(lmask_image) as lmask_src:
-                with gw.open(ts_dir / fn, band_names=params['fusion']['wavelengths']) as mres_0_src:
+                # Check the clear area
+                # total_clear = xr.where(lmask_src <= params['masking']['min_mask'], 1, 0)\
+                #                     .sum().data\
+                #                     .compute(num_workers=params['num_workers'])
 
-                    # Check the clear area
-                    # total_clear = xr.where(lmask_src <= params['masking']['min_mask'], 1, 0)\
-                    #                     .sum().data\
-                    #                     .compute(num_workers=params['num_workers'])
+                # pct_clear = (total_clear / (lmask_src.gw.nrows*lmask_src.gw.ncols)) * 100.0
 
-                    # pct_clear = (total_clear / (lmask_src.gw.nrows*lmask_src.gw.ncols)) * 100.0
+                # if pct_clear < params['fusion']['min_pct_thresh']:
+                #     continue
 
-                    # if pct_clear < params['fusion']['min_pct_thresh']:
-                    #     continue
+                # attrs = mres_0_src.attrs.copy()
 
-                    # attrs = mres_0_src.attrs.copy()
+                # mres_0_src = xr.where((lmask_src.sel(band=1) > params['masking']['min_mask']) | (mres_0_src.max(dim='band') == 0),
+                #                       params['nodata'],
+                #                       mres_0_src)\
+                #                 .transpose('band', 'y', 'x')\
+                #                 .assign_attrs(**attrs)
 
-                    # mres_0_src = xr.where((lmask_src.sel(band=1) > params['masking']['min_mask']) | (mres_0_src.max(dim='band') == 0),
-                    #                       params['nodata'],
-                    #                       mres_0_src)\
-                    #                 .transpose('band', 'y', 'x')\
-                    #                 .assign_attrs(**attrs)
+                mres_0_src = mres_0_src.gw.set_nodata(0, 0, (0, 1), 'float64', scale_factor=0.0001)
 
-                    mres_0_src = mres_0_src.gw.set_nodata(0, 0, (0, 1), 'float64', scale_factor=0.0001)
-
-                    mres_0_data = mres_0_src.data.compute(num_workers=params['num_workers'])
-                    mres_0_data[np.isnan(mres_0_data)] = 0
+                mres_0_data = mres_0_src.data.compute(num_workers=params['num_workers'])
+                mres_0_data[np.isnan(mres_0_data)] = 0
 
             ####################################
             # Find the Sentinel reference images
             # closest to the Landsat date
             ####################################
-            near_indices_hres_k = np.array([abs(ldate_dt - datetime.strptime(hks.stem, '%Y%j')) for hks in s2_list]).argsort()
+            near_indices_hres_k = np.array([abs(ldate_dt - datetime.strptime(hks.stem, '%Y%j').replace(tzinfo=timezone.utc)) for hks in s2_list]).argsort()
 
             hres_k_init = False
 
@@ -166,7 +157,7 @@ def fuse_sensors(params):
             for imidx, near_hres_k_idx in enumerate(near_indices_hres_k):
 
                 hkdate_str = s2_list[near_hres_k_idx].stem
-                hkdate_dt = datetime.strptime(hkdate_str, '%Y%j')
+                hkdate_dt = datetime.strptime(hkdate_str, '%Y%j').replace(tzinfo=timezone.utc)
 
                 # hkmask_image = ppaths.masks.joinpath(hkdate_str + '.tif')
 
@@ -224,7 +215,7 @@ def fuse_sensors(params):
             # Find the Landsat reference images
             # closest to the Landsat date
             ###################################
-            near_indices_mres_k = np.array([abs(ldate_dt - datetime.strptime(mks.stem, '%Y%j')) for mks in landsat_list]).argsort()
+            near_indices_mres_k = np.array([abs(ldate_dt - datetime.strptime(mks.stem, '%Y%j').replace(tzinfo=timezone.utc)) for mks in landsat_list]).argsort()
 
             mres_k_init = False
 
@@ -236,7 +227,7 @@ def fuse_sensors(params):
             for imidx, near_mres_k_idx in enumerate(near_indices_mres_k):
 
                 mkdate_str = landsat_list[near_mres_k_idx].stem
-                mkdate_dt = datetime.strptime(mkdate_str, '%Y%j')
+                mkdate_dt = datetime.strptime(mkdate_str, '%Y%j').replace(tzinfo=timezone.utc)
 
                 # mkmask_image = ppaths.masks.joinpath(mkdate_str + '.tif')
 
@@ -292,50 +283,49 @@ def fuse_sensors(params):
 
             conf_weights = np.minimum(hres_conf_weights, mres_conf_weights)
 
-            with gw.config.update(ignore_warnings=True):
+            # gw.open(lmask_image) as lmask_src:
+            with gw.config.update(ignore_warnings=True
+                ), gw.open(ts_dir / fn, band_names=params['fusion']['wavelengths']) as mres_0_src:
 
-                # gw.open(lmask_image) as lmask_src:
-                with gw.open(ts_dir / fn, band_names=params['fusion']['wavelengths']) as mres_0_src:
+                attrs = mres_0_src.attrs.copy()
 
-                    attrs = mres_0_src.attrs.copy()
+                # mres_0_src = xr.where((lmask_src.sel(band=1) > params['masking']['min_mask']) | (mres_0_src.max(dim='band') == 0),
+                #                       params['nodata'],
+                #                       mres_0_src)\
+                #                     .transpose('band', 'y', 'x')\
+                #                     .assign_attrs(**attrs)
 
-                    # mres_0_src = xr.where((lmask_src.sel(band=1) > params['masking']['min_mask']) | (mres_0_src.max(dim='band') == 0),
-                    #                       params['nodata'],
-                    #                       mres_0_src)\
-                    #                     .transpose('band', 'y', 'x')\
-                    #                     .assign_attrs(**attrs)
+                mres_0_src = mres_0_src.gw.set_nodata(0, 0, (0, 1), 'float64', scale_factor=0.0001)
 
-                    mres_0_src = mres_0_src.gw.set_nodata(0, 0, (0, 1), 'float64', scale_factor=0.0001)
+                w = params['fusion']['window_size']
+                hw = int(w / 2.0)
 
-                    w = params['fusion']['window_size']
-                    hw = int(w / 2.0)
+                results = []
 
-                    results = []
+                for bidx in trange(0, len(params['fusion']['wavelengths'])):
 
-                    for bidx in trange(0, len(params['fusion']['wavelengths'])):
+                    band = params['fusion']['wavelengths'][bidx]
 
-                        band = params['fusion']['wavelengths'][bidx]
+                    mres_0_data = mres_0_src.sel(band=band).data.compute(num_workers=params['num_workers'])
+                    mres_0_data[np.isnan(mres_0_data)] = 0
 
-                        mres_0_data = mres_0_src.sel(band=band).data.compute(num_workers=params['num_workers'])
-                        mres_0_data[np.isnan(mres_0_data)] = 0
+                    # res = imph.fit_transform(pad_array(hres_k_data[bidx], w, scale_factor=1),
+                    #                          pad_array(mres_0_data, w, scale_factor=1))
 
-                        # res = imph.fit_transform(pad_array(hres_k_data[bidx], w, scale_factor=1),
-                        #                          pad_array(mres_0_data, w, scale_factor=1))
-
-                        res = stf.fit_transform(utils.pad_array(hres_k_data[bidx], hw, scale_factor=1),
+                    res = stf.fit_transform(utils.pad_array(hres_k_data[bidx], hw, scale_factor=1),
                                                 utils.pad_array(mres_k_data[bidx], hw, scale_factor=1),
                                                 utils.pad_array(mres_0_data, hw, scale_factor=1),
                                                 utils.pad_array(conf_weights[bidx], hw, scale_factor=1))[hw:-hw, hw:-hw]
 
-                        res = ndarray_to_xarray(mres_0_src, res, [band])
-                        results.append(res)
+                    res = ndarray_to_xarray(mres_0_src, res, [band])
+                    results.append(res)
 
-                    res = (xr.concat(results, dim='band') * 10000.0).clip(0, 10000).astype('uint16')
-                    res = xr.where(res == 0, params['nodata'], res).assign_attrs(**attrs)
+                res = (xr.concat(results, dim='band') * 10000.0).clip(0, 10000).astype('uint16')
+                res = xr.where(res == 0, params['nodata'], res).assign_attrs(**attrs)
 
-                    logger.info('  Computing fusion ...')
+                logger.info('  Computing fusion ...')
 
-                    res.gw.to_raster(str(output_fusion),
+                res.gw.to_raster(str(output_fusion),
                                      n_workers=1,
                                      n_threads=params['num_workers'],
                                      n_chunks=params['io']['n_chunks'],
@@ -343,68 +333,68 @@ def fuse_sensors(params):
                                      nodata=params['nodata'],
                                      compress='lzw')
 
-                    # ndarray_to_xarray(mres_0_src, bap.max_score,
-                    #                   mres_0_src.band.values.tolist()).gw.to_raster(
-                    #     str(output_fusion).replace('.tif', '_max_score.tif'),
-                    #     n_workers=1,
-                    #     n_threads=params['num_workers'],
-                    #     n_chunks=params['io']['n_chunks'],
-                    #     overwrite=True,
-                    #     nodata=0,
-                    #     compress='lzw')
+                # ndarray_to_xarray(mres_0_src, bap.max_score,
+                #                   mres_0_src.band.values.tolist()).gw.to_raster(
+                #     str(output_fusion).replace('.tif', '_max_score.tif'),
+                #     n_workers=1,
+                #     n_threads=params['num_workers'],
+                #     n_chunks=params['io']['n_chunks'],
+                #     overwrite=True,
+                #     nodata=0,
+                #     compress='lzw')
 
-                    # ndarray_to_xarray(mres_0_src.astype('uint8'), bap.count, mres_0_src.band.values.tolist()).gw.to_raster(
-                    #     str(output_fusion).replace('.tif', '_count.tif'),
-                    #     n_workers=1,
-                    #     n_threads=params['num_workers'],
-                    #     n_chunks=params['io']['n_chunks'],
-                    #     overwrite=True,
-                    #     nodata=0,
-                    #     compress='lzw')
-                    #
-                    # ndarray_to_xarray(mres_0_src.astype('uint16'), bap.dates,
-                    #                   mres_0_src.band.values.tolist()).gw.to_raster(
-                    #     str(output_fusion).replace('.tif', '_dates.tif'),
-                    #     n_workers=1,
-                    #     n_threads=params['num_workers'],
-                    #     n_chunks=params['io']['n_chunks'],
-                    #     overwrite=True,
-                    #     nodata=0,
-                    #     compress='lzw')
+                # ndarray_to_xarray(mres_0_src.astype('uint8'), bap.count, mres_0_src.band.values.tolist()).gw.to_raster(
+                #     str(output_fusion).replace('.tif', '_count.tif'),
+                #     n_workers=1,
+                #     n_threads=params['num_workers'],
+                #     n_chunks=params['io']['n_chunks'],
+                #     overwrite=True,
+                #     nodata=0,
+                #     compress='lzw')
+                #
+                # ndarray_to_xarray(mres_0_src.astype('uint16'), bap.dates,
+                #                   mres_0_src.band.values.tolist()).gw.to_raster(
+                #     str(output_fusion).replace('.tif', '_dates.tif'),
+                #     n_workers=1,
+                #     n_threads=params['num_workers'],
+                #     n_chunks=params['io']['n_chunks'],
+                #     overwrite=True,
+                #     nodata=0,
+                #     compress='lzw')
 
-                    # ndarray_to_xarray(mres_0_src, conf_weights, mres_0_src.band.values.tolist()).gw.to_raster(str(output_fusion).replace('.tif', '_weights.tif'),
-                    #                  n_workers=1,
-                    #                  n_threads=params['num_workers'],
-                    #                  n_chunks=params['io']['n_chunks'],
-                    #                  overwrite=True,
-                    #                  nodata=0,
-                    #                  compress='lzw')
+                # ndarray_to_xarray(mres_0_src, conf_weights, mres_0_src.band.values.tolist()).gw.to_raster(str(output_fusion).replace('.tif', '_weights.tif'),
+                #                  n_workers=1,
+                #                  n_threads=params['num_workers'],
+                #                  n_chunks=params['io']['n_chunks'],
+                #                  overwrite=True,
+                #                  nodata=0,
+                #                  compress='lzw')
 
-                    # ndarray_to_xarray(mres_0_src, bap.spec_diff, mres_0_src.band.values.tolist()).gw.to_raster(
-                    #     str(output_fusion).replace('.tif', '_spec.tif'),
-                    #     n_workers=1,
-                    #     n_threads=params['num_workers'],
-                    #     n_chunks=params['io']['n_chunks'],
-                    #     overwrite=True,
-                    #     nodata=0,
-                    #     compress='lzw')
+                # ndarray_to_xarray(mres_0_src, bap.spec_diff, mres_0_src.band.values.tolist()).gw.to_raster(
+                #     str(output_fusion).replace('.tif', '_spec.tif'),
+                #     n_workers=1,
+                #     n_threads=params['num_workers'],
+                #     n_chunks=params['io']['n_chunks'],
+                #     overwrite=True,
+                #     nodata=0,
+                #     compress='lzw')
 
-                    # mres_k_data = ndarray_to_xarray(mres_0_src, mres_k_data, params['fusion']['wavelengths'])
-                    # mres_k_data.gw.to_raster(str(output_fusion).replace('.tif', '_mres_k.tif'),
-                    #                  n_workers=1,
-                    #                  n_threads=params['num_workers'],
-                    #                  n_chunks=params['io']['n_chunks'],
-                    #                  overwrite=True,
-                    #                  nodata=params['nodata'],
-                    #                  compress='lzw')
+                # mres_k_data = ndarray_to_xarray(mres_0_src, mres_k_data, params['fusion']['wavelengths'])
+                # mres_k_data.gw.to_raster(str(output_fusion).replace('.tif', '_mres_k.tif'),
+                #                  n_workers=1,
+                #                  n_threads=params['num_workers'],
+                #                  n_chunks=params['io']['n_chunks'],
+                #                  overwrite=True,
+                #                  nodata=params['nodata'],
+                #                  compress='lzw')
 
-                    # hres_k_data = ndarray_to_xarray(mres_0_src, hres_k_data, params['fusion']['wavelengths'])
-                    # hres_k_data.gw.to_raster(str(output_fusion).replace('.tif', '_hres_k.tif'),
-                    #                          n_workers=1,
-                    #                          n_threads=params['num_workers'],
-                    #                          n_chunks=params['io']['n_chunks'],
-                    #                          overwrite=True,
-                    #                          nodata=params['nodata'],
-                    #                          compress='lzw')
+                # hres_k_data = ndarray_to_xarray(mres_0_src, hres_k_data, params['fusion']['wavelengths'])
+                # hres_k_data.gw.to_raster(str(output_fusion).replace('.tif', '_hres_k.tif'),
+                #                          n_workers=1,
+                #                          n_threads=params['num_workers'],
+                #                          n_chunks=params['io']['n_chunks'],
+                #                          overwrite=True,
+                #                          nodata=params['nodata'],
+                #                          compress='lzw')
 
-                    s2_list.append(output_fusion)
+                s2_list.append(output_fusion)

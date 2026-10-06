@@ -1,30 +1,33 @@
-from pathlib import Path
-from datetime import datetime
+import json
+import time
 from contextlib import ExitStack
+from datetime import datetime
+from pathlib import Path
 
-from . import lookup
-from ..handler import logger
-from .project import ProjectPaths
-from .check_model_prep import make_variable_stack,  make_and_score_model
-from .mod_utils import getset_feature_model, get_train_yrs_str, get_class_col, prep_test_train
-from .lookup import SCHEMATIC_MODS, LC_CATS
-from . import date_utils, image_utils, prechecks
-from .. import errors
-
+import dask
+import geopandas as gpd
 import geowombat as gw
-import rastercrf as rcrf
-import csv
+import joblib
 import numpy as np
 import pandas as pd
-import geopandas as gpd
-
+import rastercrf as rcrf
 import rasterio as rio
-import dask
-from tqdm import tqdm
-import json
-import joblib
-import time
 from fiona.drvsupport import supported_drivers
+from tqdm import tqdm
+
+from .. import errors
+from ..handler import logger
+from . import date_utils, image_utils, lookup, prechecks, utils
+from .check_model_prep import make_and_score_model, make_variable_stack
+from .lookup import LC_CATS, SCHEMATIC_MODS
+from .mod_utils import (
+    get_class_col,
+    get_train_yrs_str,
+    getset_feature_model,
+    prep_test_train,
+)
+from .project import ProjectPaths
+
 supported_drivers['LIBKML'] = 'rw'
 
 
@@ -48,18 +51,18 @@ def get_predictions_gw(saved_stack, model_bands, mod_path, class_img_out):
 
     chunks=256
     with rio.open(saved_stack) as src0:
-        profile = dict(blockxsize=chunks,
-            blockysize=chunks,
-            crs=src0.crs,
-            transform=src0.transform,
-            driver='GTiff',
-            height=src0.height,
-            width=src0.width,
-            nodata=0,
-            count=1,
-            dtype='uint8',
-            compress='lzw',
-            tiled=True)
+        profile = {'blockxsize': chunks,
+            'blockysize': chunks,
+            'crs': src0.crs,
+            'transform': src0.transform,
+            'driver': 'GTiff',
+            'height': src0.height,
+            'width': src0.width,
+            'nodata': 0,
+            'count': 1,
+            'dtype': 'uint8',
+            'compress': 'lzw',
+            'tiled': True}
         
     ## reduce stack bands to match model variables, ensuring same order as model df 
     with gw.open(saved_stack) as src0:
@@ -93,7 +96,6 @@ def get_predictions_gw(saved_stack, model_bands, mod_path, class_img_out):
                 break
             else:
                 logger.debug('...')
-                pass
         if not found_band:
             logger.warning(f'ERROR: band {b} not found in stack \n')
             return False
@@ -183,12 +185,10 @@ def classify_timestep(params):
             vdf_dir = ppaths.fulltrainsets
 
         class_img_out = Path(comp_dir) / f"{int(cell):06d}_{model_name_class}.tif"
-        if params['classify']['overwrite_image']:
-            if class_img_out.is_file():
+        if (params['classify']['overwrite_image']) and (class_img_out.is_file()):
                 class_img_out.unlink()
         if class_img_out.is_file():
             logger.warning(f'{class_img_out} already exists. set classify:overwrite_image param to True to overwrite.')
-            pass
         else:    
             stack_path = ppaths.ms.parent / 'comp' / f'{feat_mod_name}_{out_yrs}_stack.tif'
             logger.info(f'looking for stack: {stack_path}... \n')
@@ -251,7 +251,6 @@ def classify_timestep(params):
             else:
                 logger.warning('got an error \n')
     
-    return None
 
 def classify_CRF(params):
 
@@ -274,25 +273,27 @@ def classify_CRF(params):
 
     train_grid_path.mkdir(parents=True, exist_ok=True)
 
-    if params['classify_crf']['method'] != 'predict':
-        if params['classify_crf']['update_samples']:
-            if train_samples.is_file():
-                while True:
-                    try:
-                        train_samples.unlink()
-                    # if classifying multiple grids at once (multiple processes are trying to write to same file):
-                    except FileNotFoundError:
-                        time.sleep(1)
-                        continue
-                    else:
-                        break
+    if (params['classify_crf']['method'] != 'predict') and (
+        params['classify_crf']['update_samples']) and (
+        train_samples.is_file()):
+        
+        while True:
+            try:
+                train_samples.unlink()
+                # if classifying multiple grids at once (multiple processes are trying to write to same file):
+            except FileNotFoundError:
+                time.sleep(1)
+                continue
+            else:
+                break
 
     model_file = Path(params['classify_crf']['model_file'])
 
-    if params['classify_crf']['method'] in ['fit', 'fit_predict']:
-        if params['classify_crf']['overwrite_model']:
-            if model_file.is_file():
-                model_file.unlink()
+    if (params['classify_crf']['method'] in ['fit', 'fit_predict']) and (
+        params['classify_crf']['overwrite_model']) and (
+        model_file.is_file()):
+        
+        model_file.unlink()
 
     ###############################
     # Extract samples for each grid
@@ -421,13 +422,13 @@ def classify_CRF(params):
                                                      num_workers=params['num_workers'])
 
                 # Store each annual DataFrame in the list
-                if isinstance(train_df_extract, gpd.GeoDataFrame):
-                    if not train_df_extract.empty:
-                        train_grid_year_df_list.append(train_df_extract)
+                if isinstance(train_df_extract, gpd.GeoDataFrame) and(
+                    not train_df_extract.empty):
+                    train_grid_year_df_list.append(train_df_extract)
 
-                if isinstance(test_df_extract, gpd.GeoDataFrame):
-                    if not test_df_extract.empty:
-                        test_grid_year_df_list.append(test_df_extract)
+                if isinstance(test_df_extract, gpd.GeoDataFrame) and( 
+                    not test_df_extract.empty):
+                    test_grid_year_df_list.append(test_df_extract)
 
             # Save the samples to file
             if train_grid_year_df_list:
@@ -691,7 +692,7 @@ def classify_CRF(params):
         y_filter = []
 
         for Xlist, ylist in zip(X, y):
-            if list(set(ylist))[0] != 'null':
+            if next(iter(set(ylist))) != 'null':
                 X_filter.append([xfeas for xfeas in Xlist])
                 y_filter.append([ylab for ylab in ylist])
 
@@ -750,29 +751,27 @@ def classify_CRF(params):
 
             cls_image = ppaths.cls / f'{grid:06d}.tif'
 
-            if params['classify_crf']['overwrite_image']:
-
-                if cls_image.is_file():
-                    cls_image.unlink()
+            if (params['classify_crf']['overwrite_image']) and (cls_image.is_file()):
+                cls_image.unlink()
 
             grid_years = np.sort(np.unique(np.array([dt.year for dt in time_names])))
 
             with gw.open(image_names[0]) as src:
 
-                profile = dict(blockxsize=src.gw.col_chunks,
-                               blockysize=src.gw.row_chunks,
-                               crs=src.crs,
-                               transform=src.transform,
-                               driver='GTiff',
-                               count=grid_years.shape[0]-1,
-                               height=src.gw.nrows,
-                               width=src.gw.ncols,
-                               nodata=params['classify_crf']['nodata'],
-                               dtype='uint8',
-                               compress='lzw',
-                               tiled=True)
+                profile = {'blockxsize': src.gw.col_chunks,
+                               'blockysize': src.gw.row_chunks,
+                               'crs': src.crs,
+                               'transform': src.transform,
+                               'driver': 'GTiff',
+                               'count': grid_years.shape[0]-1,
+                               'height': src.gw.nrows,
+                               'width': src.gw.ncols,
+                               'nodata': params['classify_crf']['nodata'],
+                               'dtype': 'uint8',
+                               'compress': 'lzw',
+                               'tiled': True}
 
-            dft = pd.DataFrame(data=range(0, len(time_names)), columns=['image_index'], index=time_names)
+            dft = pd.DataFrame(data=range(len(time_names)), columns=['image_index'], index=time_names)
 
             # Get windows from one image
             with gw.open(image_names[0]) as src:
@@ -793,7 +792,7 @@ def classify_CRF(params):
 
                 X_list = []
                 processed_years = []
-                feature_band_count = []
+                #feature_band_count = []
 
                 for year in grid_years[:-1]:
 
@@ -857,7 +856,7 @@ def classify_CRF(params):
                 probas = clf.predict_probas(X_list,
                                             w.height,
                                             w.width,
-                                            y_names=sorted(list(lookup.LABELS_DICT_str.values())),
+                                            y_names=sorted(lookup.LABELS_DICT_str.values()),
                                             keep_features=keep_features,
                                             nbands=len(params['classify_crf']['image_bands_pred']))
 

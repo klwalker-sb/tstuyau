@@ -1,5 +1,6 @@
-from ..handler import logger
 import numpy as np
+
+from ..handler import logger
 
 SI_DICT = {'avi':{'band_names':['red', 'nir']},
         'evi2':{'band_names':['red', 'nir']},
@@ -55,9 +56,8 @@ def calculate_raw_index(nir_val, b2_val, si, params=None):
 
     ## s is the scale factor, which is the maximum value of valid data. Usually 10000 in saved data, but 1 in original data
     s = 10000
-    if params:
-        if params['masking']['maxval']:
-            s = params['masking']['maxval']
+    if params and params['masking']['maxval']:
+        s = params['masking']['maxval']
     
     spec_index = si.split('.')[0]
     
@@ -149,7 +149,7 @@ def calc_si_gw(data_src, params):
     return si_data
 
 
-class SpecIndices(object):
+class SpecIndices:
     '''
     Calculates spectral indices with methods defined here. 
     

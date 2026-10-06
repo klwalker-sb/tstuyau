@@ -1,10 +1,11 @@
 import os
 from pathlib import Path
 
-from ..handler import logger
-from .project import ProjectPaths
-from . import utils
 import geowombat as gw
+
+from ..handler import logger
+from . import utils
+from .project import ProjectPaths
 
 
 def compress(params):

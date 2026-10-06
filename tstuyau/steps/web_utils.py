@@ -1,40 +1,35 @@
-import sys
 # import base64
-import requests
-import urllib
-import zipfile
 import gzip
-from getpass import getpass
-import math
-from pathlib import Path
-import yaml
-from tqdm import tqdm
-from cryptography.fernet import Fernet
-
-from abc import ABC, abstractmethod
-
-import subprocess
-from datetime import datetime
 import io
 import json
+import math
 import shutil
+import subprocess
+import urllib
+import zipfile
+from abc import ABC, abstractmethod
+from datetime import datetime, timezone
+from getpass import getpass
+from pathlib import Path
+
 import geowombat as gw
-from geowombat.core.properties import get_sensor_info
 import numpy as np
 import pandas as pd
+import requests
 import xarray as xr
-from rasterio.coords import BoundingBox
-import affine
+import yaml
+from cryptography.fernet import Fernet
+from geowombat.core.properties import get_sensor_info
 from retry import retry
+from tqdm import tqdm
 
 from ..handler import logger
-from .lookup import GEE_TRANSLATIONS, FILE_EXTENSIONS
-from .utils import resample, tag_array, band_is_ok, get_qa_mask, check_missed_nodata, mask_data
-from .image_utils import latlon_to_utm, polygon_from_bounds, geom_intersects
+from .image_utils import geom_intersects, latlon_to_utm, polygon_from_bounds
+from .lookup import FILE_EXTENSIONS, GEE_TRANSLATIONS
+from .utils import band_is_ok, check_missed_nodata, get_qa_mask, mask_data, tag_array
 
 
-
-class PassKey(object):
+class PassKey:
 
     @staticmethod
     def create_key(key_file):
@@ -90,7 +85,7 @@ class HTTPRedirectHandler(urllib.request.HTTPRedirectHandler):
         return urllib.request.HTTPRedirectHandler.http_error_302(self, req, fp, code, msg, headers)
 
 
-class EarthDataDownloader(object):
+class EarthDataDownloader:
 
     def __init__(self, username, key_file, code_file):
 
@@ -123,7 +118,7 @@ class EarthDataDownloader(object):
             if 'Content-Length' in response.headers:
 
                 content_length = float(response.headers['Content-Length'])
-                content_iters = int(math.ceil(content_length / chunk_size))
+                content_iters = math.ceil(content_length / chunk_size)
                 chunk_size_ = chunk_size * 1
 
             else:
@@ -135,13 +130,13 @@ class EarthDataDownloader(object):
 
             with open(str(outfile), 'wb') as ofn:
 
-                for data in tqdm(response.iter_content(chunk_size=chunk_size_), total=content_iters):
-                    ofn.write(data)
+                ofn.writelines(tqdm(response.iter_content(chunk_size=chunk_size_), total=content_iters))
 
 
 def download_omi_toms(year):
 
     url = f'https://acdisc.gesdisc.eosdis.nasa.gov/data/Aura_OMI_Level3/OMTO3d.003/{year}'
+    return url
 
 
 def download_hgt(params, ppaths, dataframe, hgt_url, key_file, code_file):
@@ -215,8 +210,7 @@ def _submit_download(com):
 
     # Attempt to get the stats of the file to check if it exists
     res = subprocess.run(com.replace('-q cp', 'stat').split(' ')[:3],
-                         stdout=subprocess.PIPE,
-                         stderr=subprocess.PIPE)
+                         check=False, capture_output=True)
 
     if res.returncode == 0:        
         subprocess.call(com, shell=True)
@@ -274,7 +268,7 @@ def _raw_newline_count_gzip(fname):
     return total
 
 
-class GEEAuthenticate(object):
+class GEEAuthenticate:
 
     def authenticate_gee(self, secret_key_file):
 
@@ -481,10 +475,8 @@ class GEE(GEEAuthenticate):
             delay_sec (int)
         """
 
-        if asset_id_filter:
-
-            if asset_id_filter not in asset_dict['id'].split('/')[-1]:
-                return []
+        if asset_id_filter and asset_id_filter not in asset_dict['id'].split('/')[-1]:
+            return []
 
         name = f"{self.gee_project}/assets/{asset_dict['id']}"
 
@@ -551,10 +543,9 @@ class GEE(GEEAuthenticate):
                 #logger.info(f'0:{ux}, 1:{uy}')
                 crs = f'epsg:{latlon_to_utm(ux, uy)[-1]}'
 
-            if adjust_y:
-                ## Adjust Landsat images in the Southern hemisphere (see above)
-                if orig_crs.split(':')[1].startswith('326') and (uy < 0):
-                    orig_grid_top -= 10_000_000.0
+            ## Adjust Landsat images in the Southern hemisphere (see above)
+            if adjust_y and (orig_crs.split(':')[1].startswith('326') and (uy < 0)):
+                orig_grid_top -= 10_000_000.0
 
             attrs = {'orig_width': asset_dict['bands'][1]['grid']['dimensions']['width'],
                      'orig_height': asset_dict['bands'][1]['grid']['dimensions']['height'],
@@ -589,7 +580,11 @@ class GEE(GEEAuthenticate):
                        force_redownload,
                        params):
 
+        # The size (height/width) of the streamed array
         array_size_out = int(params['grid_size'] / out_res) + params['buffer']*2
+        array_size_20m = int(params['grid_size'] / 20.0) + params['buffer']*2
+        array_size_30m = int(params['grid_size'] / 30.0) + params['buffer']*2
+       
 
         if satellite == 'sentinel-2':
             asset_df_info = wg.sat_index_df.query(f"ASSET_ID == '{asset['id'].split('/')[-1]}'")
@@ -608,9 +603,9 @@ class GEE(GEEAuthenticate):
                 # Needed to download metadata
                 url_dict = self._prepare_scenes(asset_df_info, [], satellite)
 
-                scene_id = list(url_dict.keys())[0]
+                scene_id = next(iter(url_dict.keys()))
                 if (satellite == 'sentinel-2'):
-                    platform = list(asset_df_info['PRODUCT_ID'])[0].split('_')[0]
+                    platform = next(iter(asset_df_info['PRODUCT_ID'])).split('_')[0]
                 logger.info(f'keys:{url_dict.keys()}')
 
                 if (satellite == 'sentinel-2') and (asset_id_sensor == 'S2_CLOUD_PROBABILITY'):
@@ -632,9 +627,8 @@ class GEE(GEEAuthenticate):
                         if Path(str(scene_stack).replace(FILE_EXTENSIONS[params['io']['file_format']], '_MTL.txt')).is_file():
                             meta_exists = True
 
-                    elif satellite == 'sentinel-2':
-
-                        if Path(str(scene_stack).replace(FILE_EXTENSIONS[params['io']['file_format']], '_TL.xml')).is_file():
+                    elif satellite == 'sentinel-2' and (
+                        Path(str(scene_stack).replace(FILE_EXTENSIONS[params['io']['file_format']], '_TL.xml')).is_file()):
                             meta_exists = True
 
                     # Exit if both files exist
@@ -642,7 +636,7 @@ class GEE(GEEAuthenticate):
 
                         if check_existing:
 
-                            if band_is_ok(f"netcdf:{str(scene_stack)}:{bands[-1]}", params['io']['n_chunks']):
+                            if band_is_ok(f"netcdf:{scene_stack!s}:{bands[-1]}", params['io']['n_chunks']):
                                 return True
 
                         else:
@@ -662,10 +656,10 @@ class GEE(GEEAuthenticate):
                                     str(out_dir),
                                     temp_dir=None,
                                     rename={'MTD_TL.xml': f"{scene_id}_TL{FILE_EXTENSIONS['sentinel-2_metadata']}"})
-                                    for url in list(url_dict.values())[0]]
+                                    for url in next(iter(url_dict.values()))]
 
                 # Check that the metadata files were downloaded
-                all_meta_downloaded = all([Path(mfn).is_file() for mfn in out_meta_files])
+                all_meta_downloaded = all(Path(mfn).is_file() for mfn in out_meta_files)
 
                 if not all_meta_downloaded:
                     return False
@@ -928,15 +922,13 @@ class WebGCP(WebAbstract):
         if self.verbose > 0:
             logger.info(f"  Downloading the {self.satellite.title()} database to {self.out_sat_dir} ...")
 
-        self.sat_index = self.out_sat_dir / f'index.csv.gz'
+        self.sat_index = self.out_sat_dir / 'index.csv.gz'
 
         if not self.sat_index.is_file():
             #subprocess.call(f"gsutil cp -r {self.sat_index_gcp} {str(self.out_sat_dir)}")
-            with requests.get(self.sat_index_gcp, stream=True) as r:
-                with open(self.sat_index, 'wb') as f:
-                    for chunk in r.iter_content(chunk_size=512):
-                        f.write(chunk)
-            logger.info(f"Successfully downloaded index")
+            with requests.get(self.sat_index_gcp, stream=True) as r, open(self.sat_index, 'wb') as f:
+                f.writelines(r.iter_content(chunk_size=512))
+            logger.info("Successfully downloaded index")
 
     def read_index(self,
                    satellite='landsat',
@@ -964,50 +956,47 @@ class WebGCP(WebAbstract):
 
             total = _raw_newline_count_gzip(self.sat_index)
 
-            with open(self.sat_index, mode='rb') as gz_file:
+            with open(self.sat_index, mode='rb') as gz_file, gzip.open(gz_file, mode='rt') as file:
+                first_line = True
+                counter = 0
+                lines = []
 
-                with gzip.open(gz_file, mode='rt') as file:
+                if self.verbose > 0:
+                    logger.info(f'  Querying the {satellite.title()} database ...')
 
-                    first_line = True
-                    counter = 0
-                    lines = []
+                with tqdm(total=total) as pbar:
 
-                    if self.verbose > 0:
-                        logger.info(f'  Querying the {satellite.title()} database ...')
+                    for line in file:
 
-                    with tqdm(total=total) as pbar:
+                        if first_line:
 
-                        for line in file:
+                            header = line.replace('\n', '').split(',')
+                            self.sat_index_df = pd.DataFrame(columns=header)
+                            first_line = False
 
-                            if first_line:
+                        else:
+                            lines.append(line.replace('\n', '').split(','))
 
-                                header = line.replace('\n', '').split(',')
-                                self.sat_index_df = pd.DataFrame(columns=header)
-                                first_line = False
+                        counter += 1
 
-                            else:
-                                lines.append(line.replace('\n', '').split(','))
+                        if counter == batch_size:
 
-                            counter += 1
-
-                            if counter == batch_size:
-
-                                lindex_df_ = pd.DataFrame(data=lines,
+                            lindex_df_ = pd.DataFrame(data=lines,
                                                           columns=header)
 
-                                if satellite == 'landsat':
-                                    # Convert the acquisition date to datetime objects
-                                    lindex_df_['DATESTAMP'] = lindex_df_.apply(lambda x: datetime.strptime(x.DATE_ACQUIRED, '%Y-%m-%d'),
+                            if satellite == 'landsat':
+                                # Convert the acquisition date to datetime objects
+                                lindex_df_['DATESTAMP'] = lindex_df_.apply(lambda x: datetime.strptime(x.DATE_ACQUIRED, '%Y-%m-%d').replace(tzinfo=timezone.utc),
                                                                                axis=1)
 
-                                elif satellite == 'sentinel-2':
-                                    # Convert the acquisition date to datetime objects
-                                    lindex_df_['DATESTAMP'] = lindex_df_.apply(lambda x: datetime.strptime(x.SENSING_TIME[:10], '%Y-%m-%d'),
+                            elif satellite == 'sentinel-2':
+                                # Convert the acquisition date to datetime objects
+                                lindex_df_['DATESTAMP'] = lindex_df_.apply(lambda x: datetime.strptime(x.SENSING_TIME[:10], '%Y-%m-%d').replace(tzinfo=timezone.utc),
                                                                                axis=1)
 
-                                lindex_df_.index = lindex_df_.DATESTAMP.values
+                            lindex_df_.index = lindex_df_.DATESTAMP.values
 
-                                lindex_df_ = self.query_scenes(lindex_df_,
+                            lindex_df_ = self.query_scenes(lindex_df_,
                                                                satellite=satellite,
                                                                start_date=start_date,
                                                                end_date=end_date,
@@ -1015,13 +1004,13 @@ class WebGCP(WebAbstract):
                                                                bounds=bounds,
                                                                collection='01')
 
-                                self.sat_index_df = pd.concat((self.sat_index_df, lindex_df_), axis=0)
+                            self.sat_index_df = pd.concat((self.sat_index_df, lindex_df_), axis=0)
 
-                                counter = 0
-                                lines = []
+                            counter = 0
+                            lines = []
 
-                            if counter % 100 == 0:
-                                pbar.update(100)
+                        if counter % 100 == 0:
+                            pbar.update(100)
 
             self.sat_index_df.to_parquet(bounds_cache, compression='gzip')
 
@@ -1051,11 +1040,3 @@ class WebGCP(WebAbstract):
 
         elif satellite == 'sentinel-2':
             return dfs
-
-    @staticmethod
-    def shutdown():
-
-        try:
-            ray.shutdown()
-        except ResourceWarning:
-            pass

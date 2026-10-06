@@ -1,6 +1,6 @@
-from datetime import date as dt_date
+from datetime import datetime
 
-dt_today = dt_date.today()
+dt_today = datetime.now(tz=datetime.UTC).date()
 
 SENSORS = {'Sentinel2':{'unq':'S2','matchstr':['S2','S2A','S2B','S2C'], 'sensor':'sentinel-2','color':'magenta', 'name':'Sentinel-2', 'GEEunq':'L1C','GEE':'COPERNICUS/S2'}, 
               'S2':{'unq':'S2','matchstr':['S2','S2A','S2B','S2C'], 'sensor':'sentinel-2', 'color':'magenta','name':'Sentinel-2','GEEunq':'L1C','GEE':'COPERNICUS/S2'},
@@ -179,7 +179,7 @@ mixed_classes = ["Mixed-VegEdge", "Mixed-path", "Crops-mix", "Mixed-GrassEdge", 
 
 GEE_COLLECTIONS = ['COPERNICUS/S2',
                   'COPERNICUS/S2_CLOUD_PROBABILITY',# S2Cloudless 
-                  'GOOGLE/CLOUD_SCORE_PLUS/V1/S2_HARMONIZED'  #alternative cloud masks to check out
+                  'GOOGLE/CLOUD_SCORE_PLUS/V1/S2_HARMONIZED',  #alternative cloud masks to check out
                   'COPERNICUS/S2_SR_HARMONIZED',    # *See note below
                   'COPERNICUS/S1_GRD',              # Sentinel-1 SAR GRD: C-band Synthetic Aperture Radar Ground Range Detected, log scaling
                   'LANDSAT/LC08/C01/T1_SR',         # Tier 1 surface reflectance

@@ -1,32 +1,30 @@
 import _pickle as cPickle
-from datetime import datetime
-from pathlib import Path
 import concurrent.futures
+from datetime import datetime, timezone
+from pathlib import Path
 
-from .spec_indices import calc_si_gw, SpecIndices
-from ..handler import logger
-
+import dask
 import geowombat as gw
-from geowombat.core import sort_images_by_date
-
+import h5py
 import numpy as np
 import pandas as pd
-import h5py
-import xarray as xr
-import dask
-from dask.diagnostics import ProgressBar
-import dask.array as da
+
 # from dask.distributed import performance_report, progress
 # from dask.distributed import Client, LocalCluster
 import ray
+import xarray as xr
+from dask.diagnostics import ProgressBar
+from geowombat.core import sort_images_by_date
 from ray.util.dask import ray_dask_get
 from tqdm.auto import tqdm
 
+from ..handler import logger
+from .spec_indices import SpecIndices, calc_si_gw
 
 ThreadPoolExecutor = concurrent.futures.ThreadPoolExecutor
 
 
-class DataIO(object):
+class DataIO:
 
     def __init__(self, data_file):
         self.data_file = data_file
@@ -44,7 +42,7 @@ class DataIO(object):
         return ldata
 
 
-class ImageIO(object):
+class ImageIO:
 
     def __init__(self, hk_list, mk_list):
 
@@ -118,20 +116,20 @@ def extract_ref_profile(src, count=1, nodata=0, dtype=None):
     (gw.affine/gw.crs_to_pyproj/gw.ncols/nrows/col_chunks/row_chunks)
     """
     
-    return dict(
-        driver='GTiff',
-        dtype=dtype if dtype is not None else src.dtype,
-        count=count,
-        nodata=nodata,
-        tiled=True,
-        compress='lzw',
-        crs=src.gw.crs_to_pyproj.to_wkt(),
-        transform=src.gw.affine,
-        width=src.gw.ncols,
-        height=src.gw.nrows,
-        blockxsize=src.gw.col_chunks,
-        blockysize=src.gw.row_chunks,
-    )
+    return {
+        'driver': 'GTiff',
+        'dtype': dtype if dtype is not None else src.dtype,
+        'count': count,
+        'nodata': nodata,
+        'tiled': True,
+        'compress': 'lzw',
+        'crs': src.gw.crs_to_pyproj.to_wkt(),
+        'transform': src.gw.affine,
+        'width': src.gw.ncols,
+        'height': src.gw.nrows,
+        'blockxsize': src.gw.col_chunks,
+        'blockysize': src.gw.row_chunks,
+    }
 
 def extract_profile_geotif(ref_image, band_names=None, n_chunks=512):
     """Builds a rasterio-style profile (GeoTIFF creation options) from a
@@ -196,7 +194,7 @@ def read_func(row, band_names, slicer, nodata, spec_index, dataframe, extra_para
     return yarr
 
 
-class TimeSeriesLoader(object):
+class TimeSeriesLoader:
     def __init__(
         self,
         time_band_df_slice,
@@ -311,7 +309,7 @@ class TimeSeriesLoader(object):
         df.loc[df.duplicated('date', keep='first'), 'dupe'] = 'dupe2'
 
         # Get the processing dates after removing duplicates (don't need 2nd duplicate)
-        real_proc_times = [datetime.strptime(date, '%Y%m%d')
+        real_proc_times = [datetime.strptime(date, '%Y%m%d').replace(tzinfo=timezone.utc)
                            for date in df.query("dupe == ['dupe1', 'no']").date.values.tolist()]
 
         si_arrays = []
@@ -368,7 +366,7 @@ class TimeSeriesLoader(object):
                 #         netcdf_vars=mask_band_names,
                 #         chunks=params['reconstruct']['chunks']) as lmask_src:
 
-            attrs = src.attrs.copy()
+            _attrs = src.attrs.copy()
 
             # if self.params['reconstruct']['use_masks']:
             #

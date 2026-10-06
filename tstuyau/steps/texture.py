@@ -1,14 +1,18 @@
 from pathlib import Path
+
 import numpy as np
-from skimage.feature import graycomatrix, graycoprops
-from scipy import ndimage
-from scipy.stats import entropy #note after scikit_image 0.25.0 entropy can be calculated directly with others
-#from scipy.misc import imresize
-from rasterio.fill import fillnodata
+
+#
 import rasterio as rio
+from scipy import ndimage
+from scipy.stats import (
+    entropy,  #note after scikit_image 0.25.0 entropy can be calculated directly with others
+)
+from skimage.feature import graycomatrix, graycoprops
+
+from ..handler import logger
 from .image_utils import rescale_band
 from .project import ProjectPaths
-from ..handler import logger
 
 
 def glcm_fast(in_ras, texture, size_win, levels=8, theta=0):
@@ -17,7 +21,7 @@ def glcm_fast(in_ras, texture, size_win, levels=8, theta=0):
     also note cannot stack outputs, so each theta must be passed in individually
     '''
     
-    import glcm_fast
+    import fast_glcm
     ## needs angles in degrees, not radians like scimage:
     thdeg = np.rad2deg(theta)
 
@@ -123,7 +127,6 @@ def glcm_cython(in_ras, size_win, texture):
         glcm = graycomatrix(in_ras,  distances=[1], angles=[0], levels=256, symmetric = True, normed = True)
         return graycoprops(glcm, 'dissimilarity')[0,0]
 
-    out_stack = []
     ## apply to moving window to glcm calcs
     # 'reflect' mode handles edges safely without shrinking the window size
     if texture == 'variance':
@@ -167,11 +170,15 @@ def crop(img, center, win):
     last_col = first_col + side
     return img[first_row: last_row, first_col: last_col]
 
-def cooc_maps(img, center, win, d=[1], theta=[0], levels=256):
+def cooc_maps(img, center, win, d=None, theta=None, levels=256):
     """
     Return a set of co-occurrence maps for different d and theta in a square 
     crop centered at center (side = 2*w + 1)
     """
+    if d is None:
+        d = [1]
+    if theta is None:
+        theta = [0]
     shape = (2*win + 1, 2*win + 1, len(d), len(theta))
     cooc = np.zeros(shape=shape, dtype=np.int32)
     row, col = center
@@ -230,7 +237,7 @@ def haralick_features(img, win, props, d=1, theta=0, levels=256):
     ## TODO: average theta outputs if len(theta) > 1 
 #########################################################################################################################
 
-def make_glcm(base_img, params=None, si_var=None, win=None, covals=None, th=None, print_out=True, out_path=None):
+def make_glcm(base_img, params=None, si_var=None, win=None, covals=None, th=None, print_out=True, out_path=None, rgb=False):
     '''
     Run the GLCM textures and print file for each in list (if <print_out>=True, or return single glcm
     The "ndimage.generic_filter" funtion perform the moving window of size <win>
@@ -247,7 +254,7 @@ def make_glcm(base_img, params=None, si_var=None, win=None, covals=None, th=None
         ## The textures can be directly passed in with <si_var> or parsed from params 
         gt = si_var  ## direct string or list of types to run (e.g. ['variance','contrast','dissimilarity','homogeneity','entropy']
         size_win = win  ## list of window values to run (e.g. [5,11,25] -- or just single value
-        covals = covals ## list of # of possible values to rescale data to (e.g. [32,64,100,255]  -- or just single value
+        #covals = covals ## list of # of possible values to rescale data to (e.g. [32,64,100,255]  -- or just single value
         thetas = th  ## list of angles to run [th0,th1,th2,th3] or 0 if none
     else:
         ## otherwise these values are parsed from si variable (e.g. med.glcm.variance.w5.c100.th0)
@@ -311,8 +318,8 @@ def make_glcm(base_img, params=None, si_var=None, win=None, covals=None, th=None
             b = raster[2,:,:]
             # Transform RGB to intensity (or lightness) of the HSL color scales
             # Preserves distances and angles from the geometry of the RGB cube
-            ## TODO: uncomment if using
-            #ing_in = imresize( (0.2989 * r) + (0.5870 * g) + (0.1140 * b), 100 )
+            from scipy.misc import imresize
+            img_in = imresize( (0.2989 * r) + (0.5870 * g) + (0.1140 * b), 100 )
         else:
             with rio.open(base_img) as in_ras:
                 img_in = in_ras.read(1)
@@ -338,8 +345,8 @@ def make_glcm(base_img, params=None, si_var=None, win=None, covals=None, th=None
         
         for tex in ['homogeneity','dissimilarity','contrast','correlation','entropy','variance','energy','ASM','std']:
             if (gt == ['all']) or any(t[:3].upper() == tex[:3].upper() for t in gt):
-                for win in size_win:
-                    logger.info(f'calculating {tex} at window size {win}')
+                for swin in size_win:
+                    logger.info(f'calculating {tex} at window size {swin}')
                     ## glcm_fast available for these and should be faster, but need to test  
                     '''
                     if tex in ['homogeneity','dissimilarity','contrast','entropy','ASM']:

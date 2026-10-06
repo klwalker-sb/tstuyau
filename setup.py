@@ -1,5 +1,6 @@
-import setuptools
 from distutils.core import setup
+
+import setuptools
 
 try:
     import numpy as np
@@ -24,7 +25,7 @@ maintainer_email = ''
 description = 'tstuyau: Raster pipelines'
 git_url = 'https://github.com/klwalker-sb/tstuyau'
 download_url = f"{git_url}/archive/{pkg_name}-{version}"
-keywords = ['raster', 'satellite']
+keywords = ['raster', 'satellite', 'machine learning', 'optimization', 'calibration', 'HPC', 'high performance computing']
 extras = 'extra-requirements.txt'
 
 with open('README.md') as f:
@@ -55,28 +56,27 @@ def setup_package():
 
     include_dirs = [np.get_include()]
 
-    metadata = dict(name=pkg_name,
-                    maintainer=maintainer,
-                    maintainer_email=maintainer_email,
-                    description=description,
-                    license=license_file,
-                    version=version,
-                    long_description=long_description,
-                    packages=get_packages(),
-                    package_data=get_package_data(),
-                    keywords=' '.join(keywords),
-                    url=git_url,
-                    download_url=download_url,
-                    install_requires=required_packages,
-                    include_dirs=include_dirs,
-                    entry_points=get_console_dict(),
-                    classifiers=['Intended Audience :: Science/Research',
+    metadata = {'name': pkg_name,
+                    'maintainer': maintainer,
+                    'maintainer_email': maintainer_email,
+                    'description': description,
+                    'license': license_file,
+                    'version': version,
+                    'long_description': long_description,
+                    'packages': get_packages(),
+                    'package_data': get_package_data(),
+                    'keywords': ' '.join(keywords),
+                    'url': git_url,
+                    'download_url': download_url,
+                    'install_requires': required_packages,
+                    'include_dirs': include_dirs,
+                    'entry_points': get_console_dict(),
+                    'classifiers': ['Intended Audience :: Science/Research',
                                  'License :: MIT',
                                  'Topic :: Scientific :: Remote Sensing',
-                                 'Programming Language :: Python :: 3.5',
                                  'Programming Language :: Python :: 3.6',
                                  'Programming Language :: Python :: 3.7',
-                                 'Programming Language :: Python :: 3.8'])
+                                 'Programming Language :: Python :: 3.8']}
 
     setup(**metadata)
 

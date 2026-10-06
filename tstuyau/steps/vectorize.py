@@ -1,23 +1,20 @@
-import sys
+import shutil
 from pathlib import Path
-import pandas as pd
+
+import geopandas as gpd
 import numpy as np
+import pandas as pd
 import rasterio as rio
 from rasterio import features
 from rasterio.features import shapes
-from rasterio.windows import Window, from_bounds
-import geopandas as gpd
+from rasterio.windows import from_bounds
 from scipy import ndimage as ndi
-from skimage.segmentation import watershed
 from skimage.feature import peak_local_max
-import shapely
-from rasterio.windows import Window
-from rasterio.features import shapes
-import gc
-import math
-import shutil
+from skimage.segmentation import watershed
+
 from ..handler import logger
 from .project import ProjectPaths
+
 #from .image_utils import img_to_bbox_offsets
 
 #############################################################################################
@@ -157,7 +154,7 @@ def single_semantic2instance(params):
         poly_dir.mkdir(parents=True, exist_ok=True)
 
     files = []
-    pred_rasts = sorted(list(pred_dir.glob('*.tif')))
+    pred_rasts = sorted(pred_dir.glob('*.tif'))
     
     for pred_rast in pred_rasts:
         grid = pred_rast.name.split(".")[-2][-4:] ## end file with grid number 
@@ -189,13 +186,13 @@ def single_semantic2instance(params):
 
         if "EO" in instance_method:
             eo_thresh = params['vectorize']['eo_thresh'] # 7
-            eo_name = Path(poly_dir) / f"{prefix}_EO_{str(grid)}_{str(eo_thresh).replace('.', 'pt')}th.tif"
+            eo_name = Path(poly_dir) / f"{prefix}_EO_{grid!s}_{str(eo_thresh).replace('.', 'pt')}th.tif"
             files.append(eo_name)
             fname = files[-1]  
         elif "thresh" in instance_method:
             bound_thresh = params['vectorize']['bound_thresh'] #0.4
             ext_thresh = params['vectorize']['ext_thresh'] #0.6
-            thresh_name = Path(poly_dir) / f"{prefix}_thresh_{str(grid)}_b{str(bound_thresh)}0_e{(ext_thresh)}th.tif"
+            thresh_name = Path(poly_dir) / f"{prefix}_thresh_{grid!s}_b{bound_thresh!s}0_e{(ext_thresh)}th.tif"
             thresh_name=f"{thresh_name.replace('.','pt',2)}.tif"
             files.append(thresh_name)
             fname = files[-1]
@@ -203,7 +200,7 @@ def single_semantic2instance(params):
             bound_thresh = params['vectorize']['bound_thresh'] #0.4
             ext_thresh = params['vectorize']['ext_thresh'] #0.6
             seed_size = params['vectorize']['seed_size'] #15
-            water_name = Path(poly_dir) / f"{prefix}_water_{str(grid)}_b{str(bound_thresh)}0_e{(ext_thresh)}th_s{str(seed_size)}.tif"
+            water_name = Path(poly_dir) / f"{prefix}_water_{grid!s}_b{bound_thresh!s}0_e{(ext_thresh)}th_s{seed_size!s}.tif"
             eater_name=f"{thresh_name.replace('.','pt',2)}.tif"
             files.append(water_name)
             fname = files[-1]
@@ -257,11 +254,11 @@ def single_semantic2instance(params):
         ## instance to polys
         og_polys = instance_to_poly(fname, mmu)  
         if "water" in instance_method:
-            fname = f"Wtrshd_pred_polys_b{str(bound_thresh)[-1]}0_e{str(ext_thresh)[-1]}0_s{str(seed_size)}_{str(grid)}.gpkg"
+            fname = f"Wtrshd_pred_polys_b{str(bound_thresh)[-1]}0_e{str(ext_thresh)[-1]}0_s{seed_size!s}_{grid!s}.gpkg"
         elif "thresh" in instance_method:
-            fname = f"{instance_method}_pred_polys_b{str(bound_thresh)[-1]}0_e{str(ext_thresh)[-1]}0_{str(grid)}.gpkg"
+            fname = f"{instance_method}_pred_polys_b{str(bound_thresh)[-1]}0_e{str(ext_thresh)[-1]}0_{grid!s}.gpkg"
         elif "EO" in instance_method:
-            fname = f"{instance_method}_pred_polys_{str(eo_thresh).replace('.', 'pt')}th_{str(grid)}.gpkg"
+            fname = f"{instance_method}_pred_polys_{str(eo_thresh).replace('.', 'pt')}th_{grid!s}.gpkg"
         
         if not (Path(poly_dir)/fname).exists():
             merged_polygons = og_polys.dissolve().explode(index_parts=True)
@@ -325,10 +322,10 @@ def vectorize_seg_results(params):
         threshs = f"{str(bt).replace('.', 'pt')}_{str(et).replace('.', 'pt')}_{str(ss).replace('.', 'pt')}"
     
     prepred_dir = Path(seg_dir_in)/'composites_probas'
-    out_dir = Path(seg_dir_out)/f"infer_polys_{str(instance_method)}_{threshs}_{yr}"
+    out_dir = Path(seg_dir_out)/f"infer_polys_{instance_method!s}_{threshs}_{yr}"
     params['feature_model']['poly_vector_path'] = out_dir
     out_dir.mkdir(parents=True, exist_ok=True)
-    perm_feat_dir = Path(seg_dir_out)/f"feats_{str(instance_method)}_{threshs}_{yr}"
+    perm_feat_dir = Path(seg_dir_out)/f"feats_{instance_method!s}_{threshs}_{yr}"
     perm_feat_dir.mkdir(parents=True, exist_ok=True)  
 
     params['feature_model']['poly_var_path'] = prepred_dir
@@ -341,12 +338,12 @@ def vectorize_seg_results(params):
     in_dir = out_dir
 
     ## save single merged gpkg to file for calculating stats (field size stats per admin area) from vectors
-    merged_fi = Path(out_dir)/f"{params['segment']['prefix']}_{yr}_polys_{str(instance_method)}_{threshs}_merged.gpkg"
+    merged_fi = Path(out_dir)/f"{params['segment']['prefix']}_{yr}_polys_{instance_method!s}_{threshs}_merged.gpkg"
             
     if params['vectorize']['overwrite_merged']:
         merged_fi.unlink(missing_ok=True)
     if not merged_fi.exists():
-        files = sorted(list(in_dir.glob('*_cut.gpkg')))
+        files = sorted(in_dir.glob('*_cut.gpkg'))
         logger.debug(f'files:{files}')
         gdfs = [gpd.read_file(f) for f in files]
         field_shp = gpd.GeoDataFrame(pd.concat(gdfs, ignore_index=True)).dissolve().explode()
@@ -368,7 +365,7 @@ def vectorize_seg_results(params):
         field_shp = gpd.read_file(merged_fi)
 
     ## write grid cell per file based on grid shape
-    files = sorted(list(in_dir.glob('*_cut.gpkg')))
+    files = sorted(in_dir.glob('*_cut.gpkg'))
     grids = [i.stem.replace('_cut', '')[-4:] for i in files]
     for grid in grids:
         ## Need to buffer cell bounds to match other raster products for cell
@@ -376,7 +373,7 @@ def vectorize_seg_results(params):
         grid_bound = gridcell.buffer(params['buffer']+int(params['res']),cap_style=3,join_style=2).geometry.iloc[0]
         polys_per_grid = gpd.clip(field_shp, grid_bound) ## making area raster from merged shape
         print(polys_per_grid.bounds)
-        rst_fn = Path(out_dir)/f"{pred_prefix}_{str(instance_method)}_{str(grid)}_{threshs}th.tif"
+        rst_fn = Path(out_dir)/f"{pred_prefix}_{instance_method!s}_{grid!s}_{threshs}th.tif"
 
         ## raster to use as template
         with rio.open(rst_fn) as rst:
@@ -386,7 +383,7 @@ def vectorize_seg_results(params):
         
         for attrib in ['area', 'APR', 'APrEf']:
             logger.debug(f'working on {attrib}...\n')
-            out_fn = Path(perm_feat_dir)/ f"pred_{attrib}_{str(grid)}.tif"
+            out_fn = Path(perm_feat_dir)/ f"pred_{attrib}_{grid!s}.tif"
             with rio.open(out_fn, 'w+', **meta) as src:
                 tmp_arr = src.read(1)
                 shapes = ((geom,value) for geom, value in zip(polys_per_grid.geometry, polys_per_grid[attrib]))

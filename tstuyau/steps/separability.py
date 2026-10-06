@@ -1,7 +1,9 @@
 import math
+
 import numpy as np
-import pandas as pd
+
 from ..handler import logger
+
 
 def sep_mstat(p,q):
     ## parametric separability index (M) (Kaufman and Remer, 1994, good if >1)

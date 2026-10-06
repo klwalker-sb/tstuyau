@@ -1,20 +1,19 @@
 import shutil
+from datetime import datetime, timezone
 from pathlib import Path
-import tempfile
 
-from ..handler import logger
+import geowombat as gw
+import numpy as np
+import pandas as pd
+import xarray as xr
+from affine import Affine
+
 from ..db import TuyauDataBase
+from ..handler import logger
 from . import utils
-from .project import ProjectPaths
 from .lookup import SENSORS
 from .processing_tracker import reconstruct_db
-import geowombat as gw
-
-import xarray as xr
-import pandas as pd
-from affine import Affine
-from datetime import datetime
-import numpy as np
+from .project import ProjectPaths
 
 REFERENCE_BAND = 'nir'
 LANDSAT_LIKE_BANDS = ['blue', 'green', 'red', 'nir', 'swir1', 'swir2']
@@ -28,7 +27,7 @@ def expand_time(dataset):
     attrs['transform'] = Affine(*attrs['transform'])
     attrs['res'] = tuple(attrs['res'])
     ## Get the date
-    file_date = datetime.strptime(Path(dataset.encoding['source']).stem.split('_')[3], '%Y%m%d')
+    file_date = datetime.strptime(Path(dataset.encoding['source']).stem.split('_')[3], '%Y%m%d').replace(tzinfo=timezone.utc)
     darray = (
         dataset
         .to_array()
@@ -59,11 +58,11 @@ def coregister(params):
 
     cells = utils.get_cell_list_from_grid_param(params['grids'])
     for cell in cells:
-        ppaths = ProjectPaths(params, grid=grid)
+        ppaths = ProjectPaths(params, grid=cell)
 
         ## procssing_db is the full processing database tracking info about each image processed and steps taken
         processing_db_path = ppaths.ms.parent/'processing.info'
-        if not is_file(processing_db_path):
+        if not processing_db_path.is_file():
             logger.warning(f'processing.info does not exist for cell {cell}. Making new db...')
             reconstruct_db(cell)
         processing_db = pd.read_pickle(processing_db_path)
@@ -74,12 +73,12 @@ def coregister(params):
              processing_db['coreg_error'] = np.nan
 
         ## db is a simple cell-level processing database tracking which cells have been run (this is an sqlite db)
-        db = TuyauDataBase(str(ppaths.ms.parent / f'{int(grid):06d}_tuyau.db'))
+        db = TuyauDataBase(str(ppaths.ms.parent / f'{int(cell):06d}_tuyau.db'))
 
         if not db.table_exists:
             db.remove()
             db.create(exists_ok=True)
-            db.insert(grid)
+            db.insert(cell)
 
         check_download_db = False
         if params['status']['check_downloads']:
@@ -110,14 +109,14 @@ def coregister(params):
                 for sen in msensors:
                     senunq = SENSORS[sen]['GEEunq']
                     if list(ppaths.gee.glob(f"{senunq}*[!s].nc")):
-                        logger.warning(f'  The {senunq} post-processing for grid {grid} is incomplete.')
+                        logger.warning(f'  The {senunq} post-processing for grid {cell} is incomplete.')
                         continue
 
         if params['status']['reset_db']:
-            db.reset(grid, 'preprocess')
+            db.reset(cell, 'preprocess')
 
         if not ppaths.ms.is_dir():
-            logger.warning(f'  The BRDF directory for cell {grid} does not exist.')
+            logger.warning(f'  The BRDF directory for cell {cell} does not exist.')
             continue
 
         nocoreg_path = ppaths.ms.parent.joinpath('s2_nocoreg')
@@ -135,17 +134,17 @@ def coregister(params):
         if params['dlMethod'] == 'GEE':
             skip_flag = (skip_flag or []) + ['s']
             
-        match_str = f'*.nc' if skip_flag is None else f'*[!{skip_flag}].nc'
+        match_str = '*.nc' if skip_flag is None else f'*[!{skip_flag}].nc'
         s2_list = utils.get_s2_list(ppaths.ms, pattern=match_str)
         l5_list = utils.get_l5_list(ppaths.ms, pattern=match_str)
         l7_list = utils.get_l7_list(ppaths.ms, pattern=match_str)
         image_list = s2_list + l5_list + l7_list
 
         if not image_list:
-            logger.warning(f'  No images found for cell {grid}.')
+            logger.warning(f'  No images found for cell {cell}.')
             continue
 
-        logger.info(f'  Checking grid {grid} ...')
+        logger.info(f'  Checking grid {cell} ...')
 
         if (not ref_path.is_file()) or (params['coreg']['overwrite_ref']):
             logger.info('making reference image...')
@@ -193,7 +192,7 @@ def coregister(params):
                     for fn in landsat_list:
                         with xr.open_mfdataset(str(fn)) as src:
                             pass
-                except:
+                except Exception as ex:
                     logger.warning(f'corrupt image: {fn}')
 
             else:
@@ -231,8 +230,8 @@ def coregister(params):
                                 engine='h5netcdf'
                             ) as target:
                             ## This converts nodata values to nan
-                            target = target.where(lambda x: x != target.nodatavals[0])
-                            reference = reference.where(lambda x: x != reference.nodatavals[0])
+                            target = target.where(target != target.nodatavals[0])
+                            reference = reference.where(reference != reference.nodatavals[0])
                             ## The fillna below converts nans to 0
                             
                             max_shift = 5
@@ -284,7 +283,7 @@ def coregister(params):
                             ## shift_x and shift_y are coordinate shits of the coreged raster in pixels (to use if matching cloud masks later)
                             processing_db.loc[processing_db['brdf_id'].eq(fn.name),'shift_x']= data.attrs['x_shift_px']
                             processing_db.loc[processing_db['brdf_id'].eq(fn.name),'shift_y']= data.attrs['y_shift_px']
-                        except:
+                        except Exception:
                             continue
 
                     else:
@@ -293,4 +292,4 @@ def coregister(params):
                         p.rename(Path(p.parent, f"{p.stem}_{params['reconstruct']['skip_flag']}{p.suffix}"))
 
         pd.to_pickle(processing_db, ppaths.ms.parent/'processing.info')
-        db.update(grid, 'preprocess')
+        db.update(cell, 'preprocess')
