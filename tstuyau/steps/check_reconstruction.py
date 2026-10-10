@@ -259,7 +259,7 @@ def reconstruct(params):
             filtered_images = {
                 name: dt
                 for name, dt in image_dict.items()
-                if start_date <= dt <= end_date
+                if start_date <= dt.replace(tzinfo=timezone.utc) <= end_date
             }
             logger.info(f'applying masks to {len(filtered_images)} images')
             apply_masks_to_images(filtered_images, ppaths.proc, masked_img_dir, mask_args, params)

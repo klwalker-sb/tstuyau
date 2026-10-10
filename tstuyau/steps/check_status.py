@@ -1,6 +1,6 @@
 import ast
 import csv
-import datetime
+from datetime import datetime, timezone, date
 import shutil
 import sys
 from pathlib import Path
@@ -10,7 +10,6 @@ import geowombat as gw
 import matplotlib.pyplot as plt
 import pandas as pd
 import rasterio as rio
-import timezone
 
 from ..db import TuyauDataBase
 from ..handler import logger
@@ -57,7 +56,7 @@ def find_gaps(ranges, start_date, stop_date):
         return []
     gaps = []
     # check for gap at the beginning of range:
-    startd = datetime.datetime.strptime(start_date,'%Y-%m-%d').replace(tzinfo=timezone.utc).date()
+    startd = datetime.strptime(start_date,'%Y-%m-%d').replace(tzinfo=timezone.utc).date()
     if ranges[0][0] > startd:
         gaps.append([startd,ranges[0][0]])
     # Set marker at the end of the first range
@@ -76,7 +75,7 @@ def find_gaps(ranges, start_date, stop_date):
         current = max(pair[1], current)
     # check for gap at the end of range:
     logger.debug(f'stop_date={stop_date}')
-    stopd = datetime.datetime.strptime(stop_date,'%Y-%m-%d').replace(tzinfo=timezone.utc).date()
+    stopd = datetime.strptime(stop_date,'%Y-%m-%d').replace(tzinfo=timezone.utc).date()
     if ranges[-1][1] < stopd:
         gaps.append([ranges[-1][1],stopd])
     return gaps
@@ -92,7 +91,7 @@ def check_logfile_dl(logfile, cell_dict,stop_date='2025-10-01', start_date='2000
     errors=[]
     if ignore_dates:
         ignore = [d for d in ignore_dates.split('--')]
-        ignore_dt = [datetime.datetime.strptime(d,'%Y-%m-%d').replace(tzinfo=timezone.utc).date() for d in ignore]
+        ignore_dt = [datetime.strptime(d,'%Y-%m-%d').replace(tzinfo=timezone.utc).date() for d in ignore]
     with open(logfile) as f:
         for line in f:
             if 'cell_id' in line:
@@ -127,7 +126,7 @@ def check_logfile_dl(logfile, cell_dict,stop_date='2025-10-01', start_date='2000
     if len(periods)==0:
         logger.info('this log file contains no info')
     else:
-        dates = [[datetime.date(int(x[:4]),int(x[5:7]),int(x[8:10])) for x in p] for p in periods]
+        dates = [[date(int(x[:4]),int(x[5:7]),int(x[8:10])) for x in p] for p in periods]
         ranges = sorted(dates)
         date_range = [ranges[0][0], ranges[-1][1]]
         logger.info(f'downloaded from {date_range}')
@@ -137,13 +136,13 @@ def check_logfile_dl(logfile, cell_dict,stop_date='2025-10-01', start_date='2000
             ## note: if dict has been saved as dataframe and reconstructed as dict, entries will be strings
             ## update start and end value
             if isinstance(cell_dict[cell_id]['dllog_start'],str):
-                old_start = datetime.datetime.strptime(cell_dict[cell_id]['dllog_start'],'%Y-%m-%d').replace(tzinfo=timezone.utc).date()
+                old_start = datetime.strptime(cell_dict[cell_id]['dllog_start'],'%Y-%m-%d').replace(tzinfo=timezone.utc).date()
             else:
                 old_start = cell_dict[cell_id]['dllog_start']
             if ranges[0][0] < old_start:
                 cell_dict[cell_id]['dllog_start']=ranges[0][0]
             if isinstance(cell_dict[cell_id]['dllog_end'],str):
-                old_end = datetime.datetime.strptime(cell_dict[cell_id]['dllog_end'],'%Y-%m-%d').replace(tzinfo=timezone.utc).date()
+                old_end = datetime.strptime(cell_dict[cell_id]['dllog_end'],'%Y-%m-%d').replace(tzinfo=timezone.utc).date()
             else:
                 old_end = cell_dict[cell_id]['dllog_end']
             if ranges[-1][1] > old_end:
@@ -155,8 +154,8 @@ def check_logfile_dl(logfile, cell_dict,stop_date='2025-10-01', start_date='2000
             else:
                 old_errors = cell_dict[cell_id]['dllog_errors']
             unresolved_errors = [e for e in old_errors if e in errors or e not in new_ranges]
-            new_errors = [e for e in errors if datetime.datetime.strptime(e[0],'%Y-%m-%d').replace(tzinfo=timezone.utc).date() < old_start 
-                          or datetime.datetime.strptime(e[1],'%Y-%m-%d').replace(tzinfo=timezone.utc).date() > old_end]
+            new_errors = [e for e in errors if datetime.strptime(e[0],'%Y-%m-%d').replace(tzinfo=timezone.utc).date() < old_start 
+                          or datetime.strptime(e[1],'%Y-%m-%d').replace(tzinfo=timezone.utc).date() > old_end]
             if len(unresolved_errors) > 0:
                 new_errors.extend(unresolved_errors)
             cell_dict[cell_id]['dllog_errors']=new_errors

@@ -20,7 +20,7 @@ from .filter_utils import (
     store_count,
 )
 from .image_utils import clip_big_ras_to_small
-from .lookup import LC_CATS, LC_CATS_Py0
+from .lookup import get_lc_cats
 from .project import ProjectPaths
 from .time_series_post_utils import CORRECTIONS
 from .zonal import make_polygon_features
@@ -34,12 +34,11 @@ def reclass_small_fields(params, class_ras, poly_ras, area_ras, ras_out):
     Note that areas for the input poly_ras are expected in ha*10
        (to represent variance withough causing errors in 16-byte outputs)
     '''
-    if params['project_ver'] == 'Py_0':
-        LC_CATS = LC_CATS_Py0
+    lc_cats = get_lc_cats(params['project_ver'])
 
-    sm_class = LC_CATS['smallcrop_main']
-    big_crops = LC_CATS['bigcrops']
-    lowcrops = LC_CATS['low_crops']
+    sm_class = lc_cats['Mixed crop'][0]
+    big_crops = lc_cats['Homogeneous crop']
+    lowcrops = lc_cats['LowVeg_crop']
         
     with rio.open(class_ras, 'r') as maj_src:
         maj = maj_src.read(1)
@@ -136,8 +135,7 @@ def make_filter_layers_for_cell(params, filter_set):
     out_yr = params['classify']['out_yrs']
     buf = params['refine']['buffer']
     
-    if params['project_ver'] == 'Py_0':
-        LC_CATS = LC_CATS_Py0
+    lc_cats = get_lc_cats(params['project_ver'])
     
     if ('polys_area' in filter_set) or ('area_focal' in filter_set):
         ## get field size raster (this should already exist from vectorize_seg_results(), but may need to buffer)
@@ -252,7 +250,7 @@ def make_filter_layers_for_cell(params, filter_set):
             lc = lc_src.read(1)
             with rio.open(filter_set['polys_buf']['cell_final'], 'r')  as buf_src:
                 poly_lc = buf_src.read(1)
-            sm = np.where((np.isin(lc, LC_CATS['smallcrops'])) | (poly_lc == LC_CATS['smallcrop_main']), 1, 0)
+            sm = np.where((np.isin(lc, lc_cats['Mixed crop'])) | (poly_lc == lc_cats['Mixed crop'][0]), 1, 0)
             #sm_nbhd = generic_filter(sm, np.sum, size=3, mode='reflect', cval=0)
             smf = sm.astype(np.float32)
 
@@ -329,17 +327,16 @@ def post_classification_spatial_filter_smallholder(params, filter_set):
     PAD_SIZE = 1 
     is_paraguay = 'paraguay' in str(params['backup_path'])
 
-    if params['project_ver'] == 'Py_0':
-        LC_CATS = LC_CATS_Py0
+    lc_cats = get_lc_cats(params['project_ver'])
 
-    smallholder_class = LC_CATS['smallcrop_main']
-    smallholder_classes = LC_CATS['smallcrops']
-    bigcrop_classes = LC_CATS['bigcrops']
-    lowcrops = LC_CATS['low_crops']
-    crops = LC_CATS['all_crops']
-    sugar_val = LC_CATS['sugar']
-    mixed_edge_val = LC_CATS['mixed_edge']
-    crop_edge_val = LC_CATS['crop_edge']
+    smallholder_class = lc_cats['Mixed crop'][0]
+    smallholder_classes = lc_cats['Mixed crop']
+    bigcrop_classes = lc_cats['Homogeneous crop']
+    lowcrops = lc_cats['LowVeg_crop']
+    crops = lc_cats['Crop']
+    sugar_val = lc_cats['sugar']
+    mixed_edge_val =lc_cats['Mixed_grass-edge']
+    crop_edge_val = lc_cats['Mixed_crop-edge']
 
     sm_edge_dist = params['refine']['sm_neighborhood']
 
@@ -435,7 +432,7 @@ def post_classification_spatial_filter_smallholder(params, filter_set):
     with rio.open(filterfinal_path, 'r') as src:
         profile = src.profile
         final0 = src.read(1)
-    final1 = mark_forest_edges(final0, params)
+    final1 = mark_forest_edges(final0, cat_dict=lc_cats)
     final_forest_retouch = filterfinal_path.replace('.tif','_ForestEdge.tif')
     with rio.open(final_forest_retouch, "w", **profile) as dst:
         dst.write(final1, 1)
@@ -601,6 +598,9 @@ def filter_temporal_noise_from_stable_cats(ts_files, cat, cat_idx, params, count
     applying the most frequent occurrence from the set (e.g. water/wet_veg or wet vs dry grass).
     '''
     logger.info(f'getting stable base for {cat}')
+
+    lc_cats = get_lc_cats(params['project_ver'])
+    
     with gw.open(ts_files) as ts:
         _attrs = ts.attrs.copy()
 
@@ -608,9 +608,9 @@ def filter_temporal_noise_from_stable_cats(ts_files, cat, cat_idx, params, count
     ## shrub forest if ever classified as shrub forest, or if classified as both dense forest & shrub
     ## and (optionally) in a specified region (e.g. Chaco in Paraguay)
     if cat in ['shrub_forest', 'shrub_for']:
-        nshrubfor = store_count('shrub_for', count_cache, lambda: (ts.isin(LC_CATS['shrub_for'])).sum(dim="time").astype('uint8'))
-        nshrub = store_count('shrub', count_cache, lambda: (ts.isin(LC_CATS['shrub'])).sum(dim="time").astype('uint8'))
-        ndensefor = store_count('dense_for', count_cache, lambda: (ts.isin(LC_CATS['dense_for'])).sum(dim="time").astype('uint8'))
+        nshrubfor = store_count('shrub_for', count_cache, lambda: (ts.isin(lc_cats['shrub_for'])).sum(dim="time").astype('uint8'))
+        nshrub = store_count('shrub', count_cache, lambda: (ts.isin(lc_cats['MedVeg_noncrop'])).sum(dim="time").astype('uint8'))
+        ndensefor = store_count('dense_for', count_cache, lambda: (ts.isin(lc_cats['dense_for'])).sum(dim="time").astype('uint8'))
 
         region_cond = (ndensefor > 0) & (nshrub > 0)
         apply_to = params['refine']['stable_regions'][cat_idx]
@@ -618,28 +618,28 @@ def filter_temporal_noise_from_stable_cats(ts_files, cat, cat_idx, params, count
             region_filt = get_regional_filter(cat_idx, ts_files[0], params['refine']['stable_regions'], params['refine']['stable_region_file'])
             region_cond = region_cond & (region_filt == 1)
 
-        base_cat = np.where((nshrubfor > 0) | region_cond, LC_CATS['shrub_for'][0], 0)
+        base_cat = np.where((nshrubfor > 0) | region_cond, lc_cats['shrub_for'][0], 0)
 
     elif cat in ['palm_forest', 'palm_for']:
         ## palm forest if majority out of palm-forest, grass-tree-mix and med-crop
-        npalmfor = store_count('palm_for', count_cache, lambda: (ts.isin(LC_CATS['palm_for'])).sum(dim="time").astype('uint8'))
-        ngtmix = store_count('gtmix', count_cache, lambda: (ts.isin(LC_CATS['gtmix'])).sum(dim="time").astype('uint8'))
-        nmedcrop = store_count('med_crops', count_cache, lambda: (ts.isin(LC_CATS['med_crops'])).sum(dim="time").astype('uint8'))
-        base_cat = np.where((npalmfor > ngtmix) & (npalmfor > nmedcrop), LC_CATS['palm_for'][0], 0)
+        npalmfor = store_count('palm_for', count_cache, lambda: (ts.isin(Llc_cats['palm_for'])).sum(dim="time").astype('uint8'))
+        ngtmix = store_count('gtmix', count_cache, lambda: (ts.isin(lc_cats['gtmix'])).sum(dim="time").astype('uint8'))
+        nmedcrop = store_count('med_crops', count_cache, lambda: (ts.isin(lc_cats['med_crops'])).sum(dim="time").astype('uint8'))
+        base_cat = np.where((npalmfor > ngtmix) & (npalmfor > nmedcrop), lc_cats['palm_for'][0], 0)
 
     elif cat in ['open_forest', 'open_for']:
         ## open forest if open_forest or shrub for at least 25% of ts and dense forest for the rest
-        nopenfor = store_count('open_for', count_cache, lambda: (ts.isin(LC_CATS['open_for'])).sum(dim="time").astype('uint8'))
-        nshrub = store_count('shrub', count_cache, lambda: (ts.isin(LC_CATS['shrub'])).sum(dim="time").astype('uint8'))
-        ndensefor = store_count('dense_for', count_cache, lambda: (ts.isin(LC_CATS['dense_for'])).sum(dim="time").astype('uint8'))
+        nopenfor = store_count('open_for', count_cache, lambda: (ts.isin(Llc_cats['open_for'])).sum(dim="time").astype('uint8'))
+        nshrub = store_count('shrub', count_cache, lambda: (ts.isin(lc_cats['MedVeg_noncrop'])).sum(dim="time").astype('uint8'))
+        ndensefor = store_count('dense_for', count_cache, lambda: (ts.isin(lc_cats['dense_for'])).sum(dim="time").astype('uint8'))
         base_cat = np.where(
             ((nopenfor + nshrub) >= 2) & (ndensefor == (len(ts.time) - (nopenfor + nshrub))),
-            LC_CATS['open_for'][0], 0
+            lc_cats['open_for'][0], 0
         )
 
     ##########  simple majority rule:
     else:
-        base_cat = get_most_frequent_cat_in_timeseries(cat, ts, cat_dict=LC_CATS)
+        base_cat = get_most_frequent_cat_in_timeseries(cat, ts, cat_dict=lc_cats)
 
     return np.squeeze(base_cat) if isinstance(base_cat, np.ndarray) else base_cat.squeeze()
 
@@ -649,8 +649,7 @@ def get_stable_base(ts_files, ts_yrs, params, count_cache):
     across time). In the final filter, this is only applied to certain classes that should be stable logically.
     '''
     logger.info('getting base lc for time series...')
-    if params['project_ver'] == 'Py_0':
-        LC_CATS = LC_CATS_Py0
+    lc_cats = get_lc_cats(params['project_ver'])
 
     if params['project_name'].lower().startswith('paraguay'):
         params['refine']['stable_group'] = ['shrub_for', 'palm_for', 'open_for', 'dense_for', 'wet', 'grass_Py36']
@@ -707,8 +706,8 @@ def get_stable_base(ts_files, ts_yrs, params, count_cache):
 
 def filter_ts_rasters(ts_files, ts_yrs, base_rasters, params, count_cache):
 
-    if params['project_ver'] == 'Py_0':
-        LC_CATS = LC_CATS_Py0
+    lc_cats = get_lc_cats(params['project_ver'])
+    
     if params['project_name'].lower().startswith('paraguay'):
         params['refine']['illogical'] = [
             'sugar-palm', 'sugar-grass', 'banana-wet', 'palm_for-grass-aggressive', 'palm_for-wetgrass',
@@ -721,7 +720,7 @@ def filter_ts_rasters(ts_files, ts_yrs, base_rasters, params, count_cache):
         params['refine']['illogical_region_file'] = params['refine']['stable_region_file']
         params['refine']['group_suffix'] = 'Py36'
 
-    ctx = FilterTsArgs(ts_files, ts_yrs, params, LC_CATS, base_rasters, count_cache)
+    ctx = FilterTsArgs(ts_files, ts_yrs, params, lc_cats, base_rasters, count_cache)
     
     with gw.open(ts_files, time_names=ts_yrs, stack_dim='time') as ts:
         _attrs = ts.attrs.copy()
@@ -734,19 +733,19 @@ def filter_ts_rasters(ts_files, ts_yrs, base_rasters, params, count_cache):
     ## if pixel is forest, set to base forest type:
     if 'forest' in base_rasters:
         ts = ts.where(
-            (~ts.isin(ctx.LC_CATS[f'forest_{group_suffix}'])) | (base_rasters['forest'] < ctx.LC_CATS['first_mature']),
+            (~ts.isin(ctx.lc_cats[f'forest_{group_suffix}'])) | (base_rasters['forest'] < ctx.lc_cats['first_mature']),
             base_rasters['forest']
         )
     ## if pixel is grass, set to base grass type:
     if f'grass_{group_suffix}' in base_rasters:
         ts = ts.where(
-            (~ts.isin(ctx.LC_CATS[f'grass_{group_suffix}'])) | (base_rasters[f'grass_{group_suffix}'] == 0),
+            (~ts.isin(ctx.lc_cats[f'grass_{group_suffix}'])) | (base_rasters[f'grass_{group_suffix}'] == 0),
             base_rasters[f'grass_{group_suffix}']
         )
     ## if pixel is wet, set to base wet type IF change is NOT stable for 2 yrs:
     if 'wet' in base_rasters:
         ts = ts.where(
-            (~ts.isin(ctx.LC_CATS['wet'])) | (base_rasters['wet'] == 0) |
+            (~ts.isin(ctx.lc_cats['wet'])) | (base_rasters['wet'] == 0) |
             (ts.shift(time=1).fillna(0) == ts) | (ts.shift(time=-1).fillna(0) == ts),
             base_rasters['wet']
         )
@@ -782,6 +781,8 @@ def ts_filter(params):
     These rules are implemented through get_stable_base() and filter_ts_rasters()
     Prints out filtered time series as single yearly rasters ending in '-tsfilt.tif'
     '''
+    lc_cats = get_lc_cats(params['project_ver'])
+    
     logger.info('applying ts filters...')
     if params['classify']['mod_dir']:
         comp_dir_in = params['classify']['mod_dir']
@@ -828,7 +829,7 @@ def ts_filter(params):
             logger.info(f'getting final raster for {y}...')
             out_file = Path(final_dir)/f'{prescript}_{y}_{postscript}-tsfilt.tif'
             ts_single = final_refine.sel(time=y).squeeze().fillna(0).astype('uint8')
-            ts_single = mark_forest_edges(ts_single, params)
+            ts_single = mark_forest_edges(ts_single, cat_dict=lc_cats)
             with gw.config.update(ref_image=ts_files[0], nodata=0):
                 ts_single.gw.save(out_file,num_workers=params['num_workers'],compression='lzw',overwrite=True)
     

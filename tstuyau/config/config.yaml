@@ -55,7 +55,6 @@ procseq: 'mu.br.cga'
 ## <num_workers> is the number of parallel workers
 num_workers: 6
 
-##
 ## Calendar variables: 
 ##    <calendar:first_mo> is the first month of a mapping year (to not split critical seasons)
 ##    <calendar:start_wet>, etc. is doy (1-365) and sets the seasons for calculation of seasonal variables
@@ -165,6 +164,32 @@ status:
   ## <status:reset_db> Resets steps in the global step tracking database for each cell (not file tracking) -- keeps all existing files
   reset_db: False
 
+explore:
+ ## <explore:zones> is path to zonal file for summary data / sample distribition optimization / zonal matching, etc.
+ zones: None
+ ## <explore:spectsdf_dir> is 'vector/sample_ts_signatures' directory by default 
+ ## <explore:product_dir> is directory with products (e.g. maps) containing the exploratory data
+ product_dir: None
+ ## <explore:product_name> is the name of the product to summarize / use in the exploratory analysis (if raster, exclude suffix)
+ product_name: None
+ ## <explore:summary_cats> is the name of the model in SCHEMATIC_MODS (lookup.py) to use to summarize a categorical raster 
+ summary_cats: None
+ ## <explore:print_cats> are the summary categories of interest to print to output file
+ print_cats: 'All'
+ ## <explore:map_type> is type of map data ('cat' | 'cont') if summarizing a raster
+ map_type: None
+ ## <explore:decimals> sets the decimal output for continuous rasters. If None or 0, truncates to int. Else rounds to X decimals. 
+ decimals: None
+ spectsdf_dir: ''
+ ## <explore:sig_prefix> is prefix for signature files and graphs to give context. e.g. 'burn-prepost' 
+ sig_prefix: ''
+
+ #### separability testing:
+ ## <explore:maxobsgap_pre> is the maximum number of days between an event observation and the closest pre-event observation for it to be used
+ maxobsgap_pre: 30
+ ## <explore:maxobsgap_pre> is the maximum number of days between an event observation and the closest post-event observation for it to be used
+ maxobsgap_post: 10
+ 
 #################################################################################
 #### Settings for optional steps to prepare input imagery 
 
@@ -285,7 +310,7 @@ fusion:
   ## <fusion:wavelengths> The wavelengths to sharpen  TODO: check how this differes from si
   wavelengths:
     - 'evi2'
-
+ 
 ###############################################################################
 ## Reconstructing time series (smoothing)
 reconstruct:
@@ -483,11 +508,17 @@ sample_model:
   preobs_col: None
   
 schematic_model:
-  lc_mod: 'all'
+  ## <schematic_model><lc_mod> is the model for all lc classes in the training set -- this is defined in SCHEMATIC_MODS in lookup.py
+  ##    if lc_mod starts will LC, will skip the dictionary lookup and look directly for this column in the LUT
+  lc_mod: 'pyall'
   lut: "/home/downspout-cel/paraguay_lc/Class_LUT.csv"
+  summary_mod: 'veg_with_crop'
 
 iter_models:
   ## <iter_models:temp_vardfs> sends pt and feature sets to a temp space (<scratch_dir>/optimization/vardfs) rather than the backup <vardf_dir>
+  temp_vardfs: True
+  ## <iter_models><optimize_on> is the schematic model to use for optimization (accuracy targets): Defined in lookup.py SCHEMATIC_MODS
+  ##    currently established choices are: 'cropNoCrop', 'burnNoBurn', 'grassNoGrass' for binary models and 'smCrop' for 3-cat smallholder model
   optimize_on: 'smCrop'
   feat_models: ['base4Poly','base4NoPoly']
   class_models: []
@@ -536,16 +567,6 @@ iter_models:
   fmodel_score_dict: '/home/downspout-cel/paraguay_lc/optimization/feature_model_scores.json'
   ##<iter_models:new_fmodname> is new name for a newly generated feature model
   new_fmodname: ''
-
-explore:
- ## <explore:spectsdf_dir> is 'vector/sample_ts_signatures' directory by default
- spectsdf_dir: ''
- ## <explore:sig_prefix> is prefix for signature files and graphs to give context. e.g. 'burn-prepost' 
- sig_prefix: ''
- ## <explore:maxobsgap_pre> is the maximum number of days between an event observation and the closest pre-even observation for it to be used
- maxobsgap_pre: 30
- ## <explore:maxobsgap_pre> is the maximum number of days between an event observation and the closest post-even observation for it to be used
- maxobsgap_post: 10
  
 ########## Classification ###########################################################################################
 classify:

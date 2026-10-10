@@ -36,4 +36,4 @@ from .prechecks import make_thumbnails
 from .vectorize import vectorize_seg_results
 
 #from .check_segments import segment
-from .zonal import make_polygon_features, reclassify_raster
+from .zonal import make_polygon_features, reclassify_raster, summarize_raster

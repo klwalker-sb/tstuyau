@@ -1,6 +1,7 @@
-from datetime import datetime
+from datetime import datetime, timezone
+import numpy as np
 
-dt_today = datetime.now(tz=datetime.UTC).date()
+dt_today = datetime.now(tz=timezone.utc).date()
 
 SENSORS = {'Sentinel2':{'unq':'S2','matchstr':['S2','S2A','S2B','S2C'], 'sensor':'sentinel-2','color':'magenta', 'name':'Sentinel-2', 'GEEunq':'L1C','GEE':'COPERNICUS/S2'}, 
               'S2':{'unq':'S2','matchstr':['S2','S2A','S2B','S2C'], 'sensor':'sentinel-2', 'color':'magenta','name':'Sentinel-2','GEEunq':'L1C','GEE':'COPERNICUS/S2'},
@@ -32,6 +33,15 @@ MASKS = {'terrain_shade': {'maskname':'shademask', 'mask_dir':'terrain/shade_mas
          's2cloudless': {'maskname':'s2cloudless', 'mask_dir':'clouds/s2cloudless', 'db_col':'s2cloudless', 'mask_val':1},
         }
 
+CONT_STATS = {'avg': np.nanmean,
+               'med': np.nanmedian,
+               'std': np.nanstd,
+               'q75': lambda d: np.nanquantile(d, 0.75),
+               'q90': lambda d: np.nanquantile(d, 0.9),
+               'q25': lambda d: np.nanquantile(d, 0.25), 
+               'q10': lambda d: np.nanquantile(d, 0.1)}
+
+
 ## legacy for old pymaps:
 SCHEMATIC_MODS_leg={'pyall':'LC32',
                 'pymax':'LC36',
@@ -45,137 +55,165 @@ SCHEMATIC_MODS_leg={'pyall':'LC32',
                 'veg_with_cropType':'LC10',
                 'cropType':'LC_crops'
                }
-
-SCHEMATIC_MODS={'pyall':'celPy1_LC32',
-                'pymax':'celPy1_LC36',
-                'trans_cats':'LCTrans',
-                'cropNoCrop':'LCcrop2',
-                'crop_nocrop_mixcrop':'LCcrop3sm',
-                'crop_nocrop_medcrop':'LCcrop3',
-                'crop_nocrop_medcrop_tree':'LCcrop4',
-                'veg':'LC5',
-                'veg_det':'LC15',
-                'veg_with_crop':'LC5wCrop1',
-                'veg_with_cropType':'LCwCrop2',
-                'cropType':'LC_crops',
-                'burnType':'LCburn4',
-                'burnNoburn':'LCburn2',
-                'SAgrass_max':'LC25',
-                'SAgrass_all':'LC20',
-                'grassNoGrass':'LCgrass2'
+    
+## Note: 'labels' need to have corresponding entry in LC_CATS and "col' needs to be columns in the LUT with the class values (
+##        matching the items in the list for the LC_CAT keys involved. If binary recall scores are desired for a multi-class model, 
+##        a column 'col2' can be supplied (but the function should now be able to work with the multi-cat column). The class label starting 
+##        with  'No' will be assumed to be the negative class and all other classes will be assumed positive. If binary recall does not make
+##        sense for the model, enter 'NA' for 'col2' so that the model does not complain or waste effort running nonsensical recalls. 
+##        Use get_schematic_mod(focus) rather than indexing SCHEMATIC_MODS directly: it fills in a missing 'col2' ('NA')
+##        and a missing 'short_names' (derived from 'labels').
+SCHEMATIC_MODS={'pyall': {'col':'celPy1_LC32', 'col2':'NA'},
+                'pymax': {'col':'celPy1_LC36', 'col2':'NA'},
+                'trans_cats':{'col':'LCTrans', 'col2':'NA'},
+                'cropNoCrop':{'col':'LCcrop2', 'col2':'LCcrop2', 'labels':['Crop', 'No crop'], 'short_names':['Crop', 'NoCrop']},
+                'smCrop':{'col':'LCcrop3sm', 'col2':'LCcrop2', 'labels':['Homogeneous crop','No crop','Mixed crop'], 'short_names':['bigCrop','noCrop','smCrop']},
+                'medCrop':{'col':'LCcrop3', 'col2':'LCcrop2', 'labels':['LowVeg_crop','No crop','Shrub or Tree crop'],
+                           'short_names':['lowCrop','NoCrop','medCrop']},
+                'crop_nocrop_medcrop_tree':{'col':'LCcrop4', 'col2':'LCcrop2','labels':['LowVeg_crop','No crop','Shrub or Tree crop','Trees'],
+                                           'short_names':['lowCrop','NoCrop','medCrop','Trees']},   # FIX: was 'short_names' = [...]
+                'veg':{'col':'LC5', 'labels':['NoVeg','LowVeg','MedVeg','HighVeg','Trees']},
+                'veg_det':{'col':'LC15', 'col2':'NA'},
+                'veg_with_crop':{'col':'LC5crop4', 'col2':'NA', 'labels':['NoVeg','LowVeg_noncrop','Homogeneous crop','Mixed crop',
+                                                              'Shrub or Tree crop','MedVeg_noncrop','Trees_plantation','Trees_nat']},
+                'veg_with_cropType':{'col':'LC5CropT', 'col2':'NA'},
+                'cropType':{'col':'LC_crops', 'col2':'NA'},
+                'burnType':{'col':'LCburn4', 'col2':'LCburn2', 'labels':['No-burn', 'Burned-wet', 'Burned-dry', 'Burned-woody']},
+                'burnNoburn':{'col':'LCburn2', 'col2':'LCburn2', 'labels':['Burn', 'No-burn']},
+                'mgmt_burn':{'col':'LCburn4', 'col2':'LCburn2', 'labels':['Burn','No-burn','mgmtBurn']},   # NOTE: 'mgmtBurn' has no LC_CATS entry yet
+                'wet_burn':{'col':'LCburn4', 'col2':'LCburn2', 'labels':['Burn','No-burn','Burned-wet']},
+                'dry_burn':{'col':'LCburn4', 'col2':'LCburn2', 'labels':['Burn','No-burn','Burned-dry']},
+                'high_burn':{'col':'LCburn4', 'col2':'LCburn2', 'labels':['Burn','No-burn','Burned-woody']},
+                'SAgrass_max':{'col':'LC25', 'col2':'NA'},
+                'SAgrass_all':{'col':'LC20', 'col2':'NA'},
+                'grassNoGrass':{'col':'LCgrass2', 'col2':'LCgrass2', 'labels':['Grass', 'No-Grass']},   # FIX: missing comma after col2
+                'clear_grass':{'col':'LCgrassP', 'col2':'LCgrass2', 'labels':['Grass_all','No-grass','Grass_clear']}
                }
 
-LC_FOCUS_DICT = {'smCrop':{'cats':['smallCrop','bigCrop', 'noCrop'],'lutcol':'LCcrop2'},
-                 'crop':{'cats':['crop', 'noCrop'],'lutcol':'LCcrop2'},
-                 'burn':{'cats':['burn','noBurn'],'lutcol':'LCburn2'},
-                 'mgmt_burn':{'cats':['burn','noBurn','mgmtBurn'],'lutcol':'LCburn2'},
-                 'wet_burn':{'cats':['burn','noBurn','wetBurn'],'lutcol':'LCburn2'},
-                 'dry_burn':{'cats':['burn','noBurn','dryBurn'],'lutcol':'LCburn2'},
-                 'high_burn':{'cats':['burn','noBurn','highBurn'],'lutcol':'LCburn2'},
-                 'grass':{'cats':['allGrass','noGrass'],'lutcol':'LCgrass2'},
-                 'clear_grass':{'cats':['allGrass','noGrass','clearGrass'],'lutcol':'LCgrass2'}
-                }
-                            
-LC_CATS_Py0 ={'smallcrop_main' : 35,
-                'sugar' : 38,
-                'rice' : 37,
+def get_schematic_mod(mod):
+    '''
+    Returns a copy of SCHEMATIC_MODS[focus] with defaults filled in
+    '''
+    spec = dict(SCHEMATIC_MODS[mod])
+    spec.setdefault('col2', SCHEMATIC_MODS[mod]['col'])
+    if 'labels' in spec:
+        spec.setdefault('short_names', [l.replace(' ', '_') for l in spec['labels']])
+    return spec
+
+SMALLS_FLAGS = {'smalls_1ha': 'smlhld_1ha', 'smalls_halfha': 'smlhld_halfha'}
+    
+## Note: In the case of lists, the first value is the storae value for the category
+LC_CATS_Py0 ={  'Mixed crop' : [35,23,24,25,26,32,34,36,39],
+                'Mixed crop reduced':[35,26,32,36],
+                'Homogeneous crop':[22,31,33,37,38,19],  ## note this should not include shrub or tree crops
+                'Shrub or Tree crop':[40,41,42,43,45,46,47,54],
+                'LowVeg_crop':[30, *range(22,40)],
+                'Crop':[100, *range(22,48),19,54],
+                'Mixed_Crop-edge':19,  ## this is double counted in (Homogeneous crop / Crop) and (No crop) and usually dealt with by methods 
+                'sugar':38,
+                'rice':37,
                 'banana':43,
-                'smallcrops' : [23,24,25,26,32,34,35,36,39],
-                'bigcrops' : [22,31,33,37,38],
-                'med_crops' : [40,41,42,43,45,46,47,54],
-                'low_crops':  [*range(22,40)],
-                'all_crops' : [*range(22,48),19,54],
-                'first_veg' : 11,
-                'first_highveg' : 50,
-                'mixed_edge' : 18,
-                'crop_edge': 19,
-                'shrub': [*range(50,60)],
-                'shrub_main': 52,
-                'tree_plant':[60,66,56],
-                'young_treeplant':56,
-                'baby_treeplant':11,
-                'first_medveg':40,
-                'first_mature':60,
-                'dense_for': [80],
-                'open_for': [65],
-                'shrub_for': [64],
-                'palm_for': [68],
-                'gtmix': [51],
+                'No crop':[98,*range(1,20),*range(48,54),*range(55,98)],
+                'mixed_nonCrop':[9,18,19],
+                'LowVeg_noncrop':[*range(10,21)],
+                'LowVeg':[20,*range(10,20),*range(22,40)],
+                'LowVeg_wet':[17],
                 'wet':[7,17,57,77],
-                'tree_water_mix': 77,
-                'wet_grass': 17,
-                'dry_grass': [12,13],
-                'wet_med':57,
-                'built':[3],
-                 'bare':2,
-                'wet_medveg': 57,
+                'NoVeg':[*range(1,10)],
+                'NoVeg_water':[7],
+                'NoVeg_built':[3],
+                'NoVeg_bare':[2],
+                'first_veg':11,
+                'first_highveg':50,
+                'HighVeg':[54,56],
+                'Mixed_Grass-edge':18,
+                'Grass_all':[12,13,17,18],
+                'grass_Py36':[12,13,17,18],
+                'dry_grass':[12,13],
+                'gtmix':[51],
+                'MedVeg_noncrop':[52,51,53,54,55,56,57,58,59],
+                'MedVeg_wet':[57],
+                'first_medveg':40,
+                'MedVeg':[50,*range(51,60),40,41,42,43,45,46,47],
+                'TreePlant_young':[56],
+                'TreePlant_start':11,
+                'Trees_plantation':[60,66,56],
+                'first_mature':60,
+                'dense_for':[80],
+                'open_for':[65],
+                'shrub_for':[64],
+                'palm_for':[68],
+                'tree_water_mix':77,
+                'Trees':[65,60,66,64,68,77,80],
                 'forest_Py36':[64,65,68,80],
                 'forest_open_stable':[64,65],
-                'forest_nat':[64,65,68,80],
-                'allGrass':[12,13,17,18],
-                'grass_Py36':[12,13,17,18],
-                'water':[7]
+                'Trees_nat':[64,65,68,80],
+                'maxcat':100
              }
 
-LC_CATS={'smallcrop_main' : 137,
-                'sugar': 143,
-                'rice': 114,
-                'banana': 148,
-                'smallcrops' : [117,129,130,134,137,138,147],
-                'bigcrops' : [102,103,104,105,106,107,110,111,112,113,114,115,116,140,141,142,143,144,145,146],
-                'med_crops' : [148,150,151,152,153,155,156,157,158,159,191,192,193,194,196,197,198],
-                'low_crops': [*range(100,148)],
-                'noCrop':[-100],
-                'all_crops': [*range(100,160),*range(191,199)],
-                'first_veg' : 50,
-                'first_highveg': 180,
-                'mixed_edge': 86,
-                'crop_edge': 96,
-                'allGrass': [51,55,58,71,72,73,74,75,76,77,79,80,81,82,83,84,85,86,87,88,89,91,108],
-                'clearGrass': [51,55,58,71,73,75,76,77,79,80,81,82,83,84,85,87,88,89,108],
+    
+## Note: In the case of lists, the first value is the storae value for the category
+LC_CATS={       'Mixed crop':[137,118,133,129,131,147,138,132,97,177],
+                'Mixed crop reduced':[137,129,131,138,132,177],
+                'Homogeneous crop':[104,96,101,102,103,105,106,107,109,110,111,112,113,114,115,116,117,119,120,140,141,142,143,144,145,146], ## note this should not include shrub or tree crops
+                'Shrub or Tree crop':[150,148,151,152,153,155,156,157,158,159,190,191,192,193,194,196,197,198,199,183],
+                'LowVeg_crop':[*range(100,148)],
+                'Crop':[*range(100,160),*range(191,199),96],
+                'Mixed_Crop-edge':96,  ## this is double counted in (Homogeneous crop / Crop) and (No crop) and usually dealt with by methods 
+                'sugar':143,
+                'rice':114,
+                'banana':148,
+                'No crop':[-100,*range(1,100),*range(161,191),*range(199,255)],
+                'mixed_nonCrop':[51,91,96,181,184,191,196,211],
+                'LowVeg_noncrop':[*range(50,100)],
+                'LowVeg':[60,*range(50,60),*range(61,148)],
+                'LowVeg_wet': [74,64,61,65,63,68],   # FIX: missing trailing comma
+                'NoVeg':[10,*range(1,10),*range(11,50)],
+                'NoVeg_water':[40],
+                'NoVeg_built':[30],
+                'NoVeg_bare':20,
+                'first_veg':50,    
+                'Mixed_Grass-edge':86,
+                'Grass_all':[75,51,55,58,71,72,73,74,76,77,79,80,81,82,83,84,85,86,87,88,89,91,108],
+                'Grass_clear':[51,55,58,71,73,75,76,77,79,80,81,82,83,84,85,87,88,89,108],
                 'grass_Py36':[74,75,80,91],
-                'burn':[93,94,99,95,169],
-                'highBurn':[169],
-                'dryBurn':[99],
-                'wetBurn':[94],
-                'mgmtBurn':[93],
-                'noBurn':[255],
-                'shrub': [*range(160,170)],
-                'shrub_main':161,
-                'tree_plant':[207,187,217,202,203,205,206,208,209,216],
-                'young_treeplant':187,
-                'baby_treeplant':98,
+                'dry_grass':[80,75],
+                'gtmix': [176],
+                'Burn':[95,93,94,99,169],
+                'Burned-woody':[169],
+                'Burned-dry':[99],
+                'Burned-wet':[94],
+                'Burned-firebreak':[93],
+                'No-burn':[255],
+                'MedVeg_noncrop': [161,*range(162,170)],
+                'MedVeg':[160,*range(161,170),148,150,151,152,153,155,156,157,158,159,173,178,179,181,184,186,187,182,185],
                 'first_medveg':148,
-                'first_mature':200,
+                'MedVeg_wet':[164],
+                'first_highveg':180,
+                'HighVeg':[180,188,189,181,184,186,187,182,185,211,197],
+                'Trees_plantation':[207,187,217,202,203,205,206,208,209,216],
+                'TreePlant_young':[187,182,185],
+                'TreePlant_start':98,
+                'Trees': [200,*range(206,255),193,195],
+                 'first_mature':200,
                 'dense_for': [250],
                 'open_for': [215],
                 'shrub_for':[226],
                 'palm_for':[221],
                 'generic_for':[220,215],
-                'gtmix': [176],
-                'wet':[40,74,164,184],
-                'tree_water_mix': 184,
-                'wet_grass': 74,
-                'dry_grass': [80,75],
-                'wet_med':164,
-                'built':[30],
-                'bare':20,
-                'wet_medveg':164,
+                'tree_water_mix':184,
                 'forest_Py36':[226,215,221,220],
                 'forest_open_stable':[226,221],
-                'forest_nat':[212,213,214,215,*range(218,224)],
-                'water':[40]
-                 
+                'Trees_nat':[220,212,213,214,215,218,219,*range(221,255)],
+                'wet':[40,74,164,184],
+                'maxcat':255
         }
 
-MIXED_CROPS_Py0 = ["Crops-mix", "Crops-Mandioca", "Crops-Horticulture","Crops-Sesame","Crops-Tobacco"]
-MIXED_CROPS_Py1 = ["crop_mixed_small" ,"crop_cassava", "crop_horticulture", "crop_tobacco", "crop_sesame"]
-MIXED_NONCROPS_Py0  = ["Mixed-VegEdge", "Mixed-path", "Mixed-GrassEdge", "Mixed-FieldEdge"]
-MIXED_CROPS = ["crop_mixed_small" ,"crop_cassava", "crop_horticulture"]
-MIXED_NONCROPS = ["mixed_path", "grass_edge", "crop_edge", "riparian_mixed", "mixed_highNo", "mixed_highNoLow", "rd_trees", "tree_path"]
+def get_lc_cats(project_v=None):
+    """ Returns the LC_CATS dict for the project version. 
+    """
+    return LC_CATS_Py0 if project_v == 'Py0' else LC_CATS
 
-mixed_classes = ["Mixed-VegEdge", "Mixed-path", "Crops-mix", "Mixed-GrassEdge", "Mixed-FieldEdge", 
-                     "Crops-Mandioca", "Crops-Horticulture","Crops-Sesame","Crops-Tobacco"]
 
 GEE_COLLECTIONS = ['COPERNICUS/S2',
                   'COPERNICUS/S2_CLOUD_PROBABILITY',# S2Cloudless 

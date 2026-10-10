@@ -27,9 +27,9 @@ def get_date_range(year,period,params,return_type='ymd',padded=False):
     '''
 
     ## start of the year is the first day of the starting calendar month
-    start_of_yr = datetime.datetime(year, params['calendar']['first_mo'], 1, tzinfo=datetime.timezone.utc)
+    start_of_yr = datetime(year, params['calendar']['first_mo'], 1, tzinfo=timezone.utc)
     ## end of the year is 364 days from the start of the year
-    end_of_yr = datetime.datetime(year, params['calendar']['first_mo'], 1, tzinfo=datetime.timezone.utc) + timedelta(364)
+    end_of_yr = datetime(year, params['calendar']['first_mo'], 1, tzinfo=timezone.utc) + timedelta(364)
     
     if period == 'yr':
         start_date = start_of_yr
@@ -42,7 +42,7 @@ def get_date_range(year,period,params,return_type='ymd',padded=False):
             start_yr = year
         else:
             start_yr = year + 1
-        start_date = datetime.datetime(start_yr, month1_num, 1, tzinfo=datetime.timezone.utc)
+        start_date = datetime(start_yr, month1_num, 1, tzinfo=timezone.utc)
         ## if single month, end month is same as start month. But period can be range (e.g. 'JanMar') 
         end_month = month1_num if len(period) == 3 else list(month_abbr).index(period[-3:])
         if end_month >= params['calendar']['first_mo']:
@@ -50,14 +50,14 @@ def get_date_range(year,period,params,return_type='ymd',padded=False):
         else:
             end_yr = year + 1
         last_day = monthrange(end_yr, end_month)[1]
-        end_date = datetime.datetime(end_yr, end_month, last_day, tzinfo=datetime.timezone.utc)
+        end_date = datetime(end_yr, end_month, last_day, tzinfo=timezone.utc)
     elif any (q in period for q in ['Q1','Q2','Q3','Q4']):
         quarter = int(period.split('Q')[1][0])
         qend = quarter * 91
         qstart = qend - 91
 
-        start_date = datetime.datetime(year, params['calendar']['first_mo'], 1, tzinfo=datetime.timezone.utc) + timedelta(qstart)
-        end_date = datetime.datetime(year, params['calendar']['first_mo'], 1, tzinfo=datetime.timezone.utc) + timedelta(qend)
+        start_date = datetime(year, params['calendar']['first_mo'], 1, tzinfo=timezone.utc) + timedelta(qstart)
+        end_date = datetime(year, params['calendar']['first_mo'], 1, tzinfo=timezone.utc) + timedelta(qend)
     else:
         if period == 'wet':
             doys = [int(params['calendar']['start_wet']), int(params['calendar']['end_wet'])]
@@ -68,15 +68,15 @@ def get_date_range(year,period,params,return_type='ymd',padded=False):
         if padded:
             doys = [doys[0] - params['feature_model']['pheno_pad_days'][0], doys[1] + params['feature_model']['pheno_pad_days'][1]]
 
-        if datetime((int(year) + 1), 1, 1, tzinfo=datetime.timezone.utc) + timedelta(days=doys[0] - 1) > end_of_yr:
-            start_date = datetime((int(year)), 1, 1, tzinfo=datetime.timezone.utc) + timedelta(days=(doys[0] - 1))
+        if datetime((int(year) + 1), 1, 1, tzinfo=timezone.utc) + timedelta(days=doys[0] - 1) > end_of_yr:
+            start_date = datetime((int(year)), 1, 1, tzinfo=timezone.utc) + timedelta(days=(doys[0] - 1))
         else:
-            start_date = datetime((int(year) + 1), 1, 1, tzinfo=datetime.timezone.utc) + timedelta(days=(doys[0]  - 1))
+            start_date = datetime((int(year) + 1), 1, 1, tzinfo=timezone.utc) + timedelta(days=(doys[0]  - 1))
 
-        if datetime((int(year) + 1), 1, 1, tzinfo=datetime.timezone.utc) + timedelta(days=doys[1] - 1) > end_of_yr:
-            end_date = datetime((int(year)), 1, 1, tzinfo=datetime.timezone.utc) + timedelta(days=(doys[1] - 1))
+        if datetime((int(year) + 1), 1, 1, tzinfo=timezone.utc) + timedelta(days=doys[1] - 1) > end_of_yr:
+            end_date = datetime((int(year)), 1, 1, tzinfo=timezone.utc) + timedelta(days=(doys[1] - 1))
         else:
-            end_date = datetime((int(year) + 1), 1, 1, tzinfo=datetime.timezone.utc) + timedelta(days=(doys[1] - 1))
+            end_date = datetime((int(year) + 1), 1, 1, tzinfo=timezone.utc) + timedelta(days=(doys[1] - 1))
 
     if return_type == 'doy':
         return int(start_date.strftime("%Y%j")), int(end_date.strftime("%Y%j"))
@@ -104,7 +104,7 @@ def get_img_date(img, ts_type, img_type, data_source=None):
             DD = int(img_base[4])*interval_int if ((MM !=2) | (int(img_base[4]) !=30/interval_int)) else 28
         else:
             DD = int(img_base[4])
-        ymd = datetime.datetime(YYYY, MM, DD)
+        ymd = datetime(YYYY, MM, DD, tzinfo=timezone.utc)
         ydoy = ymd.strftime("%Y%j")
         doy = int(ymd.strftime('%j'))
     elif img_type not in ['LS2','S2','L','LT05', 'LE07', 'LC08', 'LC09']:
@@ -238,8 +238,8 @@ def check_day_dist(dta, dtb, max_days):
     Checks if two dates fall within a day range
 
     Args:
-        dta (object): The first ``datetime.datetime`` object.
-        dtb (object): The second ``datetime.datetime`` object.
+        dta (object): The first ``datetime`` object.
+        dtb (object): The second ``datetime`` object.
         max_days (int): The maximum number of days.
 
     Returns:
