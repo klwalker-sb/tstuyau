@@ -1,6 +1,8 @@
 import json
+import os
 import shutil
 from pathlib import Path
+import time
 
 import geopandas as gpd
 import joblib
@@ -13,7 +15,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 
 from ..handler import logger
-from .lookup import LC_CATS, SCHEMATIC_MODS, LC_CATS_Py0
+from .lookup import SCHEMATIC_MODS, get_lc_cats, SMALLS_FLAGS
 from .project import ProjectPaths
 
 # from sklearn_crfsuite import metrics
@@ -116,7 +118,7 @@ def get_class_col(lc_mod,lut):
     if lc_mod.startswith('LC'):
         class_col = lc_mod  
     elif lc_mod in SCHEMATIC_MODS:
-        class_col = SCHEMATIC_MODS[lc_mod]
+        class_col = SCHEMATIC_MODS[lc_mod]['col']
     elif lc_mod.startswith('single'):
         lc_base =  lc_mod.split('_')[1].lower()
         target_class = lut.index[lut['USE_NAME'].map(lambda s: lc_base in s.lower())].to_list()
@@ -141,32 +143,32 @@ def get_holdout_scores(holdoutpix, ml_model, class_col, out_dir,class_type=None,
     gets predictions for a holdout sample in .csv file <holdout_pix>. Expects columns "OID_" and <class_col> in holdout_pix
        as well as all "var_" columns that match model features
     '''
-
-    if project_v == 'Py_0':
-        LC_CATS = LC_CATS_Py0
-
-    ## Save info for extra columns and drop (model is expecting only variable input columns)
     if isinstance(holdoutpix, pd.DataFrame):
-        holdout_pix = holdoutpix
-        holdout_pix.reset_index(drop=True, inplace=True)
+        holdout_pix = holdout_pix.reset_index(drop=True)
     else:
         holdout_pix = pd.read_csv(holdoutpix)
     
     if 'entry_lev' in list(holdout_pix.columns):
-        ## filter to remove less confident entries
+        ## filter to remove less confident entries.   TODO: add parameter to decide how this is treated
         #holdout_pix = holdout_pix[(holdout_pix['entry_lev'] == 4) | (holdout_pix['source'].isin(['ground','GE']))]
         holdout_pix = holdout_pix[(holdout_pix['entry_lev'] > 1)]
-        ## mixed fields are removed from from no-crop test set in CELPy, as this is ambiguous. TODO: expand for all
-        if project_v == 'Py0' and class_type == 'noCrop':
-            holdout_pix = holdout_pix[(holdout_pix['LC'] != 19) & (holdout_pix['smlhld_1ha'] == 0)]
-        holdout_pix.reset_index(drop=True, inplace=True)
-
+        
+    ## crop edges are removed from from no-crop test set in CELPy, as this is ambiguous.
+    lc_cats = get_lc_cats(project_v)
+    is_nocrop = bool(class_type) and class_type.lower().startswith('no') and class_type.lower().endswith('crop')
+    edge_val = lc_cats['Mixed_Crop-edge']
+    if is_nocrop and edge_val is not None:  ## remove crop edges from no-crop test set
+        holdout_pix = holdout_pix[(holdout_pix['label'] != edge_val)]
+    if project_v == 'Py_0' and is_nocrop:  ## legacy code to fix a former problem
+        holdout_pix = holdout_pix[(holdout_pix['smlhld_1ha'] == 0)]
+    holdout_pix = holdout_pix.reset_index(drop=True)
+        
     ## legacy code to handle the fact that 'LCcrop2' was originally just 'LC2':
-    if class_col == 'LCcrop2':
-        if 'LCcrop2' not in holdout_pix.columns.values.tolist() and (project_v == 'Py0'):
+    if class_col == 'LCcrop2' and 'LCcrop2' not in holdout_pix.columns: 
+        if project_v == 'Py_0':
             class_col = 'LC2'
         else:
-            logger.warning('WARNING: cannot find LCcrop2 column (maybe change project_ver param to Py0 if using original CELPy dfs)')
+            logger.warning("WARNING: cannot find LCcrop2 column (maybe change project_ver param to 'Py_0' if using original CELPy dfs)")
             
     holdout_labels = holdout_pix[class_col]
     h_IDs = holdout_pix['OID_']
@@ -188,9 +190,6 @@ def get_holdout_scores(holdoutpix, ml_model, class_col, out_dir,class_type=None,
     new_names = ["pred","label","OID"]
     old_names = holdout_fields.columns[new_cols]
     holdout_fields.rename(columns=dict(zip(old_names, new_names)), inplace=True)
-    
-    if class_type=='noCrop': ## remove crop edges from no-crop test set, as this is ambiguous
-            holdout_fields = holdout_fields[(holdout_fields['label'] != LC_CATS['crop_edge'])]
 
     ## Print to file
     if class_type:
@@ -202,57 +201,69 @@ def get_holdout_scores(holdoutpix, ml_model, class_col, out_dir,class_type=None,
    
     return holdout_fields
 
-def get_binary_holdout_score(ho_path, ml_model, out_dir, lut, class_type, project_v=None):
+def get_class_recall(samp_path, ml_model, out_dir, lut, target_class, neg_class, project_v=None, lutcol=None):
     '''
-    Returns percent correct for binary model.
-    Current models are crops: ['crop', 'smallCrop', 'bigCrop', 'noCrop'] or burn: ['burn', 'noburn', 'wet_burn', 'dry_burn', mgmt_burn']
-    other models can be added by adding column to LUT to match <class_type> 
-          (negative class needs to start with 'no' and value for that class should be 255 or added to neg_classes)
+    Returns the recall for the scored holdout sample at <samp_path>. This ho set should contain only the sub-class of interest
+    (e.g. if checking recall of smallCrop, sample will contain only smallCrop, but only <neg_class> labels will be considered misses --
+     in this case, smallCrop classified as other types of crop will be considered correct for recall estimates. Full confusion matrices are
+     provided with other methods and the calss recall for non-collapsable cases is just the producer's accuracy)
     '''
-
-    if class_type.lower().endswith('crop'):
-        if project_v == 'Py0':
-            lutcol = 'LC2'
-            #posval = 30
-            neg_classes = [98,255]  #(255 = noevent, 98 = nocrop)
-        else:
-            lutcol = 'LCcrop2'
-            #posval = 100
-            neg_classes = [-100,255]  #(255 = noevent, -100 = nocrop)
-    elif class_type.lower().endswith('burn'):
-        lutcol = 'LCburn2'
-        #posval = 95
-    elif class_type.lower().endswith('grass'):
-        lutcol = 'LCgrass2'
-    else:
-        lutcol = class_type
-        
-    mcho_score = get_holdout_scores(ho_path, ml_model, lutcol, out_dir, class_type)
-    ## Need to rejoin with LUT and get L2 class if using any other classification system
-    lut2 = pd.read_csv(lut)
-    accdf = mcho_score.merge(lut2[['LC_UNQ',lutcol]], left_on='pred', right_on='LC_UNQ',how='left')
-
-    ## convert negative cases to 0: 
-    accdf[lutcol] = np.where(accdf[lutcol].isin(neg_classes), 0, accdf[lutcol])
-    ## get value for posivive case (should be only remaining value in binary model)
-    posvals = [v for v in accdf[lutcol].unique() if v > 0]
-    if len(posvals) > 0:
-        logger.warning(f'OOPS -- there is more than one possible positive value in the binary model: {posvals}')
-    posval = posvals[0]
-
-    if class_type.lower().startswith('no'):
-        num_correct = len(accdf) - (accdf[lutcol].sum() / posval)
-    else:
-        num_correct = accdf[lutcol].sum() / posval
+    lc_cats = get_lc_cats(pproject_v)
     
-    per_correct = (num_correct / len(accdf)).round(3)
+    if project_v == 'Py_0':
+        lutcol = 'LC2'
+    if lutcol is None:
+        tc = target_class.lower()
+        if 'crop' in tc:
+            lutcol = 'LCcrop2'
+        elif 'burn' in tc:
+            lutcol = 'LCburn2'
+        elif 'grass' in tc:
+            lutcol = 'LCgrass2'
+        elif 'graze' in tc:
+            lutcol = 'LCgraze2'
+        else:
+            logger.warning(f'cannot infer binary LUT for class {target_class}: add lutcol to arguments')
+
+    if isinstance(samp_path, pd.DataFrame):
+        samp = samp_path
+    else:
+        samp = pd.read_csv(samp_path)
+    if 'pred' in samp.columns:
+        scored_samp = samp
+    else:
+        scored_samp = get_holdout_scores(samp_path, ml_model, lutcol, out_dir, target_class, project_v=project_v)
+
+    if len(scored_samp) == 0:
+        logger.warning(f'no holdout samples for recall of {target_class}; returning NaN')
+        return np.nan
+
+    ## may need to rejoin with LUT to attach lutcol
+    lut2 = lut if isinstance(lut, pd.DataFrame) else pd.read_csv(lut)
+    accdf = scored_samp.merge(lut2[['LC_UNQ',lutcol]], left_on='pred', right_on='LC_UNQ',how='left')
+
+    ## convert negative cases to 0 and pos_cases to 1
+    neg_vals = np.atleast_1d(lc_cats[neg_class])
+    pos_vals = [v for v in accdf[lutcol].unique() if v > 0 and v not in neg_vals]
+    logger.info(f' for recall score of {target_class}, the following values are considered hits: {pos_vals}')
+    pos_flag = accdf[lutcol].isin(pos_vals).astype(int)
+
+    if target_class == neg_class:
+        num_correct = len(accdf) - pos_flag.sum()
+    else:
+        num_correct = pos_flag.sum()
+    
+    per_correct = round(num_correct / len(accdf), 3)
     
     return per_correct
 
-def get_confusion_matrix(pred_col, obs_col, class_lut, lc_mod_map, lc_mod_acc, print_cm=False, out_dir=None, model_name=None):
+def get_confusion_matrix(pred_col, obs_col, class_lut, lc_mod_map, lc_mod_acc, print_cm=False, out_dir=None, model_name=None, name_map=None):
     '''
     returns confusion matrix with optional regrouping of classes based on LUT 
     classification schema and class columns defined in get_class_col
+    <name_map> is an optional {LUT class name: short name} dict (e.g. dict(zip(labels, short_names))) used to rename
+    the matrix rows/columns; names not in the dict are left as they are.
+
     '''
     if isinstance(class_lut, pd.DataFrame):
         lut = class_lut
@@ -278,30 +289,42 @@ def get_confusion_matrix(pred_col, obs_col, class_lut, lc_mod_map, lc_mod_acc, p
         cmdf3.rename(columns={f'{acc_cat}_name':'pred_reclass'}, inplace=True)
         cmdf3.drop(['LC_UNQ'],axis=1,inplace=True)
         cm=pd.crosstab(cmdf3['pred_reclass'],cmdf3['obs_reclass'],margins=True)
+
+    if name_map:
+        cm = cm.rename(index=name_map, columns=name_map)
+    ## make the matrix square: crosstab only keeps classes that appear in that axis, so a class that is observed but never
+    ## predicted (or vice versa) would otherwise be missing a row/column and drop out of PA/UA/F1 and the summary scores
+    all_classes = sorted(set(cm.index.drop('All')) | set(cm.columns.drop('All')), key=lambda v: (type(v).__name__, v))
+    cm = cm.reindex(index=all_classes + ['All'], columns=all_classes + ['All'], fill_value=0)
+ 
+    ## class names actually present in the matrix (works for both the 'single' and re-grouped cases)
+    cat_names = [c for c in cm.index if c != 'All']
+
     cm['correct'] = cm.apply(lambda x: x[x.name] if x.name in cm.columns else 0, axis=1)
-    cm['sumcol'] = cm.apply(lambda x: cm.loc['All', x.name] if x.name in cm.columns else 0)
+    cm['sumcol'] = cm.apply(lambda x: cm.loc['All', x.name] if x.name in cm.columns else 0, axis=1)
     cm['UA'] = (cm['correct']/cm['All']).round(3)
     cm['PA'] = (cm['correct']/cm['sumcol']).round(3)
     cm['F1'] = ((2 * cm['UA'] * cm['PA'])/(cm['UA'] + cm['PA'])).round(3)
-    cm['F_5'] = ((1.5 * cm['UA'] * cm['PA'])/(.5 * cm['UA'] + cm['PA'])).round(3)
-    cm['F_25'] = ((1.25 * cm['UA'] * cm['PA'])/(.25 * cm['UA'] + cm['PA'])).round(3)
+    cm['F_5'] = (((1 + .5**2) * cm['UA'] * cm['PA'])/((.5**2) * cm['UA'] + cm['PA'])).round(3)  ##F-beta=0.5
+    cm['F_25'] = (((1 + .25**2) * cm['UA'] * cm['PA'])/((.25**2) * cm['UA'] + cm['PA'])).round(3)   ##F-beta=0.25
     total = cm.at['All','correct']
     cm.at['All','UA'] = ((cm['correct'].sum() - total) / total).round(3)
     cm.at['All','PA'] = ((cm['correct'].sum() - total) / total).round(3)
-    if len(cats) == 2:
-        neg_cat = next(c for c in cats if c.startswith('no'))
-        pos_cat = cats.remove(neg_cat)[0]
-        cm.at['All','F1']=cm.at[pos_cat,'F1']
-        TP = cm.at[pos_cat, pos_cat]
-        FP = cm.at[pos_cat, neg_cat]
-        FN = cm.at[neg_cat, pos_cat]
-        TN = cm.at[neg_cat,neg_cat]
-        #All = TP + FP + FN + TN
-        cm['Kappa'] = (2*(TP*TN - FN*FP)/((TP+FP)*(FP+TN)+(TP+FN)*(FN+TN))).round(3)
-        
+    if len(cat_names) == 2:
+        neg_cat = next((c for c in cat_names if str(c).lower().startswith('no')), None)
+        if neg_cat is not None:
+            pos_cat = next(c for c in cat_names if c != neg_cat)
+            cm.at['All','F1']=cm.at[pos_cat,'F1']
+            TP = cm.at[pos_cat, pos_cat]
+            FP = cm.at[pos_cat, neg_cat]
+            FN = cm.at[neg_cat, pos_cat]
+            TN = cm.at[neg_cat,neg_cat]
+            #All = TP + FP + FN + TN
+            cm['Kappa'] = (2*(TP*TN - FN*FP)/((TP+FP)*(FP+TN)+(TP+FN)*(FN+TN))).round(3)
+
     logger.info(f'Confusion Matrix: {cm}')
     if print_cm:
-        mod_path = Path(out_dir / f'{model_name}_{lc_mod_acc}.csv')
+        mod_path = Path(out_dir) / f'{model_name}_{lc_mod_acc}.csv'
         pd.DataFrame.to_csv(cm, mod_path, sep=',', index=True)
     
     return cm
@@ -313,11 +336,147 @@ def quick_accuracy(X_test, y_test, ml_model, lc_mod, out_dir,model_name,lut,mod_
     if mod_type == 'RF':
         logger.info(f'Out-of-bag score estimate: {ml_model["forest"].oob_score_:.3} \n')
     logger.info(f'Mean accuracy score: {accuracy:.3} \n')
-
     
-    cm = get_confusion_matrix(predicted, y_test,lut, lc_mod, lc_mod, out_dir,model_name,lut)                    
+    cm = get_confusion_matrix(predicted, y_test, lut, lc_mod, lc_mod, print_cm=True, out_dir=out_dir, model_name=model_name)                   
     
     return accuracy, cm
+
+def get_binary_scores(cm):
+    '''
+    Binary scores from a confusion matrix made by get_confusion_matrix. Returns {} if the matrix is not binary
+    (two classes, one of which has a name starting with "no", which is taken as the negative class).
+    '''
+    cats = [c for c in cm.index if c != 'All']
+    neg_lab = next((c for c in cats if str(c).lower().startswith('no')), None)
+    if len(cats) != 2 or neg_lab is None:
+        return {}
+    pos_lab = next(c for c in cats if c != neg_lab)
+    return {k: float(v) for k, v in {"Kappa_bi": cm.at[pos_lab,'Kappa'],
+            "F1_bi": cm.at[pos_lab,'F1'],
+            "F_5_bi": cm.at[pos_lab,'F_5'],
+            "F_25_bi": cm.at[pos_lab,'F_25'],
+            "OA_bi": cm.at['All','UA']}.items()}
+
+def get_summary_scores(cm):
+    '''
+    Summary scores for a multi-class confusion matrix made by get_confusion_matrix (rows = predicted, columns = observed).
+    Macro scores average over the classes that are present in the holdout observations; a class that is observed but never
+    predicted counts as 0 for UA and F1.
+        OA       overall accuracy
+        Kappa    Cohen's kappa
+        BA       balanced accuracy (mean producer's accuracy, i.e. macro recall)
+        UA_macro mean user's accuracy
+        F1_macro mean F1;  F1_wt = F1 weighted by the number of observed samples per class
+        F1_min / PA_min   worst-class F1 / producer's accuracy
+    '''
+    body = cm.loc[[c for c in cm.index if c != 'All']]
+    N = cm.at['All','All']
+    obs = body['sumcol'] > 0
+    po = body['correct'].sum() / N
+    pe = (body['All'] * body['sumcol']).sum() / N**2
+    kappa = (po - pe) / (1 - pe) if pe < 1 else np.nan
+    f1 = body.loc[obs,'F1'].fillna(0)
+    w = body.loc[obs,'sumcol']
+    return {k: float(v) for k, v in {"OA": round(po, 3),
+            "Kappa": round(kappa, 3),
+            "BA": round(body.loc[obs,'PA'].mean(), 3),
+            "UA_macro": round(body.loc[obs,'UA'].fillna(0).mean(), 3),
+            "F1_macro": round(f1.mean(), 3),
+            "F1_wt": round((f1 * w).sum() / w.sum(), 3),
+            "F1_min": round(f1.min(), 3),
+            "PA_min": round(body.loc[obs,'PA'].min(), 3)}.items()}
+
+def get_class_scores(cm):
+    '''
+    Per-class producer's accuracy (recall) and user's accuracy (precision) from a confusion matrix made by
+    get_confusion_matrix, as {"PA_<class>": x, "UA_<class>": y} with spaces in class names replaced by "_".
+    Only classes present in the holdout observations are included. A class that is observed but never predicted has
+    PA = 0 and UA = 0 (UA is undefined there; 0 matches how get_summary_scores treats it).
+    '''
+    body = cm.loc[[c for c in cm.index if c != 'All']]
+    body = body[body['sumcol'] > 0]
+    out = {}
+    for name, row in body.iterrows():
+        key = str(name).replace(' ', '_')
+        out[f'PA_{key}'] = float(row['PA'])
+        out[f'UA_{key}'] = 0.0 if pd.isna(row['UA']) else float(row['UA'])
+    return out
+
+def apply_smalls(pixdf,lut,outpath=None, project_v=None):
+    '''
+    Adds smallholder flag columns ('smlhld_1ha','smlhld_halfha') to pixdf based on polygon area (if exists) and crop classification 
+    If no polygon area feature, applies if classified as mixed crop)
+    '''
+    if project_v == 'Py_0':
+        lccol2 = 'LC2'
+        lccolmulti = 'LC32'
+        lowvegmax = 40
+        croppos = 30
+        cropmix = 35
+    else: 
+        lccol2 = 'LCcrop2' 
+        lccolmulti = 'LC25'
+        lowvegmax = 147
+        croppos = 100
+        cropmix = 137
+        
+    missing = [c for c in (lccolmulti, lccol2) if c not in pixdf.columns]
+    if missing:
+        pixdf = pixdf.merge(lut[['LC_UNQ', *missing]], on='LC_UNQ', how='left')
+    logger.info(f'df columns: {pixdf.columns.values.tolist()}')
+
+    is_crop = pixdf[lccol2] == croppos
+    is_mixed = pixdf[lccolmulti] == cropmix      ## mixed crop is always flagged as smallholder
+    has_area = 'var_poly_area' in pixdf.columns
+    has_width = 'Width' in pixdf.columns
+
+    if not (has_width or has_area):
+        logger.warning("There is no 'var_poly_area' or 'Width' column in the variable df, so smallholder flags were not added. "
+                       "Add at least one of these if smallholder recall is needed.")
+    else:
+        ## (flag column, max polygon area, max field width in m)
+        for flag, area_max, width_max in [('smlhld_1ha', 100, 100), ('smlhld_halfha', 50, 50)]:
+            if has_width:
+                small = (is_crop & (pixdf['Width'] <= width_max)) | is_mixed
+            if has_area:
+                small = small | (is_crop & (pixdf['var_poly_area'] < area_max) & (pixdf[lccolmulti] < lowvegmax))
+            pixdf[flag] = small.astype(int)
+            logger.info(f"{pixdf[flag].sum()} of the sample points are small fields <= {width_max} m across (flag '{flag}')")
+        
+    if outpath:
+        pd.DataFrame.to_csv(pixdf, outpath)
+    
+    return pixdf
+    
+def get_smalls_recalls(ho, ml_model, out_dir, lut, project_v=None):
+    '''
+    Crop recall for each smallholder-flagged subset of the holdout <ho>. Returns {"recall_smalls_1ha": x, "n_smalls_1ha": n, ...}.
+    The flags are the columns made by apply_smalls (which only flags crop samples, so each subset is all crop and the recall is the
+    share predicted as crop). If <ho> does not have the flag columns, apply_smalls is run on it first.
+    '''
+    crop_col = 'LC2' if project_v == 'Py_0' else 'LCcrop2'
+    if any(flag not in ho.columns for flag in SMALLS_FLAGS.values()):
+        logger.info('smallholder flags not in holdout; adding them with apply_smalls')
+        ho = apply_smalls(ho, lut, project_v=project_v)
+ 
+    out = {}
+    for name, flag in SMALLS_FLAGS.items():
+        if flag in ho.columns:
+            logger.warning(f'{flag} not in the holdout (apply_smalls could not make it); recall for {name} not calculated')
+            subset = ho.loc[ho[flag] == 1]
+            out[f'n_{name}'] = int(len(subset))
+            continue
+        subset = ho.loc[ho[flag] == 1]
+        out[f'n_{name}'] = int(len(subset))
+        if len(subset) == 0:
+            logger.warning(f'no holdout samples flagged {flag}; recall not calculated')
+            out[f'recall_{name}'] = None
+            continue
+
+        s_ho = get_holdout_scores(subset, ml_model, crop_col, out_dir, name, project_v=project_v)[["pred","label","OID"]]
+        out[f'recall_{name}'] = get_class_recall(s_ho, ml_model, out_dir, lut, 'Crop', 'No crop', project_v=project_v, lutcol=crop_col)
+    
+    return out
 
 def prep_test_train(df_in, out_dir, class_col, mod_name, thresh=20, stable=True):
     '''
@@ -441,32 +600,71 @@ def multiclass_mod(trainfeatures, mod_name, out_dir, params, runnum=None, subsam
 
     return stable_model, cm
 
-def log_acc_results(scores_dict, model_name, these_scores, subsample=None, runnum=None):
+def _json_default(o):
+    '''lets json.dump handle numpy scalars (e.g. np.int64), which it cannot serialize by default'''
+    if hasattr(o, 'item'):
+        return o.item()
+    raise TypeError(f'{type(o).__name__} is not JSON serializable')
+
+def log_acc_results(scores_dict, model_name, these_scores, subsample=None, runnum=None, timeout=300, stale_after=600):
+    '''
+    Adds <these_scores> to the json scores file <scores_dict> under <model_name> (with subsample/run suffixes).
+    Safe to call from parallel processes: a lock file (<scores_dict>.lock) makes each read-update-write happen one process
+    at a time, and the file is replaced atomically so a crash cannot leave a half-written file.
+      <timeout>: seconds to wait for another process to finish before giving up (raises TimeoutError)
+      <stale_after>: a lock older than this many seconds is assumed to be left over from a crashed run and is removed
+    '''
+
+    if subsample:
+        model_name = f'{model_name}_ss{subsample}'
+    if runnum:
+        model_name = f'{model_name}-run{runnum}' if subsample else f'{model_name}_run{runnum}'
+
+    scores_path = Path(scores_dict)
+    lock_path = scores_path.with_name(scores_path.name + '.lock')
+
+    start = time.time()
+    while True:
+        try:
+            os.close(os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+            break
+        except FileExistsError:
+            try:
+                if time.time() - lock_path.stat().st_mtime > stale_after:
+                    logger.warning(f'removing stale lock file {lock_path}')
+                    lock_path.unlink(missing_ok=True)
+                    continue
+            except FileNotFoundError:
+                continue   ## released between our attempt and the stat; try again right away
+            if time.time() - start > timeout:
+                raise TimeoutError(f'could not get lock on {scores_path} after {timeout}s (is {lock_path} left over?)')
+            time.sleep(0.1)
+
     try:
-        with open(scores_dict, 'r+') as full_dict:
-            dic = json.load(full_dict)
+        try:
+            with open(scores_dict, 'r') as full_dict:
+                dic = json.load(full_dict)
+        except FileNotFoundError:
+            logger.info('File not found, will create a new one.')
+            dic = {}
+        except json.JSONDecodeError:
+            if scores_path.stat().st_size > 0:
+                raise   ## do not overwrite a file that has content we cannot parse
+            logger.info('File is empty, will start a new one.')
+            dic = {}
 
-        if runnum:
-            if subsample:
-                model_name = f'{model_name}_ss{subsample}-run{runnum}'
-            else:
-                model_name = f'{model_name}_run{runnum}'
-        else:
-            if subsample:
-                model_name = f'{model_name}_ss{subsample}'
-            else:
-                model_name = model_name 
-        
-        dic.update({model_name : these_scores})
-
-    except OSError:
-        logger.info('File not found, will create a new one.')
-        dic = {model_name : these_scores}
-
-    with open(scores_dict, 'w') as new_dict:
-        json.dump(dic, new_dict)
+        dic.update({model_name: these_scores})
+            
+        ## write to a temp file, then swap it in, so readers never see a partial file
+        tmp_path = scores_path.with_name(f'{scores_path.name}.{os.getpid()}.tmp')
+        with open(tmp_path, 'w') as new_dict:
+            json.dump(dic, new_dict, default=_json_default)
+        os.replace(tmp_path, scores_path)
+    finally:
+        lock_path.unlink(missing_ok=True)
 
     return scores_dict
+
     
 def save_best_models(keep_models, temp_mod_dir, main_mod_dir=None, params=None):
     '''

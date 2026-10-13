@@ -33,6 +33,7 @@ conda activate tstuyau_pipe
 
 CONFIG_UPDATES="
 grids:''
+project_name:$PROJECT
 main_path:${MAIN_DIR}/${PROJECT}/stac/grid
 backup_path:${BK_DIR}/${PROJECT}
 buffer:$BUF

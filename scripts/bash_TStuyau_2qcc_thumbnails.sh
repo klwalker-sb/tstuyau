@@ -47,6 +47,7 @@ conda activate venv.tstuyau_pipe
 
 CONFIG_UPDATES="grids:[${GRIDS}]
 plot:gamma:${GAMMA}
+project_name:$PROJECT
 plot:reduct_factor:${REDUCT}
 reconstruct:start:${START}
 reconstruct:end:${END}

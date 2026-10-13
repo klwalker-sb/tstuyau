@@ -9,7 +9,7 @@
 #SBATCH --job-name="checkDls"
 
 #Settables:
-
+PROJECT='paraguay_lc'
 DBPATH='/home/downspout-cel/paraguay_lc/cell_processing_dl.csv'
 ARCHIVE='~/archive/eostac_logs'
 LOGS='.'
@@ -25,6 +25,7 @@ conda activate venv.tuyau
 
 
 CONFIG_UPDATES="
+project_name:$PROJECT
 status:period:$STARTSTOP
 status:archive_path:$ARCHIVE
 status:download_db_path:$DBPATH

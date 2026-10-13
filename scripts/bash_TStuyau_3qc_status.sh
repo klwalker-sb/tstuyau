@@ -50,6 +50,7 @@ export NUMEXPR_MAX_THREADS="${SLURM_CPUS_ON_NODE}"
 CONFIG_UPDATES="grid_file=$GRID_FILE
 main_path:${MAIN_DIR}/${PROJECT}/stac/grid
 backup_path:${BK_DIR}/${PROJECT}/stac/grids
+project_name:$PROJECT
 status:zoom:$ZOOM
 status:period:$STARTSTOP
 status:out_path:$OUT

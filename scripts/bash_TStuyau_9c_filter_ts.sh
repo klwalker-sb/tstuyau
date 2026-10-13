@@ -51,6 +51,7 @@ conda activate tstuyau_pipe
 
 CONFIG_UPDATES="
 buffer:$BUFFER
+project_name:$PROJECT
 project_ver:$PROJECT_VER
 classify:test:$TEST
 refine:save_inter:$SAVE_INTER

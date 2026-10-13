@@ -5,14 +5,14 @@ import xarray as xr
 from rasterio.windows import Window, from_bounds
 from scipy.ndimage import maximum_filter
 from ..handler import logger
-from .lookup import LC_CATS, LC_CATS_Py0
+from .lookup import LC_CATS
 
 @dataclass
 class FilterTsArgs:
     ts_files: list
     ts_yrs: list
     params: dict
-    LC_CATS: dict
+    lc_cats: dict
     base_rasters: dict = field(default_factory=dict)
     count_cache: dict = field(default_factory=dict)
 
@@ -66,13 +66,17 @@ def store_count(name, count_cache, compute_fn):
         count_cache[name] = compute_fn()
     return count_cache[name]
 
-def get_most_frequent_cat_in_timeseries(cats, ts, cat_dict=LC_CATS):
+def get_most_frequent_cat_in_timeseries(cats, ts, cat_dict=None):
         '''
         takes a time series array opened in geowombat (or xarray?) and returns
         the most frequent observation from a set of choices <cat> defined in <cat_dict>
         to add a new set of choices, just add a new entry to lookup.LC_CATS (for CELPy classification) 
         or a custom dictionary for other products
         '''
+
+        if cat_dic is None:
+            cat_dic = LC_CATS
+        
         logger.info(f'getting stable base for {cats}')
         similar_cat_array = xr.DataArray(cat_dict[cats], dims=["lc"], coords={"lc": cat_dict[cats]})
         cat_counts = (ts == similar_cat_array).sum(dim="time").astype('uint8')
@@ -84,16 +88,18 @@ def get_most_frequent_cat_in_timeseries(cats, ts, cat_dict=LC_CATS):
      
         return winning_cat
 
-def mark_forest_edges(ts_single, params):
+def mark_forest_edges(ts_single, cat_dict=None):
     '''reclassifies mature forest on forest edge as disturbed forest  
        works on a single raster (xarray.DataArray or numpy.ndarray)
     '''
     logger.info('retouching forest edge...')
-    if params['project_ver'] == 'Py_0':
-        LC_CATS = LC_CATS_Py0
-    first_mat_val = LC_CATS['first_mature']
-    open_forest_val =  LC_CATS['open_for'][0]
-    mature_forest = LC_CATS['dense_for']
+
+    if cat_dic is None:
+        cat_dic = LC_CATS
+        
+    first_mat_val = cat_dict['first_mature']
+    open_forest_val =  cat_dict['open_for'][0]
+    mature_forest = cat_dict['dense_for']
 
     input_is_np = isinstance(ts_single, np.ndarray)
     ts_da = xr.DataArray(ts_single) if input_is_np else ts_single

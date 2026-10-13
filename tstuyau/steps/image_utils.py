@@ -299,7 +299,21 @@ def geom_intersects(dfr, geom_b):
 
     return geom_a.intersects(geom_b)
 
-    
+def get_num_classes_in_raster(raster_path):
+
+    with rio.open(raster_path) as src:
+        band1 = src.read(1)
+        
+    ## don't count nodata    
+    nodata_val = src.nodata
+    if nodata_val is not None:
+        band1 = band1[band1 != nodata_val]
+        
+    unique_classes = np.unique(band1)
+    num_classes = len(unique_classes)
+
+    return num_classes, unique_classes
+
 def reshape_array(data_src):
 
     """

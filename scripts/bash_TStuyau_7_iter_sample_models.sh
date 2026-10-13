@@ -54,6 +54,7 @@ conda activate venv.tstuyau_pipe
 ###################################################################
 
 CONFIG_UPDATES="main_path:${MAIN_DIR}/${PROJECT}/stac/grid
+project_name:$PROJECT
 backup_path:${BK_DIR}/${PROJECT} 
 scratch_dir:${SCRATCH}/rf_mods 
 sample_model:name:$SAMPMOD

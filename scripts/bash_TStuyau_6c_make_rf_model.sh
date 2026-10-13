@@ -51,6 +51,7 @@ export NUMEXPR_MAX_THREADS="${SLURM_CPUS_ON_NODE}"
 
 CONFIG_UPDATES="grids:$CELLS
 main_path:${MAIN_DIR}/${PROJECT}/stac/grid
+project_name:$PROJECT
 res:${RES}
 image_type:${IMGTYPE}
 procseq:${PROCSEQ}

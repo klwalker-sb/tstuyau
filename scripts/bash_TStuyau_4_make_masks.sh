@@ -38,6 +38,7 @@ export NUMEXPR_MAX_THREADS="${SLURM_CPUS_ON_NODE}"
 CONFIG_UPDATES="grids:[${GRIDS}] 
 main_path:${MAIN_DIR}/${PROJECT}/stac/grid 
 backup_path:${BK_DIR}/${PROJECT}/stac/grid
+project_name:$PROJECT
 masking:method:$METHOD
 masking:exclude:$EXCLUDE
 masking:sat_sensors:$SEN

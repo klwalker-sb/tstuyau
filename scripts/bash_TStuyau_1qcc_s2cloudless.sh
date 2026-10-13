@@ -37,21 +37,22 @@ BK_DIR="/home/downspout-cel/"
 PROJECT="paraguay_lc"
 PROJECT_DIR="${MAIN_DIR}/${PROJECT}"
 GRID_FILE="${PROJECT_DIR}/project_grid_${EPSG}.gpkg"
-GEEIDX_DIR=${PROJECT_DIR}/raster"
+GEEIDX_DIR=${PROJECT_DIR}/'raster'
 ###################################################################
 
 export NUMEXPR_MAX_THREADS="${SLURM_CPUS_ON_NODE}"
 
 ### activate the virtual environment
 conda activate venv.tstuyau_pipe
-
 ###################################################################
 ###################################################################
 # SHOULD NOT NEED TO MODIFY BELOW
 ###################################################################
+
 CONFIG_UPDATES="grids:[${GRIDS}] res:$RES
 main_path:"${MAIN_DIR}/${PROJECT}/stac/grid"
 backup_path:"${BK_DIR}/${PROJECT}/stac/grid" 
+project_name:$PROJECT
 scratch_dir:$SCRATCH 
 masking:sat_sensors:S2cp
 masking:method:s2cloudless

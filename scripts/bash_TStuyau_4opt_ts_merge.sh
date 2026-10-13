@@ -90,6 +90,7 @@ CONFIG_UPDATES="grids:[${GRIDS}]
 res:${RES}
 image_type:${IMGTYPE}
 procseq:${PROCSEQ} 
+project_name:$PROJECT
 main_path:"${MAIN_DIR}/${PROJECT}/stac/grid"
 backup_path:"${BACKUP_DIR}/${PROJECT}/stac/grid"
 dlMehod:${METHOD}

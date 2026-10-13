@@ -87,6 +87,7 @@ CONFIG_UPDATES="grids:$CELLS
 main_path:${MAIN_DIR}/${PROJECT}/stac/grid
 backup_path:${BK_DIR}/${PROJECT}/stac/grids 
 scratch_dir:$SCRATCH
+project_name:$PROJECT
 project_ver:$PROJECT_VER
 image_type:$IMGTYPE
 procseq:$PROSEQ

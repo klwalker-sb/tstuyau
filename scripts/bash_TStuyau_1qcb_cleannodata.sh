@@ -77,12 +77,13 @@ conda activate venv.tstuyau_pipe
 
 CONFIG_UPDATES="grids:[${GRIDS}] res:${REF_RES} crs:${REF_CRS}
 dlMehod:STAC
+project_name:$PROJECT
 clean:sat_sensors:${SAT_SENSORS}
 clean:remove_items:${CLEANUP}
 clean:date_range:${DATES}
 clean:xlist:${XLIST}
-main_path:"${MAIN_DIR}/${PROJECT}/stac/grid"
-backup_path:"${BACKUP_DIR}/${PROJECT}/stac/grid"
+main_path:${MAIN_DIR}/${PROJECT}/stac/grid
+backup_path:${BACKUP_DIR}/${PROJECT}/stac/grid
 num_workers:${SLURM_CPUS_ON_NODE}"
 
 tuyau clean --config-updates $CONFIG_UPDATES

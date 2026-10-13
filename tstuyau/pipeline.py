@@ -263,6 +263,10 @@ class Tasks(Config):
         logger.info('  applying final temporal refinement filters ...')
         steps.ts_filter(self.params)
 
+    def summarize_raster(self):
+        logger.info('  getting summary data for raster ...')
+        steps.summarize_raster(self.params)
+
 
 def main():
 
@@ -274,8 +278,8 @@ def main():
                    'format_ptfeat_set', 'make_and_score_model','iterate_sample_model', 'iterate_all_model_components', 
                    'optimize_feature_model', 'classify_timestep', 'classify_CRF', 'mosaic', 'clean', 'assess', 'compress', 
                    'sample_timeseries', 'plot_timeseries', 'pre_post_df', 'pre_post_separability', 'dl_check', 'status', 
-                   'version', 'make_thumbnails', 'vectorize_seg_results', 'segmentation_accuracy', 'prep_training_ts_for_segmentation',
-                   'post_aggregation_filter', 'ts_filter']
+                   'version', 'make_thumbnails', 'summarize_raster', 'vectorize_seg_results', 'segmentation_accuracy', 
+                   'prep_training_ts_for_segmentation','post_aggregation_filter', 'ts_filter']
 
     parser.add_argument('tasks', metavar='task', nargs='+', help='The tasks to submit', default=None,
                         choices=avail_tasks)
@@ -368,6 +372,8 @@ def main():
             tasks.post_aggregation_filter()
         elif task == 'ts_filter':
             tasks.ts_filter()
+        elif task == 'summarize_raster':
+            tasks.summarize_raster()
 
 
 if __name__ == '__main__':

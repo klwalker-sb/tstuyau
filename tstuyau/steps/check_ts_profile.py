@@ -1,4 +1,4 @@
-import datetime
+from datetime import datetime, timezone
 import math
 from pathlib import Path
 
@@ -6,7 +6,6 @@ import geopandas as gpd
 import matplotlib.pyplot as plt
 import pandas as pd
 import rasterio as rio
-import timezone
 import xarray as xr
 
 from ..handler import logger
@@ -1036,7 +1035,7 @@ def pre_post_df(params):
             siall = si
         else:
             siall = f'{procprefix}_{si}'
-        if params['project_ver'] == 'Py0' or params['project_ver'] == 'Biltong0':
+        if params['project_ver'] == 'Py_0' or params['project_ver'] == 'Biltong_0':
             spectsdf_base = f'{sig_prefix}_{si}_{filter_col}-{filter_class}_{img_type}_{yrs[0]}-{yrs[1]}.csv'
         else:
             spectsdf_base = f'{sig_prefix}_{siall}_{filter_col}-{filter_class}_{img_type}_{yrs[0]}-{yrs[1]}.csv'
@@ -1158,15 +1157,15 @@ def pre_post_separability(params, printdf=True):
         opt_dir = ppaths.optimization
 
     ## get seasons to divide datasets by season
-    dry_start_mo = datetime.datetime.strptime(f"2024 {params['calendar']['start_dry']}", '%Y %j').replace(tzinfo=timezone.utc).month
-    dry_end_mo = datetime.datetime.strptime(f"2024 {params['calendar']['end_dry']}", '%Y %j').replace(tzinfo=timezone.utc).month
+    dry_start_mo = datetime.strptime(f"2024 {params['calendar']['start_dry']}", '%Y %j').replace(tzinfo=timezone.utc).month
+    dry_end_mo = datetime.strptime(f"2024 {params['calendar']['end_dry']}", '%Y %j').replace(tzinfo=timezone.utc).month
     if dry_start_mo > dry_end_mo: 
         dry_months = [f"{mo:02d}" for mo in range(dry_start_mo,13)] + [f"{mo:02d}" for mo in range(1,(dry_end_mo+1))]
     else:
         dry_months = [f"{mo:02d}" for mo in range(dry_start_mo,dry_end_mo+1)]
     logger.info(f" getting dry season stats using months:{dry_months}")
-    wet_start_mo = datetime.datetime.strptime(f"2024 {params['calendar']['start_wet']}", '%Y %j').replace(tzinfo=timezone.utc).month
-    wet_end_mo = datetime.datetime.strptime(f"2024 {params['calendar']['end_wet']}", '%Y %j').replace(tzinfo=timezone.utc).month
+    wet_start_mo = datetime.strptime(f"2024 {params['calendar']['start_wet']}", '%Y %j').replace(tzinfo=timezone.utc).month
+    wet_end_mo = datetime.strptime(f"2024 {params['calendar']['end_wet']}", '%Y %j').replace(tzinfo=timezone.utc).month
     if wet_start_mo > wet_end_mo: 
         wet_months = [f"{mo:02d}" for mo in range(wet_start_mo,13)] + [f"{mo:02d}" for mo in range(1,(wet_end_mo+1))]
     else:

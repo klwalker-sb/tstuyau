@@ -25,7 +25,7 @@ BELOW=10
 ###################################################################
 ### Project settings
 MAIN_DIR='/home/sandbox-cel'
-PROJECT='paraguay_dl' 
+PROJECT='paraguay_lc' 
 
 ####################################################################
 export NUMEXPR_MAX_THREADS="${SLURM_CPUS_ON_NODE}"
@@ -37,9 +37,12 @@ conda activate venv.tstuyau_dl
 # SHOULD NOT NEED TO MODIFY BELOW
 #####################################################################
 
-CONFIG_UPDATES="grids:[${GRIDS}] move_no_data:id_method:$ID_METHOD 
-main_path:"${MAIN_DIR}/${PROJECT}/stac/grid" 
-move_no_data:exclude_below:$BELOW move_no_data:move_method:$MOVE_METHOD"
+CONFIG_UPDATES="grids:[${GRIDS}] 
+move_no_data:id_method:$ID_METHOD 
+main_path:${MAIN_DIR}/${PROJECT}/stac/grid 
+project_name:$PROJECT
+move_no_data:exclude_below:$BELOW 
+move_no_data:move_method:$MOVE_METHOD"
 
 tuyau move_nodata --config-updates $CONFIG_UPDATES
 

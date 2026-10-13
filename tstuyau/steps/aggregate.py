@@ -482,12 +482,13 @@ def mosaic_cells(params, out_path=None):
     If a buffer distance was used when creating data for each grid cell (<buffer> > 0), will unbuffer cells before mosaicking to remove edge effects
       make sure <buffer> param is set to original value. This does not apply to mosaics of tiles (chunks of cells).
     '''
+    ppaths = ProjectPaths(params, grid=None)
     if out_path:
         out_dir = Path(out_path).parent
     elif params['classify']['test']:
         out_dir = Path(params['scratch_dir']) / 'classified'
     else:
-        out_dir = Path(params['backup_path']).parents[1] / 'outputs/mosaics'
+        out_dir = ppaths.mosaics
     out_dir.mkdir(parents=True, exist_ok=True)
 
     ras_list = []
@@ -508,7 +509,7 @@ def mosaic_cells(params, out_path=None):
         elif isinstance(params['grids'], str):
             if 'tile' in params['grids'].lower():
                 tilenum = int(params['grids'].lower().split('/')[-1].split('tile')[1].split('.')[0])
-                cell_list = Path(params['backup_path']).parents[1] / f"tiles/{prefix}Tile{tilenum}.csv"
+                cell_list = ppaths.tiles/f'{prefix}Tile{tilenum}.csv'
                 if not out_path:
                     out_path = Path(out_dir) / f"{prefix}Tile{tilenum}_{params['classify']['name']}.tif"
             elif params['grids'].endswith('.csv'):
@@ -528,7 +529,7 @@ def mosaic_cells(params, out_path=None):
         except (ValueError, TypeError):
             mosaic_cells = False
         else:
-            cell_list = Path(params['backup_path']) / f"tiles/{prefix}Tile{tilenum}.csv"
+            cell_list = ppaths.tiles/f'{prefix}Tile{tilenum}.csv'
             cells = []
             with open(cell_list, newline='') as cell_file:
                 for row in csv.reader(cell_file):
@@ -573,7 +574,7 @@ def mosaic_cells(params, out_path=None):
         params['buffer'] = None
         ## in_dir will be whatever the out_dir was for the cell to tile mosaics
         in_dir = out_dir
-        out_dir = Path(params['backup_path']) / 'outputs/mosaics'
+        out_dir = ppaths.mosaics
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = Path(out_dir) / f"{prefix}All_{params['classify']['name']}.tif"
         logger.info(f"mosaicking tiles:{tiles}")

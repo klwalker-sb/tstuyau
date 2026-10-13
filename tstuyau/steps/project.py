@@ -1,3 +1,6 @@
+from pathlib import Path
+from ..handler import logger
+
 def get_tsdir_name(params):   
     if (params['project_ver'] == 'Py_0') or (params['project_ver'] == 'Biltong_0'):  ## legacy
         dirstr = 'ms'
@@ -12,10 +15,22 @@ def get_tsdir_name(params):
 
     return dirstr
 
-class ProjectPaths:
+def find_project_root(path, project_name):
+    """Return the part of `path` up to and including the `project_name` folder, which is where all shared folders live"""
+    path = Path(path)
+    parts = path.parts
+    if project_name not in parts:
+        if 'paraguay_lc' in parts:  ##legacy code
+            project_name = 'paraguay_lc'
+        else:
+            logger.warning(f"ERROR -- {project_name}' not found in path: {path}. Probably need to add project_name param to script")
+    # use the last occurrence in case the name repeats higher up the tree
+    idx = len(parts) - 1 - parts[::-1].index(project_name)
+    return Path(*parts[:idx + 1])
 
-    def __init__(self, params, grid=None):
-
+class SharedPaths:
+    def __init__(self, params):
+        
         #######################################################################################################################
         ## Universal paths
         #######################################################################################################################
@@ -23,25 +38,34 @@ class ProjectPaths:
         #self.hgt_url = 'https://e4ftl01.cr.usgs.gov/provisional/MEaSUREs/NASADEM'
         #self.hgt_url = 'https://e4ftl01.cr.usgs.gov/MEASURES/NASADEM_HGT.001/2000.02.11'
 
-        ## note: main path and backup path for cell directories are usually <project>/stac/grids
-        ##  so shared files will be in grandparent directory (parents[1]. If file dept changes, this needs to be changed here)
-        self.dem = params['main_path'].parents[1] /'terrain'/'dem'
-        self.test = params['main_path'].parents[1] / 'testing'
-        self.figs = params['backup_path'].parents[1] /'outputs'/'visualizations'
-        self.datasum = params['backup_path'].parents[1] /'outputs'/'summary_data'
-        self.tiles = params['backup_path'].parents[1] /'tiles'
-        self.dldb = params['backup_path'].parents[1] / 'cell_processing_dl.csv'
-        self.logfiles = params['backup_path'].parents[1] / 'archived_logfiles'
-        self.tssigs = params['backup_path'].parents[1] / 'vector'/'sample_ts_signatures'
-        self.fmoddict = params['backup_path'].parents[1] / 'Feature_Models.json'
-        self.singfeatdict = params['backup_path'].parents[1] / 'ancillary_var_dict.json'
-        self.training = params['backup_path'].parents[1] / 'vector'/'pts_training'
-        self.calval = params['backup_path'].parents[1] /'vector'/'pts_calval'
+        ########################################################################################################################
+        ## shared paths for all cells
+        ########################################################################################################################
+        self.root = find_project_root(params['main_path'], params['project_name'])
+        self.backup_root = find_project_root(params['backup_path'], params['project_name'])
+        self.scratch_root = Path(params['scratch_dir'])
+
+        self.political = self.root/ 'vector' / 'political'
+        self.segmentation = self.root / 'segmentation'
+        self.test =self.root / 'testing'
+
+        self.optimization = self.backup_root /'optimization'
+        self.ancillary = self.backup_root /'ancillary'
+        self.figs =self.backup_root /'outputs'/'visualizations'
+        self.datasum = self.backup_root /'outputs'/'summary_data'
+        self.mosaics = self.backup_root /'outputs'/'mosaics'
+        self.tiles = self.backup_root /'tiles'
+        self.dldb = self.backup_root / 'cell_processing_dl.csv'
+        self.logfiles = self.backup_root / 'archived_logfiles'
+        self.tssigs = self.backup_root / 'vector'/'sample_ts_signatures'
+        self.fmoddict = self.backup_root / 'Feature_Models.json'
+        self.singfeatdict = self.backup_root / 'ancillary_var_dict.json'
+        self.training = self.backup_root / 'vector'/'pts_training'
+        self.calval = self.backup_root /'vector'/'pts_calval'
         self.valid = self.calval / 'validation_data'
-        self.optimization = params['backup_path'].parents[1] /'optimization'
-        self.political = params['main_path'].parents[1] / 'vector' / 'political'
-        self.segmentation = params['main_path'].parents[1] / 'segmentation'
-        self.segdir_temp = params['scratch_path'] / 'cnet'
+        self.optimization = self.backup_root /'optimization'
+
+        self.segdir_temp =self.scratch_root / 'cnet'
         
         if params['classify']['temp_mod'] and (params['sample_model']['num_subsamples'] > 0):
             self.temp_modeling = params['scratch_dir'] / 'modeling'
@@ -52,19 +76,31 @@ class ProjectPaths:
         else:
             self.trainfeatsets = self.training /'features'
             self.hos = self.calval / 'fixedHOs'
-            self.classification = params['backup_path'].parents[1] /'classification'
+            self.classification = self.backup_root /'classification'
         
         if params['classify']['temp_mod']:
-            self.fulltrainsets = self.temp_modeling_dir / 'vardfs'
+            self.fulltrainsets = self.temp_modeling / 'vardfs'
         else:
-            self.fulltrainsets = params['backup_path'].parents[1] /'classification' / 'inputs'
+            self.fulltrainsets = self.backup_root /'classification' / 'inputs'
             self.trainptsets = self.training /'pt_subsets'
 
-        ########################################################################################################################
-        ## Individual cell paths
-        ########################################################################################################################
+class ProjectPaths(SharedPaths):
+    """Shared paths plus cell-level paths when grid is given."""
+    def __init__(self, params, grid=None):
+        super().__init__(params)
         self.grid = grid
         if grid:
+
+            ########################################################################################################################
+            ## Individual cell paths
+            ########################################################################################################################
+            ## ms is default locations for products processed therough brdf by Eostac.
+            ##     the backup path is optional for storing later-stage (e.g. time-series products & classification results)
+            ##     if a separate backup space does not exist, can set equal to main path in parameters.  
+            self.ms = params['main_path'] / f'{grid:06d}' / 'brdf'
+            self.bk = params['backup_path'] / f'{grid:06d}'
+            self.dem = params['main_path'] / f'{grid:06d}' /'terrain'/'dem'
+            
             ## for legacy purposes. TODO remove when no longer needed (but may need to change Eostac too)
             if (params['project_ver'] == 'Py_0') or (params['project_ver'] == 'Biltong_0'):
                 self.ms = params['main_path'] / 'ms' / f'{grid:06d}' / 'brdf'
@@ -73,13 +109,6 @@ class ProjectPaths:
                     self.ms = params['main_path'] / f'{grid:06d}' / 'brdf'
                 if not self.bk.is_dir():
                     self.bk = params['backup_path'] / f'{grid:06d}'
-            
-            ## ms is default locations for products processed therough brdf by Eostac.
-            ##     the backup path is optional for storing later-stage (e.g. time-series products & classification results)
-            ##     if a separate backup space does not exist, can set equal to main path in parameters.  
-            else:
-                self.ms = params['main_path'] / f'{grid:06d}' / 'brdf'
-                self.bk = params['backup_path'] / f'{grid:06d}'
             
             ## tstuyau picks up from here. 
             ## The proc directory is where it will look for images for time-series analyses 
@@ -104,7 +133,7 @@ class ProjectPaths:
             else:
                 self.ts = self.bk / 'brdf_ts' / f'{dirstr}'
                 
-            self.scratch = params['scratch_path'] / f'{grid:06d}'
+            self.scratch = params['scratch_dir'] / f'{grid:06d}'
 
             ## these help with the cleanup process
             self.gee = self.ms.parent / 'gee'

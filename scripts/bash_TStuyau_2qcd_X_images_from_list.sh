@@ -44,6 +44,7 @@ conda activate venv.tstuyau_pipe
 
 CONFIG_UPDATES="grids:[${GRIDS}]
 clean:sat_sensors:${SAT_SENSORS}
+project_name:$PROJECT
 clean:remove_items:${CLEANUP}
 clean:date_range:${DATES}
 clean:xlist:${XLIST}

@@ -53,6 +53,7 @@ export NUMEXPR_MAX_THREADS="${SLURM_CPUS_ON_NODE}"
 
 CONFIG_UPDATES="grids:[${GRID_ID}]
 grid_file:$GRID_FILE
+project_name:$PROJECT
 buffer:$BUFFER
 res:$RES
 segment:step:$STEP

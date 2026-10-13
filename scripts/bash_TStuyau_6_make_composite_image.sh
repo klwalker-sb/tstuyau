@@ -85,6 +85,7 @@ conda activate venv.tstuyau_pipe
 
 CONFIG_UPDATES="grids:$GRID_ID
 res:${RES}
+project_name:$PROJECT
 image_type:${IMGTYPE}
 procseq:${PROCSEQ}
 project_ver:$PROJVER

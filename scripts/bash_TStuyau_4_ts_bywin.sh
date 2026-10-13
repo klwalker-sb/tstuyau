@@ -94,6 +94,7 @@ do
     do
         CONFIG_UPDATES="grids:[${GRIDS}] 
         res:${RES}
+        project_name:$PROJECT
         image_type:${IMGTYPE}
         procseq:${PROCSEQ}
 	    main_path:"${MAIN_DIR}/${PROJECT}/stac/grid"
