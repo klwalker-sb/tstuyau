@@ -46,6 +46,7 @@ export NUMEXPR_MAX_THREADS="${SLURM_CPUS_ON_NODE}"
 
 CONFIG_UPDATES="grids:[${GRIDS}]
 clean:sat_sensors:${SAT_SENSORS}
+project_name:$PROJECT
 clean:remove_items:${CLEANUP}
 clean:date_range:${DATES}
 clean:xlist:${XLIST}

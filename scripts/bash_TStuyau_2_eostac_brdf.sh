@@ -58,7 +58,7 @@ do
 	TIMESTAMP=`date "+%Y-%m-%d %H:%M:%S"`
 	echo $TIMESTAMP >&2
 
-	eostac brdf --start-date $START_DATE --end-date $END_DATE --project-path $PROJECT_PATH --out-path $OUT_PATH --threads 8 --apply-bandpass --coeffs-path $COEFFS
+	eostac brdf --start-date $START_DATE --end-date $END_DATE --project-name $PROJECT --project-path $PROJECT_PATH --out-path $OUT_PATH --threads 8 --apply-bandpass --coeffs-path $COEFFS
 
 	y=$(($y+1))
 done

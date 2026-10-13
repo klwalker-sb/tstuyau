@@ -105,6 +105,7 @@ export NUMEXPR_MAX_THREADS="${SLURM_CPUS_ON_NODE}"
 ################################################
 
 CONFIG_UPDATES="grids:[${CELLS}]
+project_name:$PROJECT
 main_path:${MAIN_DIR}/${PROJECT}/stac/grid
 backup_path:${BK_DIR}/${PROJECT}/stac/grids
 scratch_dir:$SCRATCH

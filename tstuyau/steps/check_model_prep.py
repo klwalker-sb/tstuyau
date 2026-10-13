@@ -483,21 +483,19 @@ def format_ptfeat_set(params):
 
     If variables have not yet been calculated, run "make_var_dataframe" in check_sample first.
     '''
+    ppaths=ProjectPaths(params, grid=None)
     ftset_dir = params['classify']['ptsfeat_dir']
     ## <ftset_dir> holds the df with the features extracted for all possible points
-    if not ftset_dir:
-        ppaths=ProjectPaths(params)
+    if not ftset_dir:   
         ftset_dir = ppaths.trainfeatsets
     ## <ptsamp_dir> holds the point sets for each sample model without features appended
     ptsamp_dir = params['sample_model']['point_samp_dir']
     if not ptsamp_dir:
-        ppaths=ProjectPaths(params)
         ptsamp_dir = ppaths.trainptsets
-    ## <vardf_dir> holds the model-ready sets. Default <backup_path>.parents[1]/classification/inputs/pixdf_<model_name>.csv'
+    ## <vardf_dir> holds the model-ready sets. Default self.classification/inputs/pixdf_<model_name>.csv'
     ##   but may be in <temp_dir>/'optimization'/'vardfs' if part of optimization run
     vardf_dir = params['classify']['vardf_dir']
     if not vardf_dir:
-        ppaths=ProjectPaths(params)
         vardf_dir = ppaths.fulltrainsets
         vardf_dir.mkdir(parents=True, exist_ok=True)
     
@@ -505,7 +503,6 @@ def format_ptfeat_set(params):
     ## read model from dict to make sure that band order is correct
     feature_mod_dict = params['feature_model']['feature_mod_dict']
     if not feature_mod_dict:
-        ppaths=ProjectPaths(params)
         feature_mod_dict = str(ppaths.fmoddict)
     with open(feature_mod_dict, 'r+') as fmd:
         dic = json.load(fmd)

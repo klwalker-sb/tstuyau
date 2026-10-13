@@ -314,11 +314,11 @@ def post_classification_spatial_filter_smallholder(params, filter_set):
         post_aggregation_filter() below and building a similar function as this one.
     Output products will have 'filtsmh-sp' in the file name
     '''
-
+    ppaths = ProjectPaths(params, grid=None)
     if params['classify']['test']:
         out_dir = Path(params['scratch_dir']) / 'classified'
     else:
-        out_dir = Path(params['backup_path']) / 'mosaics' 
+        out_dir = ppaths.mosaics 
     out_dir.mkdir(parents=True, exist_ok=True)
     
     Path(params['scratch_dir']) /'comp/second_smallholder_filter.tif'
@@ -445,7 +445,7 @@ def post_aggregation_filter(params):
     Applies filter based on spatial context
     Specific filter is indicatied with <params:refine:spatial_filter> -- Currently only option is 'smCrop' for smallholder mapping
     '''
-    
+    ppaths = ProjectPaths(params, grid=None)
     params['refine']['spatial_filter'] = 'smCrop'   ##currently only option. Could expand later
     params['feature_model']['spec_indices'] = ['']
     params['feature_model']['si_vars'] = ['']
@@ -463,7 +463,7 @@ def post_aggregation_filter(params):
     if params['classify']['test']:
         final_dir = Path(params['scratch_dir']) / 'classified'
     else:
-        final_dir = Path(params['backup_path']).parents[1] / 'mosaics' 
+        final_dir = ppaths.mosaics 
     final_dir.mkdir(parents=True, exist_ok=True)
     
     ## Get segmentation polygons -- seg polys are named by the last year in the time sequence but the models / classified products are by the first  
@@ -553,7 +553,7 @@ def post_aggregation_filter(params):
                     }  
 
                 paraguay_extra = {'chaco': {
-                                  'cell_base' : f"{Path(params['backup_path']).parents[1]}/ancillary/Chaco.tif",
+                                  'cell_base' : f"{ppaths.ancillary}/Chaco.tif",
                                   'cell_final':f'{tmp_poly_var_path}/{cell:06d}/Chaco.tif', 
                                   'full':f'{comp_dir_out}/Chaco.tif'}
                                     }
@@ -781,6 +781,7 @@ def ts_filter(params):
     These rules are implemented through get_stable_base() and filter_ts_rasters()
     Prints out filtered time series as single yearly rasters ending in '-tsfilt.tif'
     '''
+    ppaths = ProjectPaths(params, grid=None)
     lc_cats = get_lc_cats(params['project_ver'])
     
     logger.info('applying ts filters...')
@@ -792,7 +793,7 @@ def ts_filter(params):
     if params['classify']['test']:
         final_dir = Path(params['scratch_dir']) / 'classified'
     else:
-        final_dir = Path(params['backup_path']).parents[1] / 'mosaics' 
+        final_dir = ppaths.mosaics 
     final_dir.mkdir(parents=True, exist_ok=True)
 
     if params['refine']['spatial_filter'] and (params['refine']['spatial_filter'] == 'smCrop'):

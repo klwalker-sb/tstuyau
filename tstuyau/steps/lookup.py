@@ -147,7 +147,7 @@ LC_CATS_Py0 ={  'Mixed crop' : [35,23,24,25,26,32,34,36,39],
                 'Trees':[65,60,66,64,68,77,80],
                 'forest_Py36':[64,65,68,80],
                 'forest_open_stable':[64,65],
-                'Trees_nat':[64,65,68,80],
+                'Trees_nat':[64,65,68,77,80],
                 'maxcat':100
              }
 
@@ -194,7 +194,7 @@ LC_CATS={       'Mixed crop':[137,118,133,129,131,147,138,132,97,177],
                 'Trees_plantation':[207,187,217,202,203,205,206,208,209,216],
                 'TreePlant_young':[187,182,185],
                 'TreePlant_start':98,
-                'Trees': [200,*range(206,255),193,195],
+                'Trees': [200,*range(206,255),184,193,195],
                  'first_mature':200,
                 'dense_for': [250],
                 'open_for': [215],
@@ -204,7 +204,7 @@ LC_CATS={       'Mixed crop':[137,118,133,129,131,147,138,132,97,177],
                 'tree_water_mix':184,
                 'forest_Py36':[226,215,221,220],
                 'forest_open_stable':[226,221],
-                'Trees_nat':[220,212,213,214,215,218,219,*range(221,255)],
+                'Trees_nat':[220,212,213,214,215,218,219,184,*range(221,255)],
                 'wet':[40,74,164,184],
                 'maxcat':255
         }
@@ -212,7 +212,7 @@ LC_CATS={       'Mixed crop':[137,118,133,129,131,147,138,132,97,177],
 def get_lc_cats(project_v=None):
     """ Returns the LC_CATS dict for the project version. 
     """
-    return LC_CATS_Py0 if project_v == 'Py0' else LC_CATS
+    return LC_CATS_Py0 if project_v == 'Py_0' else LC_CATS
 
 
 GEE_COLLECTIONS = ['COPERNICUS/S2',

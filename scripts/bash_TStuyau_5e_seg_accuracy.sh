@@ -42,6 +42,7 @@ export NUMEXPR_MAX_THREADS="${SLURM_CPUS_ON_NODE}"
 ###################################################################
 
 CONFIG_UPDATES="
+project_name:$PROJECT
 segment:seg_dir_main:$SEGDIRMAIN
 segment:seg_dir_mod:$MODDIR
 segment:seg_train-polys:$POLYS

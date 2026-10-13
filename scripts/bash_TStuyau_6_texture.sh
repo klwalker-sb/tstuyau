@@ -96,6 +96,7 @@ for win in "${WINS[@]}"; do
             BANDS="[${VAR}.glcm.${tex}.w${win}.c${c}.th${TH}-yr]"
                 
  	    CONFIG_UPDATES="grids:$GRID_ID
+        project_name:$PROJECT
 	    main_path:${MAIN_DIR}/${PROJECT}/stac/grid
  	    backup_path:${BK_DIR}/${PROJECT}/stac/grids
  	    scratch_dir:${SCRATCH_DIR}/${PROJECT}/composites

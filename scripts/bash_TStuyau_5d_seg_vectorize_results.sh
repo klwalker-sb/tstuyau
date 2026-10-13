@@ -53,6 +53,7 @@ export NUMEXPR_MAX_THREADS="${SLURM_CPUS_ON_NODE}"
 CONFIG_UPDATES="
 buffer:$BUFFER
 res:$RES
+project_name:$PROJECT
 project_ver:$PROJECT_VER
 sample_model:train_yrs:$ENDYR
 vectorize:single_band:True

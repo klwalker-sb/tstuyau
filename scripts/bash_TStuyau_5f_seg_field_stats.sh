@@ -52,6 +52,7 @@ conda activate venv.tstuyau
 
 CONFIG_UPDATES="grids:[${GRID_ID}]
 grid_file:$GRID_FILE
+project_name:$PROJECT
 buffer:$BUFFER
 res:$RES
 project_ver:$PROJECT_VER

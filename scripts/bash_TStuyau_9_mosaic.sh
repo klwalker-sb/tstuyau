@@ -43,6 +43,7 @@ conda activate venv.tstuyau_pipe
 ###################################################################
 
 CONFIG_UPDATES="grids:$CELLS
+project_name:$PROJECT
 main_path:${MAIN_DIR}/${PROJECT}/stac/grid
 backup_path:${BK_DIR}/${PROJECT}/stac/grid
 scratch_dir:${SCRATCH_DIR}/${PROJECT}

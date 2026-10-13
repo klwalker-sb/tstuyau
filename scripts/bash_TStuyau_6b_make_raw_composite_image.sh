@@ -80,6 +80,7 @@ do
 	image_type:${IMGTYPE}
 	procseq:${PROCSEQ}
     dlMehod:${METHOD}
+    project_name:$PROJECT
 	main_path:${MAIN_DIR}/${PROJECT}/stac/grid
 	backup_path:${BK_DIR}/${PROJECT}/stac/grid
 	scratch_dir:${SCRATCH_DIR}/${PROJECT}/stackprods  
