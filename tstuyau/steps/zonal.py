@@ -284,9 +284,9 @@ def summarize_raster_cont(ras_in, prod_name=None, aggstats=None, decimals=None):
         aggstats = ['All']
     elif isinstance(aggstats, str):
         aggstats = [aggstats]
-    unknown = [s for s in aggstats if s != 'All' and s not in _CONT_STATS]
+    unknown = [s for s in aggstats if s != 'All' and s not in CONT_STATS]
     if unknown:
-        logger.warning(f'ignoring unknown summary statistics {unknown}; options are {list(_CONT_STATS)} or All')
+        logger.warning(f'ignoring unknown summary statistics {unknown}; options are {list(CONT_STATS)} or All')
 
     with rio.open(ras_in) as ras:
         data = ras.read().astype(float)
@@ -299,7 +299,7 @@ def summarize_raster_cont(ras_in, prod_name=None, aggstats=None, decimals=None):
     ## Calculate statistics using NumPy functions (all-NaN rasters give 0)
     with warnings.catch_warnings():
         warnings.simplefilter('ignore', category=RuntimeWarning)
-        for stat, func in _CONT_STATS.items():
+        for stat, func in CONT_STATS.items():
             if 'All' in aggstats or stat in aggstats:
                 value = func(data)
                 if np.isnan(value):
@@ -307,7 +307,7 @@ def summarize_raster_cont(ras_in, prod_name=None, aggstats=None, decimals=None):
                 elif decimals is None:
                     value = int(value)                  ## truncate (legacy behavior)
                 elif decimals == 0:
-                    value = int(round(float(value)))
+                    value = round(float(value))
                 else:
                     value = round(float(value), decimals)
                 entry[f'{prod_name}_{stat}'] = value
@@ -555,7 +555,7 @@ def _summarize_cont(params, polys, out_dir, map_prod, ras_path):
     if polys:
         clip_dir = Path(params['scratch_dir'])/'polys'
         clip_dir.mkdir(parents=True, exist_ok=True)
-        return summarize_zones_cont(ras_path, polys, clip_dir, out_dir, map_prod, aggstats=aggstats, print_out=True)
+        return summarize_zones_cont(ras_path, polys, clip_dir, out_dir, map_prod, aggstats=aggstats, print_out=True, decimals=decimals)
     return summarize_raster_cont(ras_path, map_prod, aggstats)
 
 
@@ -743,21 +743,20 @@ def get_ts_stats_within_polys(params, in_path=None, out_path=None):
                     blank_ras = samp_ras*0
                 with rio.open(out_file, 'w+', **out_meta) as dst:
                     dst.write_band(1, blank_ras)
-                if params['segment']['make_blank_vars']:
-                    if params['project_ver'] =='Py_0':
-                        ## Make other blank filler files  This is a hacky fix for an old CELPy issue:
-                        out_fn2 = Path(out_dir)/f"pred_APR_{cell}.tif"
-                        if not out_fn2.exists():
-                            with rio.open(str(out_fn2), 'w+', **out_meta) as dst:
-                                dst.write_band(1, blank_ras)
-                        out_fn3 = Path(out_dir)/f"pred_area_{cell}.tif"
-                        if not out_fn3.exists():   
-                            with rio.open(str(out_fn3), 'w+', **out_meta) as dst:
-                                dst.write_band(1, blank_ras)
-                        out_fn4 = Path(out_dir)/f"pred_APrEf_{cell}.tif"
-                        if not out_fn4.exists():
-                            with rio.open(str(out_fn4), 'w+', **out_meta) as dst:
-                                dst.write_band(1, blank_ras)
+                if (params['segment']['make_blank_vars']) and (params['project_ver'] =='Py_0'):
+                    ## Make other blank filler files  This is a hacky fix for an old CELPy issue:
+                    out_fn2 = Path(out_dir)/f"pred_APR_{cell}.tif"
+                    if not out_fn2.exists():
+                        with rio.open(str(out_fn2), 'w+', **out_meta) as dst:
+                            dst.write_band(1, blank_ras)
+                    out_fn3 = Path(out_dir)/f"pred_area_{cell}.tif"
+                    if not out_fn3.exists():   
+                        with rio.open(str(out_fn3), 'w+', **out_meta) as dst:
+                            dst.write_band(1, blank_ras)
+                    out_fn4 = Path(out_dir)/f"pred_APrEf_{cell}.tif"
+                    if not out_fn4.exists():
+                        with rio.open(str(out_fn4), 'w+', **out_meta) as dst:
+                            dst.write_band(1, blank_ras)
                 continue
                 
             else:
