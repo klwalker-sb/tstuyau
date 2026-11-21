@@ -1,4 +1,5 @@
 import random
+import re
 import shutil
 import string
 from pathlib import Path
@@ -8,6 +9,7 @@ import dask.array as da
 import geopandas as gpd
 import geowombat as gw
 import numpy as np
+import pandas as pd
 import rasterio as rio
 import xarray as xr
 import xrspatial
@@ -15,15 +17,17 @@ from geowombat.core import dask_to_xarray
 from geowombat.data import srtm30m_bounding_boxes
 from geowombat.moving import moving_window
 from geowombat.radiometry.topo import calc_aspect_delayed, calc_slope_delayed
-from rastercrf.util import columns_to_nd, nd_to_columns, scale_min_max, transform_data
+#from rastercrf.util import columns_to_nd, nd_to_columns, scale_min_max, transform_data
 from rasterio.windows import Window
 from scipy.ndimage import binary_dilation
 from scipy.ndimage import rotate as ndi_rotate
+import xml.etree.ElementTree as ET
 
 from ..handler import logger
 from .io import default_profile_netcdf, extract_profile_geotif
 from .lookup import MASKS
 from .project import ProjectPaths
+from .utils import get_cell_list_from_grid_param, get_sensor_param_for_mask, get_sensors, get_sensor_family
 
 LANDSAT_LIKE_BANDS = ['blue', 'green', 'red', 'nir', 'swir1', 'swir2']
 
@@ -41,110 +45,244 @@ KERNEL_DISC = np.array([[0, 1, 1, 1, 0],
                         [1, 1, 1, 1, 1],
                         [0, 1, 1, 1, 0]], dtype='uint8')
 
+SENTINEL2_ID_PATTERN = re.compile(r'^(?P<base>.+)_(?P<idx>\d+)_(?P<suffix>L2A)$')
 
-def get_mask_kwargs(img_dir, params, mask_args={}):
+def _sibling_scene_id(scene_id, new_idx=0):
+    '''
+    Sentinel-2 scene ids here follow {base}_{idx}_L2A, where idx
+    disambiguates multiple catalog entries for the same tile/date
+    (e.g. a legacy-baseline item alongside a Collection-1 reprocessed
+    one). Returns the same id with idx replaced by new_idx, or None
+    if scene_id doesn't match that pattern or is already new_idx.
+    '''
+    m = SENTINEL2_ID_PATTERN.match(scene_id)
+    if not m or m.group('idx') == new_idx:
+        return None
+    return f"{m.group('base')}_{new_idx}_{m.group('suffix')}"
     
-    mask_type = params['masking']['method']
-    mask_defaults = MASKS.get(mask_type, {})
-    logger.info(f'mask_defaults = {mask_defaults}')
-    mask_dir =  params['masking']['mask_dir']
-    if (mask_dir is None) or (mask_dir == 'None'):
-        mask_dir = Path(img_dir).parent / f"{mask_defaults.get('mask_dir')}"
-    mask_name = params['masking']['maskname']
-    if (mask_name is None) or (mask_name == 'None'):
-        mask_name = mask_defaults.get('maskname')
-    mask_val = params['masking']['mask_val']
-    if (mask_val is None) or (mask_val == 'None'):
-        mask_val = mask_defaults.get('mask_val')
-    logger.debug(f'mask_val = {mask_val}')
+def get_landsat_sun_angles(mtl_xml_path):
+    """Returns (sun_zenith, sun_azimuth) in degrees from a Landsat Collection 2 MTL.xml file.
+    """
+    tree = ET.parse(mtl_xml_path)
+    root = tree.getroot()
+    # Search anywhere in the tree rather than assuming exact nesting,
+    # since group structure can vary slightly across sensor generations.
+    azimuth = float(root.find('.//SUN_AZIMUTH').text)
+    elevation = float(root.find('.//SUN_ELEVATION').text)
+    zenith = 90.0 - elevation
+    return zenith, azimuth
 
+def get_sentinel2_view_angles(mtd_tl_path, band_id='7'):
+    """Returns (view_zenith, view_azimuth) in degrees from a Sentinel-2 MTD_TL.xml (granule metadata) file.
+    Uses the tile-mean viewing angle of one band (bandId 7 = B08, the NIR band the shadows are found in);
+    the other bands differ by less than 0.3 deg. view_azimuth is the direction from the ground to the satellite.
+    Like the sun angles, this is a tile mean; Viewing_Incidence_Angles_Grids has the 5 km grid if more precision
+    is ever needed (at the edge of a tile it differs from the mean by about 1 deg).
+    """
+    root = ET.parse(mtd_tl_path).getroot()
+    node = root.find(f'.//Mean_Viewing_Incidence_Angle[@bandId="{band_id}"]')
+    return float(node.find('ZENITH_ANGLE').text), float(node.find('AZIMUTH_ANGLE').text)
+
+def get_sentinel2_sun_angles(mtd_tl_path):
+    """Returns (sun_zenith, sun_azimuth) in degrees from a Sentinel-2 MTD_TL.xml (granule metadata) file.
+        Note, this is the global scene value. Sentinel-2 MTD_TL.xml does have a Sun_Angles_Grid item, 
+        with more precise values (roughly a 23×23 grid at ~5 km spacing) if slight variation (up to 0.5deg) matters
+    """
+    tree = ET.parse(mtd_tl_path)
+    root = tree.getroot()
+    zenith = float(root.find('.//Mean_Sun_Angle/ZENITH_ANGLE').text)
+    azimuth = float(root.find('.//Mean_Sun_Angle/AZIMUTH_ANGLE').text)
+    return zenith, azimuth
+
+def extract_sun_angles(processing_info_path, scene_info_path, sensor, metadata_col):
+    """Parses sun zenith/azimuth from each scene's metadata file (referenced in scene_info) and writes 
+    them into processing_info, keyed by scene id.
+    """
+    processing_info = pd.read_pickle(processing_info_path)
+    scene_info = pd.read_pickle(scene_info_path)
+
+    for col in ('sun_zenith', 'sun_azimuth', 'view_zenith', 'view_azimuth'):
+        if col not in processing_info.columns:
+            processing_info[col] = pd.NA
+
+    parser = get_sentinel2_sun_angles if sensor == 'S2' else get_landsat_sun_angles
+
+    n_ok, n_missing, n_failed = 0, 0, 0
+    for _, row in scene_info.iterrows():
+        scene_id = row['id']
+        meta_path = row[metadata_col]
+
+        if scene_id not in processing_info.index:
+            logger.warning(f"{scene_id} not in processing.info; skipping")
+            n_missing += 1
+            continue
+        if pd.isna(meta_path) or not Path(meta_path).is_file():
+            logger.warning(f"Metadata file missing on disk for {scene_id}; skipping")
+            n_missing += 1
+            continue
+
+        zenith = azimuth = None
+        try:
+            zenith, azimuth = parser(meta_path)
+        except Exception as e:
+            ## can get angles from sibling file (same acquisition from a different collection)
+            sibling_id = _sibling_scene_id(scene_id, new_idx='0') if sensor == 'S2' else None
+            sibling_match = scene_info.loc[scene_info['id'] == sibling_id] if sibling_id else None
+
+            if sibling_match is not None and not sibling_match.empty:
+                sibling_meta_path = sibling_match.iloc[0][metadata_col]
+                try:
+                    zenith, azimuth = parser(sibling_meta_path)
+                    logger.info(
+                        f"{scene_id} metadata failed to parse ({e}); "
+                        f"used sibling {sibling_id}'s sun angles instead"
+                    )
+                    processing_info.loc[scene_id, 'sun_zenith'] = zenith
+                    processing_info.loc[scene_id, 'sun_azimuth'] = azimuth
+                    #processing_info.loc[scene_id, 'sun_angle_source'] = sibling_id
+                    n_ok += 1
+                    continue
+                except Exception as e2:
+                    logger.warning(f"Sibling {sibling_id} also failed to parse: {e2}")
+            if zenith is None:
+                logger.warning(f"Failed to parse sun angles for {scene_id}: {e}")
+                n_failed += 1
+                continue
+
+        # view angles come from the same file the sun angles came from
+        view_zenith, view_azimuth = 0.0, 0.0
+        if sensor == 'S2':
+            try:
+                view_zenith, view_azimuth = get_sentinel2_view_angles(meta_path)
+            except Exception as e:
+                logger.warning(f"No view angles for {scene_id} ({e}); stored as missing, treated as nadir")
+                view_zenith = view_azimuth = float('nan')
+
+        processing_info.loc[scene_id, 'sun_zenith'] = zenith
+        processing_info.loc[scene_id, 'sun_azimuth'] = azimuth
+        processing_info.loc[scene_id, 'view_zenith'] = view_zenith
+        processing_info.loc[scene_id, 'view_azimuth'] = view_azimuth
+        n_ok += 1
+
+    logger.info(
+        f"Sun angles: {n_ok} extracted, {n_missing} missing, {n_failed} failed "
+        f"-> {processing_info_path}"
+    )
+    pd.to_pickle(processing_info, processing_info_path)
+    return processing_info
+
+def get_mask_kwargs(img_dir, params, mask_args=None, sensor=None):
+    """Where a mask lives and what it is called: MASKS[method] (plus its <sensor> sub-dict), overridden by params.
+    Used both when making a mask (sensor given) and when applying it (as before). Returns mask_dir, maskname, db_col,
+    in_suffix, in_dir, mask_type, mask_val, mask_start, mask_stop.
+    """
+    mask_args = {} if mask_args is None else dict(mask_args)    
+    mask_type = params['masking']['method']
+    defaults = MASKS.get(mask_type, {})
+    defaults = {**defaults, **(defaults.get(sensor) or {})} if sensor else defaults
+    for key in ('mask_dir', 'maskname', 'mask_val', 'in_suffix', 'in_dir', 'db_col'):
+        val = get_sensor_param_for_mask(params, key, sensor)
+        mask_args[key] = defaults.get(key) if val is None else val
+    if get_sensor_param_for_mask(params, key, sensor) is None and defaults.get('mask_dir'):
+        mask_args['mask_dir'] = Path(img_dir).parent / defaults['mask_dir']     # relative to the cell folder
+    mask_val = mask_args['mask_val']
     if isinstance(mask_val, int):
-        mask_start = mask_val
-        mask_stop = mask_val
-    elif isinstance(mask_val, list):
-        mask_start = mask_val[0]
-        mask_stop = mask_val[-1]
+        mask_args['mask_start'] = mask_args['mask_stop'] = mask_val
+    elif isinstance(mask_val, (list, tuple)) and mask_val:
+        mask_args['mask_start'], mask_args['mask_stop'] = mask_val[0], mask_val[-1]
     else:
         logger.warning(f'need to enter mask vals in params:masking:mask_val or MASKS dict for {mask_type}')
-        
+        mask_args['mask_start'] = mask_args['mask_stop'] = None
     mask_args['mask_type'] = mask_type
-    mask_args['mask_dir'] = mask_dir
-    mask_args['maskname'] = mask_name
-    mask_args['mask_val'] = mask_val
-    mask_args['mask_start'] = mask_start
-    mask_args['mask_stop'] = mask_stop
-
     logger.info(f'mask_args: {mask_args}')
     return mask_args
+
+
+def mask_imgs_in_dir(img_dir, mask_args, out_dir=None, images=None, params=None):
     
-
-def apply_masks_to_images(images, img_dir, masked_img_dir, mask_args=None, params=None):
-    """
-    Applies existing masks to images and saves to temp dir for use in index construction and smoothing operations
-    <images> can be a list of images or a dictionary with image names as keys. 
-    <masked_img_dir> is a directory, usually temporary, where the output masked images will be stored.
-    <mask_args> is a dictionary built from input masking parameters of MASKS dictionary. If None, needs params passed to build.
-
-    Outputs a masked image with same name and format as the original in the  <masked_img_dir>
-    Returns a list of images to process, which is usually the same list as the input <images> unless some images are missing masks and
-        params:masking:treat_missing> is set to 'skip'
-    """
-
-    if mask_args is None:
-        mask_args = get_mask_kwargs(img_dir, params)
-        
     def get_image_basename(im_path):
         if 'coreg' in im_path.stem:
             im_base = im_path.stem.split('_coreg')[0]
         elif '_.nc' in im_path.name:
             im_base = im_path.name.split('_.nc')[0]
-        else:
+        elif '.nc' in im_path.name:
             im_base = im_path.name.split('.nc')[0]
+        else:
+            im_base = im_path.stem
         return im_base 
     
-    mask_dir = Path(img_dir).parent / mask_args['mask_dir']
+    if not out_dir:
+        out_dir = params['masking']['imgout_dir']
+    mask_dir = mask_args['mask_dir']
     mask_start = mask_args['mask_start']
     mask_stop = mask_args['mask_stop']
 
     set_chunks = None
-    if params['reconstruct']['chunks']:
-        set_chunks = params['reconstruct']['chunks']
+    if params:
+        if params['reconstruct']['chunks']:
+            set_chunks = params['reconstruct']['chunks']
     if (set_chunks is None) or (set_chunks == 'None'):
         set_chunks = 512
-        
-    if isinstance(images, dict):
-        image_names = list(images)
-    elif isinstance(images[-1],Path):
-        image_names = [i.name for i in images]
-    elif '/' in images[-1]:
-        image_names = [Path(i).name for i in images]
-    else: image_names = images
+    
+    if 'brdf' in str(img_dir):
+        suffix='.nc'
+    else:
+        suffix='.tif'
+   
+    if images is None:
+        images = [f for f in Path(img_dir).glob(f"*{suffix}") if '_mask' not in f.name]
+    image_names = [str(i) if (Path(i).is_absolute() or '/' in str(i)) else str(Path(img_dir) / i) for i in images]
+    image_names = [i for i in image_names if i.endswith(suffix) and '_mask' not in Path(i).name
+                   and not Path(i).stem.endswith(f"_{mask_args['maskname']}")]
 
     logger.info(f" checking masks in {mask_dir!s}...")
-    missing = []
-    for im in image_names:
-        im_base = get_image_basename(Path(im))
-        mask_path = mask_dir / f"{im_base}_{mask_args['maskname']}.tif"
-        if not mask_path.is_file():
-            missing.append(im)
+    missing = [im for im in image_names if not (Path(mask_dir) / 
+                                                    f"{get_image_basename(Path(im))}_{mask_args['maskname']}.tif").is_file()]
             
     if missing:
         logger.warning(f"{len(missing)} of {len(image_names)} scenes have no {mask_args['maskname']} file in {mask_args['mask_dir']}:")
         logger.warning(f"Missing items: {missing[:5]}{'...' if len(missing) > 5 else ''}. ")
-        if params['masking']['treat_missing'].lower() == 'fail':
+        treat_missing = str(params['masking']['treat_missing']).lower() if params else 'fail'
+        if treat_missing == 'fail':
             logger.warning("try running the masks before running this step")
             return
-        elif params['masking']['treat_missing'].lower() == 'skip':
+        elif treat_missing == 'skip':
             image_names = [item for item in image_names if item not in missing]
             logger.warning(f"skipping these images -- image stack has been reduced to {len(image_names)} images")
         else:
             logger.warning("need to set parameter masking:treat_missing to 'skip' or 'fail'")
             return
+    if not image_names:
+        logger.warning(f'no images to mask in {img_dir}')
+        return []
 
+    # A tif with MORE bands than LANDSAT_LIKE_BANDS (e.g. a Sentinel-2 image that still has its SCL band as the last
+    # one) is opened with placeholder names for the extra bands, which are then dropped. Switch off with
+    # params['masking']['drop_extra_band'] = False; the images are then expected to have exactly the standard bands.
+    n_std = len(LANDSAT_LIKE_BANDS)
+    drop_extra = str(params['masking'].get('drop_extra_band', True)).lower() not in ('false', '0', 'no') if params else True
+ 
+    warned = set()
+ 
+    def band_names_for(path):
+        if Path(path).suffix.lower() != '.tif':
+            return LANDSAT_LIKE_BANDS
+        with rio.open(path) as src:
+            n = src.count
+        if n == n_std:
+            return LANDSAT_LIKE_BANDS
+        if n > n_std and drop_extra:
+            if str(path) not in warned:
+                warned.add(str(path))
+                logger.warning(f'{Path(path).name} has {n} bands; dropping the last {n - n_std} (keeping {n_std})')
+            return LANDSAT_LIKE_BANDS + [f'extra{i}' for i in range(1, n - n_std + 1)]
+        raise ValueError(f'{Path(path).name} has {n} bands, expected {n_std}')
+
+            
     ref_image = image_names[-1]
     input_img_type = Path(ref_image).suffix.lower().replace('.', '')
     if input_img_type == 'tif':
-        profile_kwargs = extract_profile_geotif(ref_image, band_names=LANDSAT_LIKE_BANDS, n_chunks=set_chunks)
+        profile_kwargs = extract_profile_geotif(ref_image, band_names=band_names_for(ref_image), n_chunks=set_chunks)
     elif input_img_type == 'nc':
         profile_kwargs = default_profile_netcdf(ref_image)
 
@@ -157,17 +295,17 @@ def apply_masks_to_images(images, img_dir, masked_img_dir, mask_args=None, param
     for im in image_names:
         im_path = Path(im)
         logger.debug(f'applying mask to {im}')
-        out_path = Path(masked_img_dir) / im_path.name
+        out_path = Path(out_dir) / im_path.name
         im_base = get_image_basename(im_path)
-        mask_path = mask_dir / f"{im_base}_{mask_args['maskname']}.tif"
-        with gw.open(im_path, band_names=LANDSAT_LIKE_BANDS, **img_open_kwargs) as img_src, gw.open(mask_path) as mask_src:
+        mask_path = Path(mask_dir) / f"{im_base}_{mask_args['maskname']}.tif"
+        with gw.open(im_path, band_names=band_names_for(im_path), **img_open_kwargs) as img_src, gw.open(mask_path) as mask_src:
             mask_da = mask_src.isel(band=0, drop=True) if 'band' in mask_src.dims else mask_src
             ## converting both dask arrays to numpy forces them to use grid alignment rather than coordinate
             ##   because coordinate alignment becomes a problem with images that have been coregistered.
             mask_values = mask_da.values
-            img_values = img_src.values
+            img_values = img_src.values[:n_std]            # (drops any extra trailing band)
             if mask_values.shape != img_values.shape[-2:]:
-                logger.warning(f"ERROR -- mask shape {mask_values.shape} != image shape {img_values.shape[-2:]} for {im_path.name}")
+                raise ValueError(f"mask shape {mask_values.shape} != image shape {img_values.shape[-2:]} for {im_path.name}")
             is_kept = (mask_values < mask_start) | (mask_values > mask_stop)
             nodata_fill = profile_kwargs.get('_FillValue', profile_kwargs.get('nodata', 0))
             masked_arr = np.where(is_kept[np.newaxis, :, :], img_values, nodata_fill)
@@ -190,7 +328,64 @@ def apply_masks_to_images(images, img_dir, masked_img_dir, mask_args=None, param
                 masked_img.gw.to_netcdf(out_path, overwrite=True, **profile_kwargs)
 
     return image_names
-        
+    
+def apply_masks_to_images(params, images=None, img_dir=None, masked_img_dir=None, mask_args=None):
+    """
+    Applies existing masks to images and saves to temp dir for use in index construction and smoothing operations
+    <images> can be a list of images or a dictionary with image names as keys. 
+    <masked_img_dir> is a directory, usually temporary, where the output masked images will be stored.
+    <mask_args> is a dictionary built from input masking parameters of MASKS dictionary. If None, needs params passed to build.
+
+    Outputs a masked image with same name and format as the original in the  <masked_img_dir>
+    Returns a list of images to process, which is usually the same list as the input <images> unless some images are missing masks and
+        params:masking:treat_missing> is set to 'skip'
+    """
+
+    if img_dir is None:
+        img_dir = params['masking']['img_dir']
+    if masked_img_dir is None:
+        masked_img_dir = params['masking']['imgout_dir']
+
+    #if params is None:
+    #    if mask_args is None:
+    #        raise ValueError('pass params, or a mask_args dictionary already built with get_mask_kwargs')
+    #    return mask_imgs_in_dir(img_dir, mask_args, out_dir=masked_img_dir, images=images, params=None)
+   
+    img_names = []
+    if params['grids']:
+        for cell in get_cell_list_from_grid_param(params['grids']):
+            ppaths = ProjectPaths(params, grid=cell)
+            if img_dir == 'brdf':
+                jobs = [(ppaths.ms, None, 'brdf')]
+            elif img_dir in ('dl', 'dls', 'download', 'downloads'):
+                jobs = [(ppaths.ms.parent / get_sensor_family(s)['dir'], s, get_sensor_family(s)['dir']) 
+                        for s in get_sensors(params['masking']['sat_sensors'])]
+            else:
+                jobs = []
+                logger.warning(f'apply_masks_to_images does not know img_dir {img_dir!r}')
+            for folder, sensor, name in jobs:
+                mask_args = get_mask_kwargs(folder, params, sensor=sensor)
+                if masked_img_dir == 'tmp':
+                    img_out_dir = ppaths.scratch/name
+                    img_out_dir.mkdir(parents=True, exist_ok=True)
+                    ## copy metadata into tmp folder so next steps can be run directly from this folder
+                    for file_path in folder.iterdir():
+                        if file_path.is_file() and file_path.name.endswith(('.xml','MTL.txt','ANG.txt','scene.info')):
+                            shutil.copy2(file_path, img_out_dir / file_path.name)
+                else:
+                    img_out_dir = ppaths.ms.parent/masked_img_dir
+                    img_out_dir.mkdir(parents=True, exist_ok=True)
+                names = mask_imgs_in_dir(folder, mask_args, out_dir=img_out_dir, images=None, params=params)
+                if names is None:                      # missing masks and treat_missing == 'fail'
+                    return None
+                img_names += names                     # (Landsat and Sentinel-2 are both kept)
+ 
+            if masked_img_dir == 'tmp':
+                shutil.copy(ppaths.ms.parent/'processing.info', ppaths.scratch/'processing.info')
+            
+    return img_names
+
+                
 def open_masks_with_time_series(ppaths, ts_stack, ds_stack, mask_args):
     """Opens each scene's mask, matched 1:1 to ts_stack by filename as a single time-stacked boolean DataArray aligned to ds_stack.
     Returns a (time, y, x) DataArray, True where a pixel is in should be excluded, aligned to the same time coordinate as ts_stack itself.
@@ -782,7 +977,7 @@ def masks_to_file(sat_bands,
 
 # Log-log
 def log_func(b1, b2, out_name):
-
+    from rastercrf.util import scale_min_max
     return (scale_min_max(xr.ufuncs.log(b1.sel(band=b1.band.values.tolist()[0])), 0, 1, np.log(0.01), np.log(1)).clip(0, 1) *
             scale_min_max(xr.ufuncs.log(b2.sel(band=b2.band.values.tolist()[0])), 0, 1, np.log(0.01), np.log(1)).clip(0, 1))\
                     .clip(0, 1)\
@@ -792,7 +987,7 @@ def log_func(b1, b2, out_name):
 
 
 def calc_features(data, scale_factor=0.0001, nodata=65535, il=None):
-
+    from rastercrf.util import nd_to_columns, scale_min_max
     """
     Calculates CRF image features
 
@@ -850,7 +1045,8 @@ def calc_features(data, scale_factor=0.0001, nodata=65535, il=None):
                 .transpose('time', 'band', 'y', 'x')
 
     def scale_and_assign(in_data, band1, band2, assign_coord):
-
+        from rastercrf.util import nd_to_columns, scale_min_max
+    
         return scale_min_max(gw.norm_diff(in_data, band1, band2), 0, 1, -1, 1)\
                     .assign_coords({'band': [assign_coord]})\
                     .transpose('time', 'band', 'y', 'x')
@@ -978,6 +1174,8 @@ def compute_cloud_crf(image_batch_list,
               dem_path=None,
               angle_src=None):
 
+    from rastercrf.util import transform_data, nd_to_columns, columns_to_nd
+    
     # Order the class probability labels for the C dictionaries
     # predict_labels_ordered = [f'zproba{plab_idx:04d}' for plab_idx in range(0, len(predict_labels))]
     # band_names_concat = band_names[:-1] + predict_labels_ordered + [band_names[-1]]

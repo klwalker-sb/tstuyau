@@ -3,35 +3,61 @@ import numpy as np
 
 dt_today = datetime.now(tz=timezone.utc).date()
 
-SENSORS = {'Sentinel2':{'unq':'S2','matchstr':['S2','S2A','S2B','S2C'], 'sensor':'sentinel-2','color':'magenta', 'name':'Sentinel-2', 'GEEunq':'L1C','GEE':'COPERNICUS/S2'}, 
-              'S2':{'unq':'S2','matchstr':['S2','S2A','S2B','S2C'], 'sensor':'sentinel-2', 'color':'magenta','name':'Sentinel-2','GEEunq':'L1C','GEE':'COPERNICUS/S2'},
-              'S2cp':{'unq':'S2cp','matchstr':['S2cp'], 'sensor':'sentinel-2', 'GEE':'COPERNICUS/S2_CLOUD_PROBABILITY'}, 
-              'Landsat5':{'unq':'LT05','matchstr':['LT'], 'sensor':'landsat', 'name':'Landsat TM','color':'yellow','GEEunq':'LT05','GEE':'LANDSAT/LT05/C01/T1_SR'},
-              'L5':{'unq':'LT05','matchstr':['LT','LT05'], 'sensor':'landsat', 'name':'Landsat TM', 'color':'yellow','GEEunq':'LT05','GEE':'LANDSAT/LT05/C01/T1_SR'}, 
-              'LT05':{'unq':'LT05','matchstr':['LT','LT05'], 'sensor':'landsat', 'name':'Landsat TM','color':'yellow', 'GEEunq':'LT05','GEE':'LANDSAT/LT05/C01/T1_SR'},
-              'Landsat7':{'unq':'LE07','matchstr':['LE','LE07'], 'sensor':'landsat', 'name':'Landsat ETM+','color':'orange','GEEunq':'LE07', 'GEE':'LANDSAT/LE07/C01/T1_SR'},
-              'L7':{'unq':'LE07','matchstr':['LE','LE07'], 'sensor':'landsat', 'name':'Landsat ETM+','color':'orange','GEEunq':'LE07','GEE':'LANDSAT/LE07/C01/T1_SR'},
-              'LE07':{'unq':'LE07','matchstr':['LE','LE07'], 'sensor':'landsat', 'name':'Landsat ETM+','color':'orange','GEEunq':'LE07','GEE':'LANDSAT/LE07/C01/T1_SR'},
-              'Landsat8':{'unq':'LC08','matchstr':['LC08'], 'sensor':'landsat', 'name':'Landsat 8','color':'blue','GEEunq':'LC08','GEE':'LANDSAT/LC08/C01/T1_SR'},
-              'L8':{'unq':'LC08','matchstr':['LC08'], 'sensor':'landsat', 'name':'Landsat 8','color':'blue','GEEunq':'LC08','GEE':'LANDSAT/LC08/C01/T1_SR'},
-              'LC08':{'unq':'LC08','matchstr':['LC08'], 'sensor':'landsat', 'name':'Landsat 8','color':'blue','GEEunq':'LC08','GEE':'LANDSAT/LC08/C01/T1_SR'},
-              'Landsat9':{'unq':'LC09','matchstr':['LC09'], 'sensor':'landsat', 'name':'Landsat 9','color':'cyan','GEEunq':'LC09','GEE':'LANDSAT/LC09/C01/T1_SR'},
-              'L9':{'unq':'LC09','matchstr':['LC09'], 'sensor':'landsat', 'name':'Landsat 9','color':'cyan','GEEunq':'LC09','GEE':'LANDSAT/LC09/C01/T1_SR'},
-              'LC09':{'unq':'LC09','matchstr':['LC09'], 'sensor':'landsat', 'name':'Landsat 9','color':'cyan','GEEunq':'LC09','GEE':'LANDSAT/LC09/C01/T1_SR'},
-              'Landsat':{'unq':'L','matchstr':['LC','LT','LE','LT05','LE07','LC08','LC09'], 'sensor':'landsat','color':'darkorange'},
-              'L':{'unq':'L','matchstr':['LC','LT','LE','LT05','LE07','LC08','LC09'], 'sensor':'landsat','color':'darkorange', 'name':'Landsat'},
-              'LS2':{'unq':'LS2','color':'dodgerblue','matchstr':['S2','S2A','S2B','S2C','LC','LT','LE','LT05','LE07','LC08','LC09'], 'name':'Landsat+Sentinel-2'},
-              'All':{'unq':'LS2','matchstr':['S2','S2A','S2B','S2C','LC','LT','LE','LT05','LE07','LC08','LC09'],'color':'dodgerblue', 'name':'Landsat+Sentinel-2'}, 
-              'AllRaw':{'unq':'LS2','matchstr':['S2','S2A','S2B','S2C','LC','LT','LE','LT05','LE07','LC08','LC09'],'color':'dodgerblue', 'name':'Landsat+Sentinel-2'},
-              'S2A':{'unq':'S2A','matchstr':['S2A'], 'sensor':'sentinel-2','name':'Sentinel-2A','color':'red'},
-              'S2B':{'unq':'S2B','matchstr':['S2B'], 'sensor':'sentinel-2', 'name':'Sentinel-2B','color':'darkred'},
-              'S2C':{'unq':'S2C','matchstr':['S2C'], 'sensor':'sentinel-2', 'name':'Sentinel-2C','color':'purple'},
-              }
+SENSORS = {
+    # --- concrete products ---
+    'S2': {'unq': 'S2', 'matchstr': ['S2', 'S2A', 'S2B', 'S2C'], 'sensor': 'sentinel-2', 'name': 'Sentinel-2',
+       'color': 'magenta', 'GEEunq': 'L1C', 'GEE': 'COPERNICUS/S2', 'dir': 'sentinel2', 'metafile': 'granule_metadata', 'prefix': 's2'},
+    'S2cp': {'unq': 'S2cp', 'matchstr': ['S2cp'], 'sensor': 'sentinel-2', 'GEE': 'COPERNICUS/S2_CLOUD_PROBABILITY'},
+    'S2A':  {'unq': 'S2A',  'matchstr': ['S2A'], 'sensor': 'sentinel-2', 'name': 'Sentinel-2A', 'color': 'red'},
+    'S2B':  {'unq': 'S2B',  'matchstr': ['S2B'], 'sensor': 'sentinel-2', 'name': 'Sentinel-2B', 'color': 'darkred'},
+    'S2C':  {'unq': 'S2C',  'matchstr': ['S2C'], 'sensor': 'sentinel-2', 'name': 'Sentinel-2C', 'color': 'purple'},
+    'LT05': {'unq': 'LT05', 'matchstr': ['LT', 'LT05'], 'sensor': 'landsat', 'name': 'Landsat TM', 'color': 'yellow',
+             'GEEunq': 'LT05', 'GEE': 'LANDSAT/LT05/C01/T1_SR'},
+    'LE07': {'unq': 'LE07', 'matchstr': ['LE', 'LE07'], 'sensor': 'landsat', 'name': 'Landsat ETM+', 'color': 'orange',
+             'GEEunq': 'LE07', 'GEE': 'LANDSAT/LE07/C01/T1_SR'},
+    'LC08': {'unq': 'LC08', 'matchstr': ['LC08'], 'sensor': 'landsat', 'name': 'Landsat 8', 'color': 'blue',
+             'GEEunq': 'LC08', 'GEE': 'LANDSAT/LC08/C01/T1_SR'},
+    'LC09': {'unq': 'LC09', 'matchstr': ['LC09'], 'sensor': 'landsat', 'name': 'Landsat 9', 'color': 'cyan',
+             'GEEunq': 'LC09', 'GEE': 'LANDSAT/LC09/C01/T1_SR'},
 
-MASKS = {'terrain_shade': {'maskname':'shademask', 'mask_dir':'terrain/shade_masks', 'db_col':'shade_mask', 'mask_val':1},
-        'cloud_CRF':{'maskname':'cloudCRF', 'mask_dir':'clouds/CRF_masks', 'db_col':'cloud_crf', 'mask_val':[]},
-         's2cloudless': {'maskname':'s2cloudless', 'mask_dir':'clouds/s2cloudless', 'db_col':'s2cloudless', 'mask_val':1},
+    # --- groups: 'members' lists the concrete products they expand to ---
+    'L':  {'unq': 'L', 'matchstr': ['LC','LT','LE','LT05','LE07','LC08','LC09'], 'sensor': 'landsat', 
+           'name': 'Landsat', 'color': 'darkorange','members': ['LT05', 'LE07', 'LC08', 'LC09'],'dir': 'landsat', 
+           'metafile': 'mtl.xml', 'prefix': 'landsat'},
+    'LS2': {'unq': 'LS2', 'matchstr': ['S2', 'S2A', 'S2B', 'S2C', 'LC', 'LT', 'LE', 'LT05', 'LE07', 'LC08', 'LC09'],
+            'name': 'Landsat+Sentinel-2', 'color': 'dodgerblue', 'members': ['S2', 'S2cp', 'LT05', 'LE07', 'LC08', 'LC09']}
         }
+
+SENSOR_ALIASES = {
+    'S': 'S2',
+    'Sentinel2': 'S2', 'sentinel-2': 'S2', 
+    'Sentinel-2': 'S2', 'sentinel-2': 'S2',
+    'Landsat5': 'LT05', 'L5': 'LT05',
+    'Landsat7': 'LE07', 'L7': 'LE07',
+    'Landsat8': 'LC08', 'L8': 'LC08',
+    'Landsat9': 'LC09', 'L9': 'LC09',
+    'Landsat': 'L',
+    'All': 'LS2', 'AllRaw': 'LS2',
+}
+SENSORS.update({alias: SENSORS[canon] for alias, canon in SENSOR_ALIASES.items()})
+
+SENSOR_FAMILIES = {'landsat': 'L', 'sentinel-2': 'S2'}     # SENSORS[...]['sensor'] value -> its master family entry
+#FULL_SCENE_NUMPIX = {'sentinel-2': 4000000, 'landsat': 4000000}
+
+    
+## in MASKS, The top-level keys describe the OUTPUT mask and are what the step that APPLIES masks reads (get_mask_kwargs)
+## if there are sensor sub-dicts, these provide info on the native base masks used in the process.
+MASKS = {
+    'terrain_shade': {'maskname': 'shademask', 'mask_dir': 'terrain/shade_masks', 'db_col': 'shade_mask', 'mask_val': 1},
+    'cloud_CRF': {'maskname': 'cloudCRF', 'mask_dir': 'clouds/CRF_masks', 'db_col': 'cloud_crf', 'mask_val': [2, 4]},
+    's2cloudless': {'maskname': 's2cloudless', 'mask_dir': 'clouds/s2cloudless', 'db_col': 's2cloudless', 'mask_val': 1},
+    'cloud_shadowcast': {
+        'maskname': 'cloud_recast', 'mask_dir': 'clouds/shadows', 'db_col': 'cloud_re', 'mask_val': [1, 2],
+        'landsat': {'in_suffix': '_mask', 'in_dir': None},            # clipped to the cell, next to the image
+        'sentinel-2': {'in_suffix': '_maskbig', 'in_dir': 'clouds/native'},   # wider than the cell (eostac --buffer-extra)
+    },
+}
+
 
 CONT_STATS = {'avg': np.nanmean,
                'med': np.nanmedian,
@@ -89,6 +115,8 @@ SCHEMATIC_MODS={'pyall': {'col':'celPy1_LC32', 'col2':'NA'},
                 'grassNoGrass':{'col':'LCgrass2', 'col2':'LCgrass2', 'labels':['Grass', 'No-Grass']},   # FIX: missing comma after col2
                 'clear_grass':{'col':'LCgrassP', 'col2':'LCgrass2', 'labels':['Grass_all','No-grass','Grass_clear']}
                }
+
+POLY_MODS={'firebreaks':{93:'firebreak', 93:'burnt other', 255: 'not burnt', 0:'no_data'}}
 
 def get_schematic_mod(mod):
     '''

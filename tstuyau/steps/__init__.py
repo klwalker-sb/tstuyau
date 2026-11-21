@@ -20,6 +20,7 @@ from .check_model_prep import (
     make_variable_stack,
 )
 from .check_nodata import move_nodata
+from .check_polys import polygons_from_classified_raster
 from .check_reconstruction import reconstruct
 from .check_reindex_si import reindex_si
 from .check_sample import make_var_dataframe
@@ -32,6 +33,7 @@ from .check_ts_profile import (
     pre_post_separability,
     sample_timeseries,
 )
+from .mask_utils import apply_masks_to_images
 from .prechecks import make_thumbnails
 from .vectorize import vectorize_seg_results
 

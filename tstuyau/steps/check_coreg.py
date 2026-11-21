@@ -11,9 +11,9 @@ from affine import Affine
 from ..db import TuyauDataBase
 from ..handler import logger
 from . import utils
-from .lookup import SENSORS
-from .processing_tracker import reconstruct_db
+from .processing_tracker import get_processing_db
 from .project import ProjectPaths
+from .utils import get_image_list_for_type
 
 REFERENCE_BAND = 'nir'
 LANDSAT_LIKE_BANDS = ['blue', 'green', 'red', 'nir', 'swir1', 'swir2']
@@ -61,16 +61,12 @@ def coregister(params):
         ppaths = ProjectPaths(params, grid=cell)
 
         ## procssing_db is the full processing database tracking info about each image processed and steps taken
-        processing_db_path = ppaths.ms.parent/'processing.info'
-        if not processing_db_path.is_file():
-            logger.warning(f'processing.info does not exist for cell {cell}. Making new db...')
-            reconstruct_db(cell)
-        processing_db = pd.read_pickle(processing_db_path)
+        processing_db = get_processing_db(ppaths, cell=cell, make_missing=True)
         if 'coreg' not in processing_db:
-             processing_db['coreg'] = np.nan
-             processing_db['shift_x'] = np.nan
-             processing_db['shift_y'] = np.nan
-             processing_db['coreg_error'] = np.nan
+            processing_db['coreg'] = np.nan
+            processing_db['shift_x'] = np.nan
+            processing_db['shift_y'] = np.nan
+            processing_db['coreg_error'] = np.nan
 
         ## db is a simple cell-level processing database tracking which cells have been run (this is an sqlite db)
         db = TuyauDataBase(str(ppaths.ms.parent / f'{int(cell):06d}_tuyau.db'))
@@ -80,37 +76,11 @@ def coregister(params):
             db.create(exists_ok=True)
             db.insert(cell)
 
-        check_download_db = False
-        if params['status']['check_downloads']:
-            check_download_db = True
-
-        if check_download_db: ## NOTE-- this only works for dlMethod='GEE' currently
-            msensors = params['image_type']
-            if isinstance(msensors, str):
-                msensors = [msensors] 
-            if any (s in msensors for s in ['All', 'AllRaw', 'LS2']):
-                msensors = ['S2','S2cp','LT05','LE07','LC08','LC09']
-            elif 'L' in msensors:
-                msensors = ['LT05','LE07','LC08','LC09']
-            elif ('S' in msensors) or ('S2' in msensors):
-                msensors = ['S2','S2cp']
-        
-            ## Check downloads
-            ## No longer tracking sensor downloads in tuyau db. TODO: update or remove
-            #for sen in msensors:
-            #    senlab = SENSORS[sen]['sensor']
-            #    senpath = SENSORS[sen]['GEE']
-            #    if not db.eosvault_is_complete(senlab, senpath):
-            #        logger.warning(f'  The {senlab} {senpath} downloads for grid {grid} are incomplete.')
-            #        continue
-
-            ## Check post-processing   NOTE-- this only works for dlMethod='GEE' currently
-            if ppaths.gee.is_dir():
-                for sen in msensors:
-                    senunq = SENSORS[sen]['GEEunq']
-                    if list(ppaths.gee.glob(f"{senunq}*[!s].nc")):
-                        logger.warning(f'  The {senunq} post-processing for grid {cell} is incomplete.')
-                        continue
+        if params['status']['check_downloads'] and ppaths.gee.is_dir():     # NOTE-- only works for dlMethod='GEE'
+            pending = get_pending_gee_files(ppaths.gee, params['image_type'])
+            if pending:
+                logger.warning(f'  Post-processing for {", ".join(pending)} in cell {cell} is incomplete.')
+                continue
 
         if params['status']['reset_db']:
             db.reset(cell, 'preprocess')
@@ -127,18 +97,13 @@ def coregister(params):
         
         ## Get all images to coreg (sentinel + landsat 5 & 7)
         ##  Do not include files with basenames ending in <params:reconstruct:skip_flag> (in case some cleaning has been done)
-        skip_flag = None
-        if params['reconstruct']['skip_flag']:
-            skip_flag = params['reconstruct']['skip_flag']
-        ## angles files (ending in s.nc) should also be excluded, . but these are only in brdf folder if <dl_method> is 'gee'
+        skip_flag = params['reconstruct']['skip_flag'] or ''
+        ## angles files (ending in s.nc) are only in the brdf folder if <dlMethod> is 'GEE'
         if params['dlMethod'] == 'GEE':
-            skip_flag = (skip_flag or []) + ['s']
-            
-        match_str = '*.nc' if skip_flag is None else f'*[!{skip_flag}].nc'
-        s2_list = utils.get_s2_list(ppaths.ms, pattern=match_str)
-        l5_list = utils.get_l5_list(ppaths.ms, pattern=match_str)
-        l7_list = utils.get_l7_list(ppaths.ms, pattern=match_str)
-        image_list = s2_list + l5_list + l7_list
+            skip_flag += 's'
+        match_str = utils.skip_match(skip_flag)
+
+        image_list = utils.get_image_list_for_type(ppaths.ms, ['S2', 'LT05', 'LE07'], pattern=match_str)
 
         if not image_list:
             logger.warning(f'  No images found for cell {cell}.')
@@ -150,9 +115,7 @@ def coregister(params):
             logger.info('making reference image...')
             ref_path = str(ref_path)
             ## Get the median over all Landsat 8 and 9 images
-            l8_list = utils.get_l8_list(ppaths.ms, pattern=match_str)
-            l9_list = utils.get_l9_list(ppaths.ms, pattern=match_str)
-            landsat_list = sorted(l8_list + l9_list)
+            landsat_list = utils.get_image_list_for_type(ppaths.ms, ['LC08', 'LC09'], pattern=match_str)
 
             landsat_refs = [str(fn) for fn in landsat_list]
             logger.info(f'there are {len(landsat_refs)} landsat 8 & 9 images for reference')

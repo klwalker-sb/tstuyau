@@ -229,8 +229,8 @@ def get_sig_change(ts_stack, ds_stack, cng_thresh, basethresh_pre=None, basethre
     pass4 = pass3.where((plausvals_post.fillna(highest) - plausvals_pre.shift(time=2).fillna(lowest)) < (.7 * cng_thresh))
     pass5 = pass4.where((plausvals_post.fillna(highest) - plausvals_pre.shift(time=3).fillna(lowest)) < (.7 * cng_thresh))
     ## filter out if both observations after sig change are nodata and next obs is not significant
-    problem_gap = ((is_null_orig.rolling(time=2, center=False).sum() == 2) & 
-        (plausvals_post.shift(time=-3).fillna(highest) - plausvals_pre.shift(time=1).fillna(lowest) <= (0.7 * cng_thresh)))
+    problem_gap = ((is_null_orig.rolling(time=imgbuf, center=False).sum() == imgbuf) & 
+        (plausvals_post.shift(time=(-imgbuf-1)).fillna(highest) - plausvals_pre.shift(time=1).fillna(lowest) <= (0.7 * cng_thresh)))
     pass6 = pass5.where(~problem_gap, other=lowest)
 
     cng_v = pass6.max(dim="time").fillna(lowest).astype('int16')
@@ -820,8 +820,8 @@ def prep_ts_variable_bands(si_vars, ts_stack,ds_stack, out_dir,temp,start_doy,co
         num_images = len(sts_stack) ## note -- this count will include NAs
         numobs = src0.count(dim="time")  ## this is number of non NA observations for each pixel
         src_c = src0.chunk({"time": -1})
-        srcf = src_c.ffill(dim='time',limit=2)
-        srcff = srcf.bfill(dim='time',limit=2)
+        srcf = src_c.ffill(dim='time',limit=3)
+        srcff = srcf.bfill(dim='time',limit=3)
         srcf = src_c.ffill(dim='time')
         ## shift moves data one to the right 
         delta = srcff - srcff.shift(time=1)

@@ -104,7 +104,7 @@ def get_variables_at_pts(in_dir, feature_model, feature_mod_dict, start_yr, poly
     
     return ptsgdb
 
-def get_pts_in_grid (grid_file, grid_cell, ptfile):
+def get_pts_in_grid(grid_file, grid_cell, ptfile):
     '''
     loads point file (from .csv with 'XCoord' and 'YCoord' columns) and returns points that overlap a gridcell
     as a geopandas GeoDataFrame. Use this if trying to match/append data to existing sample points
@@ -152,9 +152,21 @@ def get_pts_in_grid (grid_file, grid_cell, ptfile):
         pts_in_grid.to_file(pt_clip, driver="GeoJSON")
         logger.debug(f'pts in grid: {pts_in_grid.head(n=5)}')
         
-        return pts_in_grid
-        
+    return pts_in_grid
 
+
+def get_cells_with_pts(grid_file, ptfile, cell_list):
+    
+    cells_w_pts = []
+    cells = utils.get_cell_list_from_grid_param(cell_list)
+    for cell in cells:
+        pts = get_pts_in_grid(grid_file, cell, ptfile)
+        if pts.shape[0] > 0:
+            cells_w_pts.append(cell)
+
+    logger.info(f' the following cells have sample points: {cells_w_pts}')
+    return cells_w_pts
+    
 def get_polygons_in_grid (grid_file, grid_cell, poly_path, oldest=None, newest=None, obs_col=None, out='json'):
     '''
     Filters polygon layer to contain only those overlapping selected grid cell (allows for iteration through grid)

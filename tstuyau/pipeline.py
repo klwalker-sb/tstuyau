@@ -130,6 +130,10 @@ class Tasks(Config):
     def make_masks(self):
         logger.info('  Making masks to remove clouds or shaded terrain ...')
         steps.make_masks(self.params)
+        
+    def apply_masks(self):
+        logger.info('  Applying existing masks to images ...')
+        steps.apply_masks_to_images(self.params)
 
     def topo(self):
         logger.info('  Normalizing topography ...')
@@ -255,6 +259,10 @@ class Tasks(Config):
         logger.info('  making thumbnails ...')
         steps.make_thumbnails(self.params)
 
+    def make_polygons(self):
+        logger.info('    making polygons ....')
+        steps.polygons_from_classified_raster(self.params)
+
     def post_aggregation_filter(self):
         logger.info('  applying final spatial refinement filters ...')
         steps.post_aggregation_filter(self.params)
@@ -273,13 +281,13 @@ def main():
     parser = argparse.ArgumentParser(description='A pipeline for image processing',
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
-    avail_tasks = ['preprocess', 'move_nodata', 'mask', 'topo', 'fusion', 'reconstruct', 'reindex_si', 'reclassify_raster', 
-                   'make_polygon_features', 'segment', 'make_ts_composite', 'make_var_stack', 'make_var_dataframe', 
+    avail_tasks = ['preprocess', 'move_nodata', 'mask', 'apply_masks', 'topo', 'fusion', 'reconstruct', 'reindex_si', 
+                   'reclassify_raster', 'make_polygon_features', 'segment', 'make_ts_composite', 'make_var_stack', 'make_var_dataframe', 
                    'format_ptfeat_set', 'make_and_score_model','iterate_sample_model', 'iterate_all_model_components', 
                    'optimize_feature_model', 'classify_timestep', 'classify_CRF', 'mosaic', 'clean', 'assess', 'compress', 
                    'sample_timeseries', 'plot_timeseries', 'pre_post_df', 'pre_post_separability', 'dl_check', 'status', 
                    'version', 'make_thumbnails', 'summarize_raster', 'vectorize_seg_results', 'segmentation_accuracy', 
-                   'prep_training_ts_for_segmentation','post_aggregation_filter', 'ts_filter']
+                   'prep_training_ts_for_segmentation','post_aggregation_filter', 'ts_filter', 'make_polygons']
 
     parser.add_argument('tasks', metavar='task', nargs='+', help='The tasks to submit', default=None,
                         choices=avail_tasks)
@@ -306,6 +314,8 @@ def main():
             tasks.move_nodata()
         elif task == 'mask':
             tasks.make_masks()
+        elif task == 'apply_masks':
+            tasks.apply_masks()
         elif task == 'topo':
             tasks.topo()
         elif task == 'fusion':
@@ -368,6 +378,8 @@ def main():
             tasks.status()
         elif task == 'make_thumbnails':
             tasks.make_thumbnails()
+        elif task == 'make_polygons':
+            tasks.make_polygons()
         elif task == 'post_aggregation_filter':
             tasks.post_aggregation_filter()
         elif task == 'ts_filter':

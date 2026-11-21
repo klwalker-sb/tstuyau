@@ -50,8 +50,6 @@ def fuse_sensors(params):
         s2_list += sorted([fn for fn in landsat_list if int(fn.name[:4]) > params['fusion']['start_year']])
         landsat_list = sorted(set(landsat_list).difference(s2_list))
 
-        # s2_list, landsat_list = utils.get_image_lists(ppaths.ms)
-
         io = ImageIO(s2_list, landsat_list)
 
         # Get the sorted lists

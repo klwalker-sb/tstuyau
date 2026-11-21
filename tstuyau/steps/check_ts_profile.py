@@ -975,8 +975,8 @@ def pre_post_df(params):
     obs_db = params['sample_model']['point_file'] ## str
     obscol = params['sample_model']['obs_col'] ## str  
     preobscol = params['sample_model']['preobs_col'] ## str
-    filter_col = (params['sample_model']['filter_col']).replace('_','-') ## str -- just for file naming/searching here
-    filter_class = (params['sample_model']['filter_class']).replace('_','-') ## str -- just for file naming/searching here
+    filter_col = (params['sample_model']['filter_col']).replace('_','-') ## str -- just for file naming or searching here
+    filter_class = (params['sample_model']['filter_class']).replace('_','-') ## str -- just for file naming or searching here
     sis = params['feature_model']['spec_indices'] ## str or list
     yrs = params['sample_model']['train_yrs'] ## list [XXXX,XXXX]
     img_type = params['image_type'] ## str 'LS2'| 'S2' | 'L'| 'LT05'| 'LE07'| 'LC08'| 'LC09'| 'PS'| 'CHIRPS_'

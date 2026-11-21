@@ -25,6 +25,10 @@ from .lookup import get_lc_cats, SCHEMATIC_MODS, get_schematic_mod, CONT_STATS
 from .mask_utils import apply_binary_mask
 from .project import ProjectPaths
 
+COMPARE_CATEGORIES = {'crop':  {'col': 'per_crop',   'index_name': 'Crop_Product'},
+                      'tree':  {'col': 'per_tree',   'index_name': 'Tree_Product'},
+                      'burn':  {'col': 'per_burned', 'index_name': 'Burn_Product'},
+                      'grass': {'col': 'per_grass',  'index_name': 'Grass_Product'}}
 
 def clip_ras_to_poly(ras_in, polys, out_dir,prod_name):
         
@@ -170,28 +174,28 @@ def summarize_raster_cat(ras_in,map_dict=None, map_product=None, sum_classes=Non
         lc_cats = None
         crop_edge_val = None
         
-        if sum_classes and sum_classes in SCHEMATIC_MODS:
+
+        if map_dict:
+            if isinstance(map_dict, (str, Path)):
+                with open(map_dict, 'r+') as map_dict_in:
+                    map_dict = json.load(map_dict_in)
+            if isinstance(map_dict[map_product]['classes'], dict):
+                unq_classes = list(map_dict[map_product]['classes'].keys())
+                    
+        elif sum_classes and sum_classes in SCHEMATIC_MODS:
             mod_info = get_schematic_mod(sum_classes)
             unq_classes = mod_info.get('labels')
             if unq_classes:
                 lc_cats = get_lc_cats(project_ver)
                 ## crop edge is in both homogeneous crop and no crop sets and is halved in crop calcs to reduce double counting 
                 crop_edge_val = lc_cats['Mixed_Crop-edge']     
-        if not lc_cats:
-            if map_dict:
-                if isinstance(map_dict, (str, Path)):
-                    with open(map_dict, 'r+') as map_dict_in:
-                        map_dict = json.load(map_dict_in)
-                if isinstance(map_dict[map_product]['classes'], dict):
-                    unq_classes = list(map_dict[map_product]['classes'].keys())
             
-            if unq_classes is None:  ## no dictionary was passed for this map
-                ## get the number and percent of each unique value in raster -- in this case, we have no other info about the class
-                num_classes, unq_classes = get_num_classes_in_raster(ras_in)
+        if unq_classes is None:  ## no dictionary or shematic_mod was passed for this map
+            ## get the number and percent of each unique value in raster -- in this case, we have no other info about the class
+            num_classes, unq_classes = get_num_classes_in_raster(ras_in)
 
         covered_vals = set()   ## raster values that belong to at least one class lookup, to warn about any that do not
-        if any('crop' in str(item).lower() for item in unq_classes):
-            edge_count = int(np.count_nonzero(data == crop_edge_val)) if crop_edge_val is not None else 0
+        edge_count = int(np.count_nonzero(data == crop_edge_val)) if crop_edge_val is not None else 0
         
         logger.info(f'summarizing classes: {unq_classes}')   
         for c in unq_classes:
@@ -209,6 +213,8 @@ def summarize_raster_cat(ras_in,map_dict=None, map_product=None, sum_classes=Non
                     if c.lower() in ['crop', 'homogeneous crop', 'no crop', 'nocrop'] and crop_edge_val is not None:
                         covered_vals.add(crop_edge_val)
                         val_set = val_set[val_set != crop_edge_val]
+                        if edge_count > 0:
+                            logger.info(f' dividing {edge_count} crop edge pixels between crop and non crop') 
                         c_count = int(np.count_nonzero(np.isin(data, val_set))) + int(edge_count/2)
                     else:
                         c_count = int(np.count_nonzero(np.isin(data, val_set)))
@@ -259,7 +265,8 @@ def summarize_raster_cat(ras_in,map_dict=None, map_product=None, sum_classes=Non
             final_class_dict['per_grass'] = round(100 * grass_tot/pix_count,1)    
         if tree_tot > 0:
             final_class_dict['per_tree'] = round(100 * tree_tot/pix_count,1)
-    
+        if edge_count:
+            final_class_dict['crop_edge_pix'] = edge_count
         final_class_dict['numpix'] = pix_count
 
         logger.info(f' class percentages are: {final_class_dict}')
@@ -316,18 +323,22 @@ def summarize_raster_cont(ras_in, prod_name=None, aggstats=None, decimals=None):
     return entry
 
 def summarize_zones_cat(ras_in, polys, clip_dir, out_dir, prod_name, sum_classes=None, classes_out=None, print_out=False,
-                        map_dict=None, project_ver=None):
+                        map_dict=None, project_ver=None, summary_prefix=None):
     '''
     Summarizes categorical raster <ras_in> for each polygon in <polys>. Returns the polygon attribute table with one column per
     summary value (e.g. per_Crop, numpix). <classes_out> limits which are kept (list of output names, with or without the 'per_' prefix;
     default 'All'). <map_dict> can be the loaded dictionary or a path to it. <sum_classes> is a SCHEMATIC_MODS name.
+    he table is written (if <print_out>) to <out_dir>/<summary_prefix>_<prod_name>.csv
     '''
     if classes_out is None or (isinstance(classes_out, str) and classes_out.lower() in ('none', 'all')):
         classes_out = 'All'
     elif isinstance(classes_out, str):
         classes_out = [classes_out]
 
-    logger.info(f'summarizing zones for {prod_name}; classes_out = {classes_out!r}')
+    if summary_prefix is None or summary_prefix in ('None', ''):
+        summary_prefix = 'zone_summary'
+
+    logger.info(f'summarizing zones for {prod_name}; classes_out = {classes_out}')
     clip_ras_to_poly(ras_in, polys, clip_dir, prod_name)
     plys = gpd.read_file(polys)
     plys.drop(['geometry'],axis=1,inplace=True)
@@ -362,7 +373,7 @@ def summarize_zones_cat(ras_in, polys, clip_dir, out_dir, prod_name, sum_classes
                         new_cols.append(key)
 
     if not new_cols:
-        logger.warning(f'no summary values were added to the polygon table. classes_out = {classes_out!r}; ')
+        logger.warning(f'no summary values were added to the polygon table. classes_out = {classes_out}; ')
 
     if 'missing_vals' in plys.columns:
         plys['missing_vals'] = plys['missing_vals'].fillna('') 
@@ -374,18 +385,21 @@ def summarize_zones_cat(ras_in, polys, clip_dir, out_dir, prod_name, sum_classes
 
     logger.debug(plys)
     if print_out == True:
-        out_path = Path(out_dir) / f"zone_summary_{prod_name}.csv"
+        out_path = Path(out_dir) / f"{summary_prefix}_{prod_name}.csv"
         pd.DataFrame.to_csv(plys, out_path, sep=',', index=True)
     
     return plys
 
-def summarize_zones_cont(ras_in, polys, clip_dir, out_dir, prod_name, aggstats=None, print_out=False, decimals=None):
+def summarize_zones_cont(ras_in, polys, clip_dir, out_dir, prod_name, aggstats=None, print_out=False, 
+                         decimals=None, summary_prefix='zone_summary'):
     '''
     Summarizes continuous raster <ras_in> for each polygon in <polys> (statistics chosen with <aggstats>, see summarize_raster_cont).
     Returns the polygon attribute table with one column per statistic (<prod_name>_avg, etc.), the continuous counterpart of
-    summarize_zones_cat. This is for getting summary statistics of large maps for exploration, etc. 
-          For making modeling features, use summarize_poly_features()
+    summarize_zones_cat. Written (if <print_out>) to <out_dir>/<summary_prefix>_<prod_name>.csv
+    
+    This is for getting summary statistics of large maps for exploration, etc. For making modeling features, use summarize_poly_features()
     '''
+    
     clip_ras_to_poly(ras_in, polys, clip_dir, prod_name)
     plys = gpd.read_file(polys)
     plys.drop(['geometry'],axis=1,inplace=True)
@@ -401,7 +415,7 @@ def summarize_zones_cont(ras_in, polys, clip_dir, out_dir, prod_name, aggstats=N
             plys.loc[i, key] = value
  
     if print_out == True:
-        out_path = Path(out_dir) / f"zone_summary_{prod_name}.csv"
+        out_path = Path(out_dir) / f"{summary_prefix}_{prod_name}.csv"
         pd.DataFrame.to_csv(plys, out_path, sep=',', index=True)
  
     return plys
@@ -451,10 +465,10 @@ def summarize_poly_features(params, ras_in=None):
     
     return dict_in
 
-def _resolve_map_inputs(params, polys, map_dict, map_prod):
-    '''
-    Works out what is being summarized, from the arguments and params.
-    Returns (polys or None, out_dir (Path, created), map_prod, loaded map dict or None, raster path)
+def _resolve_common_inputs(params, polys, map_dict, map_prod):
+    '''Works out what is being summarized, from the arguments and params.
+    These are the inputs shared by every map in a run.
+    Returns (polys or None, out_dir (Path, created), loaded map dict or None)
     '''
     ppaths = ProjectPaths(params, grid=None)
     if polys is None:
@@ -467,41 +481,56 @@ def _resolve_map_inputs(params, polys, map_dict, map_prod):
         out_dir = ppaths.datasum
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
- 
+
+    map_prod_iscel = False
     if map_prod is None:
         map_prod = params['explore']['product_name']
+    if isinstance(map_prod, str):
+        if map_prod.lower().startswith('cel'):
+            map_prod_iscel = True
+    if isinstance(map_prod, list):
+        if map_prod[0].lower().startswith('cel'):
+            map_prod_iscel = True
 
-    if not map_prod.lower().startswith('cel'):
+    if not map_prod_iscel:
         if map_dict is None:
             map_dict = params['explore']['product_dict']
         if isinstance(map_dict, dict):
             dict_in = map_dict
-        elif map_dict is not None and map_dict != 'None':
+        elif map_dict is not None and map_dict not in ('None', ''):
             with open(map_dict, 'r') as map_dict_in:
                 dict_in = json.load(map_dict_in)
         else:
             dict_in = None
     else:
-            dict_in = None
+        dict_in = None
  
+    return polys, out_dir, dict_in
+
+
+def _resolve_ras_path(params, dict_in, map_prod):
+    '''the raster for <map_prod>. If in the map dictionary its location is found with the 'loc' key, 
+    otherwise, it is <map_prod>.tif and is looked for in the product directory'''
+
+    paths = ProjectPaths(params, grid=None)
+    map_dir = params['explore']['product_dir']
+    if map_dir is None or map_dir == 'None':
+        map_dir = ppaths.ancillary
+    
     if dict_in is not None:
         if map_prod not in dict_in:
-            logger.warning(f"ERROR -- map product '{map_prod}' is not in the map dictionary {map_dict}")
+            logger.warning(f"ERROR - map product '{map_prod}' is not in the map dictionary")
         ras_path = dict_in[map_prod]['loc']
     else:
-        ras_path = f'{map_prod}.tif'   ##TODO: accomodate other raster types (.nc)
+        ras_path = f'{map_prod}.tif'   ##TODO: accomodate other raster types (.nc) 
+
     ras_path = Path(ras_path)
-        
-    if len(ras_path.parts) == 1:   ## just a file name, so look for it in the product directory
-        map_dir = params['explore']['product_dir']
-        if map_dir is None or map_dir == 'None':
-            map_dir = ppaths.ancillary
-        ras_path = Path(map_dir)/ras_path
-        if not ras_path.is_file():
-            logger.warning(f'ERROR -- cannot find file {ras_path}. Maybe set params <explore><product_dir>')
+    if Path(map_dir) not in ras_path.parents or parent:
+        ras_path = Path(map_dir) / ras_path     
+    
  
-    return polys, out_dir, map_prod, dict_in, ras_path
- 
+    return ras_path
+
  
 def _get_map_type(map_type, params, dict_in, map_prod, sum_classes):
     '''
@@ -515,7 +544,7 @@ def _get_map_type(map_type, params, dict_in, map_prod, sum_classes):
     entry = dict_in[map_prod] if dict_in is not None else {}
     for source, value in [('argument', map_type), ('params explore:map_type', params['explore']['map_type']),
                           ("map dictionary 'type'", entry.get('type'))]:
-        if value is not None and value != 'None' and value != '':
+        if value is not None and value not in ('None',''):
             if str(value).lower() not in aliases:
                 logger.warning(f"ERROR -- unknown map type '{value}' from {source}; set param explore:map_type to 'cat' or 'cont'")
             return aliases[str(value).lower()]
@@ -524,7 +553,7 @@ def _get_map_type(map_type, params, dict_in, map_prod, sum_classes):
     return guess
  
  
-def _summarize_cat(params, polys, out_dir, map_prod, dict_in, ras_path, sum_classes):
+def _summarize_cat(params, polys, out_dir, map_prod, dict_in, ras_path, sum_classes, summary_prefix):
     '''This is just an internal helper function to pass correct parameters to summarize_raster_cat() from summarize_raster() 
         (passing through summarize_zones_cat() if <polys> ore passed in).
         The list of classes comes from <sum_classes> (schematic model) or the map dict, inside summarize_raster_cat.
@@ -532,14 +561,15 @@ def _summarize_cat(params, polys, out_dir, map_prod, dict_in, ras_path, sum_clas
     '''
     print_cats = params['explore']['print_cats']
     if isinstance(print_cats, str) and print_cats in ('None', ''):
-        print_cats = None
+        print_cats = None   ## if None, will later default to all
+    logger.info(f'print_cats = {print_cats}')
     if polys:
         clip_dir = Path(params['scratch_dir'])/'polys'
         clip_dir.mkdir(parents=True, exist_ok=True)
-        return summarize_zones_cat(ras_path, polys, clip_dir, out_dir, map_prod, sum_classes=sum_classes,
-                                   classes_out=print_cats, print_out=True, map_dict=dict_in, project_ver=params['project_ver'])
+        return summarize_zones_cat(ras_path, polys, clip_dir, out_dir, map_prod, sum_classes=sum_classes, classes_out=print_cats, 
+                                   print_out=True, map_dict=dict_in, project_ver=params['project_ver'], summary_prefix=summary_prefix)
     return summarize_raster_cat(ras_path, map_dict=dict_in, map_product=map_prod, 
-                                sum_classes=sum_classes, project_ver=params['project_ver'], mask_val=None)
+                                sum_classes=sum_classes, project_ver=params['project_ver'], mask_val=None,)
  
  
 def _summarize_cont(params, polys, out_dir, map_prod, ras_path):
@@ -555,30 +585,141 @@ def _summarize_cont(params, polys, out_dir, map_prod, ras_path):
     if polys:
         clip_dir = Path(params['scratch_dir'])/'polys'
         clip_dir.mkdir(parents=True, exist_ok=True)
-        return summarize_zones_cont(ras_path, polys, clip_dir, out_dir, map_prod, aggstats=aggstats, print_out=True, decimals=decimals)
+        return summarize_zones_cont(ras_path, polys, clip_dir, out_dir, map_prod, aggstats=aggstats, 
+                                    print_out=True, decimals=decimals, summary_prefix=summary_prefix)
     return summarize_raster_cont(ras_path, map_prod, aggstats)
 
 
-def summarize_raster(params, polys=None, map_dict=None, map_prod=None, map_type=None):
+def compare_rasters(summary_dir, summary_prefix='zone_summary', maps='all', zone_col='Region', categories=None, save=True):
+    '''
+    Compares maps using the zone summary files <summary_dir>/<summary_prefix>_<map>.csv written by summarize_raster().
+    <maps> is a list of map names or 'all' (every <summary_prefix>_*.csv in the directory). <zone_col> is the column with the zone names.
+ 
+    Returns {table name: DataFrame}, one table for each summary value that is in at least one of the files (see COMPARE_CATEGORIES;
+    <categories> can be a list of names from it, or your own {name: {'col':..., 'index_name':...}} dictionary). Each table has one row
+    per map and one column per zone, plus 'All', the average over all zones weighted by number of pixels (numpix). Written to
+    <summary_dir>/compare_<name>_<summary_prefix>.csv if <save>.
+    '''
+    if categories is None:
+        cats = COMPARE_CATEGORIES
+    elif isinstance(categories, dict):
+        cats = categories
+    else:
+        cats = {name: COMPARE_CATEGORIES[name] for name in categories}
+ 
+    summary_dir = Path(summary_dir)
+    if isinstance(maps, str) and maps != 'all':
+        maps = [maps]
+    if maps == 'all':
+        sum_files = sorted(summary_dir.glob(f'{summary_prefix}_*.csv'))
+    else:
+        sum_files = [summary_dir / f'{summary_prefix}_{m}.csv' for m in maps]
+ 
+    tables = {name: [] for name in cats}
+    for sf in sum_files:
+        if not sf.exists():
+            logger.warning(f'no summary file {sf}; skipping it')
+            continue
+        f = pd.read_csv(sf)
+        map_name = sf.stem[len(summary_prefix) + 1:]    ## the old .strip('.csv') also removed any c, s, v or . at the start or end of the name
+        if zone_col not in f.columns or 'numpix' not in f.columns:
+            logger.warning(f"{sf.name} has no '{zone_col}' or 'numpix' column; skipping it")
+            continue
+        totpix = f['numpix'].sum()
+        for name, cfg in cats.items():
+            col = cfg['col']
+            if col not in f.columns:
+                continue
+            all_val = round((f[col] * f['numpix']).sum() / totpix, 1) if totpix > 0 else np.nan
+            by_zone = f.set_index(zone_col)[col]
+            by_zone = pd.concat([by_zone, pd.Series({'All': all_val})])
+            by_zone.index.name = cfg['index_name']
+            tables[name].append(by_zone.to_frame(map_name).T)
+ 
+    out = {name: pd.concat(tabs) for name, tabs in tables.items() if tabs}   ## only the summary values that exist
+    if not out:
+        logger.warning(f'none of {[c["col"] for c in cats.values()]} were found in the summary files for {maps}')
+    if save:
+        for name, table in out.items():
+            table.to_csv(summary_dir / f'compare_{name}_{summary_prefix}.csv')
+    return out
+ 
+ 
+def summarize_multiple_maps(summary_dir, summary_prefix, maps):
+    '''legacy interface: returns (all_crops, all_trees); a table is None if no map had that summary value'''
+    tables = compare_rasters(summary_dir, summary_prefix, maps, categories=['crop', 'tree'])
+    return tables.get('crop'), tables.get('tree')
+ 
+
+def summarize_raster(params, polys=None, map_dict=None, map_prod=None, map_type=None, summary_prefix=None, compare=True):
     '''
     Single entry point for summarizing a map product for large-scale (multi-cell) map summarization. 
-    The <map_type> can be either categorical ('cat') or continuous ('cont'), but usually identified based on other params (see _get_map_type()). 
+
+    <map_prod> is one map name, a list of names, or 'all' (every product in the map dictionary). 
+               It defaults to <params:explore:product_name>, which can also be a list.
+    <summary_prefix> is the start of the summary file names (<out_dir>/<summary_prefix>_<map>.csv); 
+               default <params:explore:summary_prefix>, then 'zone_summary'.
+
+    The <map_type> can be either categorical ('cat') or continuous ('cont'), 
+          but is usually be identified based on other params (see _get_map_type()). 
     If polys are included, will create a summary for each polygon zone (returned as a DataFrame and written to
     'zone_summary_<map_prod>.csv' in the output dir <params explore:out_dir> or backup dir output/summary_data (default)).
     Else summarizes the full raster (returned as a dictionary).
     Note: can use file with single polygon as masking extent -- in this case, the output will be a DataFrame and printed .csv 
     '''
-    sum_classes = params['schematic_model']['summary_mod']   ## SCHEMATIC_MODS name (categorical only); if None the classes come from the map dict
-    if isinstance(sum_classes, str) and sum_classes in ('None', ''):
+    ## SCHEMATIC_MODS name (categorical only); if None the classes come from the map dict
+    sum_classes = params['schematic_model']['summary_mod']   
+    if sum_classes == 'None':
         sum_classes = None
+    if summary_prefix is None:
+        summary_prefix = params['explore'].get('summary_prefix') or 'zone_summary'
+    zone_col = params['explore'].get('zone_col') or 'Region'
+
+    if map_prod is None:
+        map_prod = params['explore']['product_name']
+    polys, out_dir, dict_in = _resolve_common_inputs(params, polys, map_dict, map_prod)
  
-    polys, out_dir, map_prod, dict_in, ras_path = _resolve_map_inputs(params, polys, map_dict, map_prod)
-    map_type = _get_map_type(map_type, params, dict_in, map_prod, sum_classes)
-    logger.info(f"summarizing '{map_prod}' ({ras_path}) as a {'categorical' if map_type == 'cat' else 'continuous'} map")
+    batch = isinstance(map_prod, (list, tuple)) or map_prod.lower() == 'all'
+    if map_prod.lower() == 'all':
+        if dict_in is None:
+            logger.warning("ERROR - map_prod='all' needs a map dictionary to list the products")
+        prods = list(dict_in.keys())
+    elif isinstance(map_prod, (list, tuple)):
+        prods = list(map_prod)
+    else:
+        prods = [map_prod]
  
-    if map_type == 'cat':
-        return _summarize_cat(params, polys, out_dir, map_prod, dict_in, ras_path, sum_classes)
-    return _summarize_cont(params, polys, out_dir, map_prod, ras_path)
+    results = {}
+    failed = []
+    cat_maps = []
+    for prod in prods:
+        try:
+            ras_path = _resolve_ras_path(params, dict_in, prod)
+            this_type = _get_map_type(map_type, params, dict_in, prod, sum_classes)
+            logger.info(f"summarizing '{prod}' ({ras_path}) as a {'categorical' if this_type == 'cat' else 'continuous'} map")
+            if this_type == 'cat':
+                results[prod] = _summarize_cat(params, polys, out_dir, prod, dict_in, ras_path, sum_classes, summary_prefix)
+                cat_maps.append(prod)
+            else:
+                results[prod] = _summarize_cont(params, polys, out_dir, prod, ras_path, summary_prefix)
+        except Exception:
+            if not batch:
+                raise
+            logger.exception(f"ERROR -- summary of '{prod}' failed; continuing with the other maps")
+            failed.append(prod)
+ 
+    if not batch:
+        return results[prods[0]]
+ 
+    tables = {}
+    if compare and polys and cat_maps:
+        tables = compare_rasters(out_dir, summary_prefix, cat_maps, zone_col=zone_col, categories=params['explore']['print_cats'])
+    elif compare and not polys:
+        logger.info('no polygons, so there are no zone summaries to compare')
+    if failed:
+        logger.warning(f'ERROR - these maps could not be summarized: {failed}')
+ 
+    return {'summaries': results, 'comparison': tables, 'failed': failed}
 
 
 def parse_avar(avar):
@@ -833,12 +974,15 @@ def get_ts_stats_within_polys(params, in_path=None, out_path=None):
 def make_polygon_features(params, in_path=None, out_path=None):
     from rasterstats import zonal_stats
     '''
-    Produces summary of raster data within polygons. This is most useful when there is a large number of polygons (e.g. when making feature data).
-          If the number of polygons is small and the objective is preliminary / post-map summarization, use summarize_raster() instead.
+    Produces summary of raster data within polygons. 
+    This is most useful when there is a large number of polygons (e.g. when making feature data).
+          If the number of polygons is small and the objective is preliminary / post-map summarization, 
+          use summarize_raster() instead.
           
-    If <feature_model:unit_of_analysis> == 'polygon', Provides summary output for each polygon, in dictionary <'feature_model':'poly_feat_dict'>
-
-    If <feature_model:unit_of_analysis> == 'pixel', outputs rasters to be used for wall-to-wall classification, using standard gridded procedures
+    If <feature_model:unit_of_analysis> == 'polygon', 
+        provides summary output for each polygon, in dictionary <'feature_model':'poly_feat_dict'>
+    If <feature_model:unit_of_analysis> == 'pixel', 
+        outputs rasters to be used for wall-to-wall classification, using standard gridded procedures
     '''
 
     ppaths = ProjectPaths(params, grid=None)

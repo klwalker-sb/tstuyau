@@ -38,7 +38,7 @@ buffer: 100
 
 ## <log_level> sets logging options for output message detail: DEBUG | INFO | WARNING
 log_level: 'INFO'
-## <grids> is a list of the grid cells to process
+## <grids> is a list of the grid cells to process (can be direct list or .csv file with one cell per line)
 grids:
   - 126
 ## <res> is the input images. when res is passed to geowombat, the precision will determine the output datatype. 
@@ -174,9 +174,15 @@ explore:
  product_dict: '/home/downspout-cel/paraguay_lc/lc_prods/prod_dict.json'
  ## <explore:product_name> is the name of the product to summarize / use in the exploratory analysis (if raster, exclude suffix)
  product_name: None
+ ##<explore:summary_prefix> is the prefix to use for all maps summaries belonging to a comparison group.
+ summary_prefix: 'Zonal_summary'
+ ## explore:compare>: whether to compare multiple maps and provide final summary
+ compare: False
+ ##<explore:zone_col> is the name of the columns that contain the Zone id
+ zone_col: 'Region'
  ## <explore:summary_cats> is the name of the model in SCHEMATIC_MODS (lookup.py) to use to summarize a categorical raster 
  summary_cats: None
- ## <explore:print_cats> are the summary categories of interest to print to output file
+ ## <explore:print_cats> are the summary categories of interest to print to output file, or The categories to summarize if compare is True
  print_cats: 'All'
  ## <explore:map_type> is type of map data ('cat' | 'cont') if summarizing a raster
  map_type: None
@@ -199,7 +205,7 @@ explore:
 masking:
 ## <masking:maxval> is the maximum valid data value (inverse of scale_factor)
   maxval: 10000
-  ## <masking:method> can be 'terrain_shade' | 'ancillary' | 'CRF' | 's2cloudless' | 'custom' | 'native'  
+  ## <masking:method> can be 'terrain_shade' | 'ancillary' | 'CRF' | 's2cloudless' | 'cloud_shadowcast' | 'custom' | 'native'  
   ##        (if 'native', nothing is done with mask but note is added in db). 
   method: None
   ## <masking:sat_sensors> is 'All' or "LS2' for all Sentinel-2 & Landsat, 'L' for all Landsat only, 
@@ -222,7 +228,9 @@ masking:
   ##   if list, the mask will be from the first to last value.
   ## masking:img_dir is the directory for the images to be masked. If None, defaults to brdf directory.
   img_dir: None 
-  ##   only needed in mask is not in MASKS dict in lookup.py
+  ## <masking:imgout_dir>: Location where masked images will be stored. If 'tmp', apply_masks_tom_images() will set specitif location
+  imgout_dir: None
+  ##  <masking:mask_val>: values to mask. Can be int or list. only needed if mask is not in MASKS dict in lookup.py
   mask_val: None
   ## masking:masknamer> is the name of each mask, appended to the main scene name (beofre the suffix). 
   ##   only needed in mask is not in MASKS dict in lookup.py
@@ -232,6 +240,8 @@ masking:
   ## <masking:treat_missing> 'Fail' | 'Skip'  If "Fail', will stop whole process if all images do not have a corresponding mask.
   ##     if 'Skip', will drop the image in question.
   treat_missing: 'Fail'
+  ## <masking:aggregate> True if task should aggregate existing masks into one summary mask (masking has already been run without) 
+  aggregate: False
   
   ## <masking:reclass_LUT> used if method is 'ancillary'. sets dictionary with from:to value as key:value pair. 
   ##     OR csv with <from_vals> column and <to_vals> column
@@ -244,6 +254,22 @@ masking:
   gee_key: '/home/<username>/.tstuyau/gee_key.json'
   ## <masking:gee_index_dir> is needed only if <masking:method> is 'gee'. Sets root directory for the GCP index files
   gee_index_dir: '/home/sandbox-cel/paraguay_lc/raster'
+  
+  ## if method=='cloud_shadowcast', need the following:
+  use_cirrus: False
+  use_dilated: False
+  use_terrain: True
+  min_cloud_conf: 0
+  min_shadow_conf: 0
+  native_shadow_mode: None
+  cloud_band: 'blue'
+  cloud_band_min: 1500
+  cloud_grow_px: 50
+  shadow_grow_px: 50
+  shadow_match_nir: 0
+  shadow_grow_nir: 0 
+  shadow_nir_max: 0 
+  shadow_swir2_max: 0 
   
   ## if method=='CRF', need the following:
   ## <masking:min_mask> (for method = CRF) is the minimum clear value (all values greater than `min_mask` are non-clear)
@@ -429,6 +455,13 @@ feature_model:
   full_feature_mod: None
   ## <feature_model:premade composite> is path to composite image if already exists (most useful for mosaicked polygon calcs), else None
   premade_composite: None
+  ## <feature_model:day_flex> is the number of days of allowed flexibility surrounding a specific date for best raw file selection. The images with the most 
+  ##    valid pixels will be slected from within this interval. If 0, will prioritize images closest to date and use filesize to pick best
+  day_flex: 5
+  ## <feature_model:min_valid_pct> is the minimum percentage of valid pixels for a raw image to be eligible for single-date feature 
+  min_valid_pct: 90 
+  ## <feature_model:min_filesize_pct> is the minimum percentage of the maximum filesize for the cell accepted for eligible single-date images. 
+  min_filesize_pct: 80
 
   ### segmentation-related variables if separate segmentation step was run
   ## <feature_model:poly_vars> are polygon level vatriables represented at a pixel level to be compatible with other rasters used in a pixel-based model 
@@ -634,6 +667,7 @@ vectorize:
     ## <vectorize:overwrite_int_polys> overwrite any intermediate polygons that already exist
     #overwrite_int_polys: False
 
+## segment is for making objects from unclassified raster
 segment:
     ## <segment:step>: 'train' | 'predict'
     step: 'train'  
@@ -668,6 +702,85 @@ segment:
     pos_classes: [1]
     target: 'crop'
 
+## polygonize is for making objects from classified raster
+polygonize:
+    ## <polygonize><agg_prefix> aggregate-level prefix
+    agg_prefix: 'cells_P1P2'
+    mod_year: 2016
+    mod_name: None
+    ras_in_dir: None
+    save_ras: True
+    ras_out_dir: None
+    poly_out_dir: None
+    out_ras: None
+    out_polys: None
+    report_dir: None
+    ras_bands: "[7,8,9]"
+    calibration_pts: None
+    calibrate_only: False
+    ## 'simple' for simple readouts for a few points. 'full' for full parameter calibration
+    calibration_type: 'simple'
+    stage1_overrides: None
+    day_grouping: 10
+    ## if <polygonize><n_workers> == 1, jobs run in sequence. Set to 0 to get number of workers from SLURM 
+    n_workers: 1
+    resume: False
+    ## <polygonize:treat_existing_polys> 'overwrite' | 'skip' | 'append'  -- what to do with existing polygon file
+    treat_existing_polys: 'skip'
+    min_area_ha: 0.0
+    simplify_m: 0.0 
+    #<keep_satellites>: If true, protects the satellites ('crumbs') from linear features when removing polygons below <min_area_ha> 
+    keep_satellites: True
+    ## <min_area_classes> tells which classes to apply <min_area_ha> to. Will keep all features in other shape classes.
+    min_area_classes: "[2,]"
+    a_ext: 9.0
+    a_fill: 0.85
+    a_pb: 0.8
+    b_ext: 5.5
+    b_w: 200
+    bmedw: 170
+    b_fill: .92
+    b_pb: .9
+    b_largest: .7
+    b_nb: 0.05
+    r_close: 2
+    hole_area_px: 2000
+    r_open: 3
+    open_factor: 1.6
+    max_width_m: 300
+    max_thick_factor: 1.25
+    blob_ratio: 3.0
+    len_ratio: 1.1
+    arm_aspect: 3
+    min_len_m: 50
+    nb_m: 150
+    nb_far_m: 300
+    nb_min_px: 5
+
+    ## max gap from the current tip to the next fragment
+    grow_ext_m: 400 
+    ## half-width of the search strip
+    grow_tol_m: 30 
+    ## length of skeleton used to estimate tip direction
+    grow_dir_m: 80
+    ## fraction of a fragment's pixels that must lie in the strip
+    grow_min_overlap: 0.6
+    ## max fragments chained per endpoint
+    grow_max_hops: 30
+    ## direction smoothing (1 = never turn, 0 = point at last fragment)
+    grow_alpha: 0.5
+    ## classes eligible to be captured; use (3,) if blobs get captured
+    conquer_class: (3,1)
+    ## px; larger components are never captured (protects real blobs)
+    conquer_areamax: 2000
+    grow_width_factor: 1.5
+    grow_align_deg: 45
+
+    nb_m: 150
+    nb_far_m: 300
+    nb_minpx: 5
+    
+
 refine:
     ## <refine:spatial_filter> is the post aggregation spatial context filter method (currently only available for 'smCrop')
     spatial_filter: 'smCrop'
@@ -677,7 +790,6 @@ refine:
     sm_neighborhood: 3
     ##<refine:neighborhood> is the size of the neighborhood (in pixels) for moving window calculations for other filters
     neighborhood: 100
-
     ##<refine:mod_prescript> common beggining of filenames for files to be included in final time series filter (before year)
     mod_prescript: 'CELPyTile9_base4Poly6_bal200mix4'
     ##<refine:mod_postscript> common ending of filenames files to be included in final time series filter (after year; do not include extension)

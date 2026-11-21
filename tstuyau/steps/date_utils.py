@@ -9,13 +9,16 @@ import geowombat as gw
 import numpy as np
 import pandas as pd
 
+from .constants import FILENAME_DATE_INDEX
+from .utils import expand_sensors, get_family_from_name
 from ..handler import logger
 
+def date_str_to_utc(date_str):
+    '''<YYYY-MM-DD> string -> tz-aware (UTC) datetime.'''
+    return datetime.strptime(date_str, '%Y-%m-%d').replace(tzinfo=timezone.utc)
 
 def get_date_range(year,period,params,return_type='ymd',padded=False):
-
-    '''
-    returns start and stop dates for mapping period 
+    '''returns start and stop dates for mapping period 
     
     The year is the starting year if period spans more than one year
     <period> can be 'yr', 'wet' or 'dry' based on seasonal <calendar> parameters (which are in julien doy)
@@ -82,50 +85,32 @@ def get_date_range(year,period,params,return_type='ymd',padded=False):
         return int(start_date.strftime("%Y%j")), int(end_date.strftime("%Y%j"))
     else:
         return start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")
-            
-def get_img_date(img, ts_type, img_type, data_source=None):
-    
-    if '.' in img:
-        img_base = Path(img).stem
-    else:
-        img_base = img
-    
-    if 'sm' in ts_type.lower():  #Expects images to be smoothed already and be named YYYYDDD
-        YYYY = int(img_base[:4])
-        doy = int(img_base[4:7])
-        ydoy = img_base
-    elif 'CHIRPS' in img_type: #Expects images to be named something like chirps-v3.0.YYYY.MM.3.tif
-        chirps_intervals = {'pentad':5,'dekad':10,'daily':1}
-        interval = img_type.split('-')[1]
-        interval_int = chirps_intervals[interval]
-        YYYY = int(img_base[2])
-        MM = int(img_base[3])
-        if interval in['pentad','dekad']:
-            DD = int(img_base[4])*interval_int if ((MM !=2) | (int(img_base[4]) !=30/interval_int)) else 28
-        else:
-            DD = int(img_base[4])
-        ymd = datetime(YYYY, MM, DD, tzinfo=timezone.utc)
-        ydoy = ymd.strftime("%Y%j")
-        doy = int(ymd.strftime('%j'))
-    elif img_type not in ['LS2','S2','L','LT05', 'LE07', 'LC08', 'LC09']:
-        logger.info("Currently valid image types are 'LS2','S2','L' or specific landsat sensors (LT05, LE07, LC08, LC09)")
-        logger.info(f"or CHIRPS(-pentad,-dekad,-daily). You put ts_type={ts_type},img_type={img_type}")
-    else:
-        if img_type == 'S2' and 'brdf' not in str(img_base):
-            YYYYMMDD = img_base.split('_')[2][:8]
-        else:
-            YYYYMMDD = img_base.split('_')[3][:8]
-        YYYY = int(YYYYMMDD[:4])
-        MM = int(YYYYMMDD[4:6])
-        DD = int(YYYYMMDD[6:8])
-   
-        ymd = datetime(YYYY, MM, DD, tzinfo=timezone.utc)
-        ydoy = ymd.strftime("%Y%j")
-        doy = int(ymd.strftime('%j'))
 
-        #return YYYY, doy
-    return ydoy
-        
+def get_img_date(img, ts_type, img_type):
+    '''Returns image date as a YYYYdoy string from an image filename
+    Currently works with Landsat, Sentinel and CHIRPS '''
+    img_base = Path(img).stem if '.' in img else img
+
+    if 'sm' in ts_type.lower():             # smoothed images are already named YYYYdoy
+        return img_base
+
+    if 'CHIRPS' in img_type:                # chirps-v3.0.YYYY.MM.<n>.tif; n = pentad / dekad number, or day
+        step = {'pentad': 5, 'dekad': 10, 'daily': 1}[img_type.split('-')[1]]
+        parts = img_base.split('.')
+        year, month, n = int(parts[2]), int(parts[3]), int(parts[4])
+        day = min(n * step, monthrange(year, month)[1])     # last pentad/dekad stops at month end (incl. leap Feb)
+        return datetime(year, month, day, tzinfo=timezone.utc).strftime('%Y%j')
+
+    if not expand_sensors(img_type):
+        logger.warning(f'Unrecognized img_type {img_type!r} (ts_type={ts_type!r}): use a SENSORS key or CHIRPS-<pentad|dekad|daily>')
+        return None
+    
+    # raw Sentinel-2 downloads have the date in token 2; everything else (incl. brdf output) uses FILENAME_DATE_INDEX
+    is_s2_download = get_family_from_name(img_base) == 'sentinel-2' and 'brdf' not in img_base
+    pos = 2 if is_s2_download else FILENAME_DATE_INDEX
+    dt = datetime.strptime(img_base.split('_')[pos][:8], '%Y%m%d')
+    return dt.strftime('%Y%j')
+
 def doy_to_month_array_vals(doy_array, year):
     '''
     input is a np array with values as integers representing day of year

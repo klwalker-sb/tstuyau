@@ -53,7 +53,31 @@ def match_brdf_files_to_record(brdf_dir, processing_db, exclude=None, method='st
 
     return file_to_scene
     
+def match_dl_files_to_record(dl_dir, processing_db):
+    
+    file_to_scene = {}
+    unmatched = []
+    
+    candidates = [f for f in dl_dir.glob('*.tif') if not f.stem.endswith('_mask')]
+    for f in candidates: 
+        fbase = f.stem
+        rec_match = processing_db.index[processing_db.index == fbase].tolist()
+        
+        if len(rec_match)==0:
+            unmatched.append(f.name)
+            continue
+        file_to_scene[f] = rec_match[0]
 
+    if unmatched:
+        preview = unmatched[:5]
+        logger.warning(
+            f"{len(unmatched)} brdf files had no matching brdf_id: "
+            f"{preview}{'...' if len(unmatched) > 5 else ''}"
+        )
+
+    return file_to_scene
+
+    
 def reconstruct_db(gridcell, params):
     '''
     This checks for an existing processing.info database and creates one if needed from download and brdf folders.
@@ -229,4 +253,16 @@ def reconstruct_db(gridcell, params):
             pd.to_pickle(processing_db, processing_info_path)
             logger.info('saving new database')
         
-        return processing_db
+        return processing_info_path
+
+def get_processing_db(ppaths, cell=None, make_missing=False):
+    '''The cell's processing.info table, or None (with a warning) if it doesn't exist.'''
+    processing_db_path = ppaths.ms.parent / 'processing.info'
+    if not processing_db_path.is_file():
+        logger.warning(f'processing.info does not exist for cell {cell}.')
+        if make_missing == True:
+            logger.warning(f'making new one...')
+            processing_db_path = reconstruct_db(cell)
+        else:
+            return None
+    return pd.read_pickle(processing_db_path)

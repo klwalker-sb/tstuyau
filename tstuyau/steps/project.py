@@ -1,6 +1,12 @@
 from pathlib import Path
 from ..handler import logger
 
+def cleanup_tracker(this_dir, file_type, min_files, grid):
+    if this_dir.is_dir() and len(list(this_dir.glob(f'*.{file_type}'))) < min_files:
+        winfile = this_dir / f'{int(grid):06d}.window'
+        if winfile.is_file():
+            winfile.unlink()
+
 def get_tsdir_name(params):   
     if (params['project_ver'] == 'Py_0') or (params['project_ver'] == 'Biltong_0'):  ## legacy
         dirstr = 'ms'
@@ -11,10 +17,14 @@ def get_tsdir_name(params):
     elif not (params['compare_imgtype'] or params['compare_res']):
         dirstr = f"{params['procseq']}"
     else:
-        dirstr = f"{params['image_type']}-{int(params['res'])-{params['procseq']}}"
+        dirstr = f"{params['image_type']}-{int(params['res'])}-{params['procseq']}"
 
     return dirstr
 
+def get_raw_ts_dir(ppaths, params, si, yr):
+    '''temporary tsdir for raw index calculations'''
+    return ppaths.scratch / 'raw' / get_tsdir_name(params) / si / str(yr)
+    
 def find_project_root(path, project_name):
     """Return the part of `path` up to and including the `project_name` folder, which is where all shared folders live"""
     path = Path(path)
@@ -132,8 +142,8 @@ class ProjectPaths(SharedPaths):
                 self.ts = self.bk / 'brdf_ts'
             else:
                 self.ts = self.bk / 'brdf_ts' / f'{dirstr}'
-                
-            self.scratch = params['scratch_dir'] / f'{grid:06d}'
+
+            self.scratch = Path(params['scratch_dir']) / f'{grid:06d}'
 
             ## these help with the cleanup process
             self.gee = self.ms.parent / 'gee'
